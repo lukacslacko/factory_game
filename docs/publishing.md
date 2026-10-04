@@ -1,10 +1,10 @@
 # Publication
 
-Version 0.6.0 is published privately at https://plant-01-starter-yard.lukacslacko.chatgpt.site.
+Version 0.7.0 is published privately at https://plant-01-starter-yard.lukacslacko.chatgpt.site.
 
 The editable game lives in this starter-yard directory. The Site repository is a separate, build-only checkout at `../../work/plant01-publish` relative to this directory, with its own `.openai/hosting.json` and Git metadata. It contains only `dist/` and the hosting manifest. Do not upload the full game project or the private design documents when updating that Site.
 
-The Site identity is `appgprj_6ac1ff4c01388191b1d9d0dba709095e`. Reuse it; do not create a replacement. The successful build-only source commit for version 0.6.0 is `a526e9d2bd8bc68dddb462a86189faacd11876bd`.
+The Site identity is `appgprj_6ac1ff4c01388191b1d9d0dba709095e`. Reuse it; do not create a replacement. The successful build-only source commit for version 0.7.0 is `d135cbfe1e3e9883193f3386989f38ee091e5cd6`.
 
 For an update, follow the Sites hosting skill to open the existing build-only checkout, build and test the editable game, replace the checkout's `dist/` with that build, inspect its file list, and publish through the same private Site workflow. Keep credentials in process memory/stdin only. The game requires no server secrets, cloud database, or external connectors.
 
@@ -39,3 +39,9 @@ Version 0.6.0 deployed successfully on October 4, 2026 at 15:11 UTC on the same 
 The complete editable project is published separately at [lukacslacko/factory_game](https://github.com/lukacslacko/factory_game), publicly under the MIT license, as explicitly requested. It includes source, tests, documentation, design grounding, accepted visual references, guide, previews, and the completed example. Builds, local saves, diagnostic captures, workstation configuration, and credentials are excluded from Git. GitHub CI runs simulation tests, TypeScript, and the production build.
 
 Before publication, all 141 regressions, the final integrated browser suite, strict TypeScript validation, and the production check passed. The fresh example completed 145 construction tasks, two physical refueling jobs, all 18 work groups, and all 19 deliveries, with material and fuel records balanced. This release adds diagnostic exports, sortable/filterable linked registers, hierarchical/manual work assignment, equipment parking, worker shifts and bus commutes, more complete obstacles, rail recovery, stable traffic yielding, and smooth work-arm animation.
+
+## Version 0.7 visual update
+
+Version 0.7.0 deployed successfully on October 4, 2026 at 17:10 UTC, on the same private Site and origin. Deployment ID: `appgdep_6ac2888e996081918e06b70e5e6ef34d`. The payload remains the nine built game/guide assets and hosting manifest. The public MIT repository is updated with the corresponding source and actual gameplay previews.
+
+The visual pass follows the accepted detailed-grid A/matte-miniature B concepts: closer perspective, neutral light and reflections, refined industrial models, material textures, restrained grid/seams, and clustered ground cover. Integrated browser, physical/contact/animation, 62 model-geometry assertions, three diagnostic tests, TypeScript, production and Retina checks pass. The simulation core and save schema are unchanged; the 141-test v0.6 simulation baseline and balanced example remain applicable and are recorded as baseline results, not a newly executed full simulation run.

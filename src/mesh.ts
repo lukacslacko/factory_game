@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 const matCache = new Map<string, THREE.MeshStandardMaterial>();
 export function material(color: number, roughness = 0.85, metalness = 0) {
   const key = `${color}/${roughness}/${metalness}`;
@@ -7,6 +8,27 @@ export function material(color: number, roughness = 0.85, metalness = 0) {
   return matCache.get(key)!;
 }
 export const boxGeo = new THREE.BoxGeometry(1, 1, 1);
+export function bevelBox(
+  parent: THREE.Object3D,
+  x: number,
+  y: number,
+  z: number,
+  w: number,
+  h: number,
+  d: number,
+  color: number,
+  radius = 0.04,
+  metalness = 0,
+) {
+  const m = new THREE.Mesh(
+    new RoundedBoxGeometry(w, h, d, 2, Math.min(radius, w / 4, h / 4, d / 4)),
+    material(color, 0.78, metalness),
+  );
+  m.position.set(x, y, z);
+  m.castShadow = m.receiveShadow = true;
+  parent.add(m);
+  return m;
+}
 export function box(
   parent: THREE.Object3D,
   x: number,
@@ -86,6 +108,7 @@ export function sign(
   ctx.textAlign = 'center';
   ctx.fillText(text, 128, 43);
   const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
   const m = new THREE.Mesh(
     new THREE.PlaneGeometry(w, w / 4),
     new THREE.MeshBasicMaterial({ map: texture, side: THREE.DoubleSide }),

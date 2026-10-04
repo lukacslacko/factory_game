@@ -113,3 +113,9 @@ Deepen shared physical operations before adding a parallel production abstractio
 `diagnostics.ts` observes simulation state without mutating it. Transition fingerprints avoid repeated phase messages; motion samples use a 0.2 simulation-second cadence while moving, with a real-time 500 ms idle cadence. The rolling entry ring is bounded by count and serialized size, with four recent full checkpoints and current state in each export. IndexedDB is separate from the ordinary localStorage saves. Commands, actor destinations, blockers, load state, and material movements support offline review in `tools/review-recording.mjs`. This is a diagnostic trace with checkpoints, not a claim of deterministic command replay.
 
 All register tables share natural/numeric sorting and optional column filters. Asset IDs are linked from visible text nodes only; controls and their attributes are left intact. Live refresh preserves focused form elements. Work sorting retains hierarchy; large registers paginate after filtering/sorting.
+
+## Visual rendering, version 0.7
+
+`surfaces.ts` caches deterministic local sRGB canvas textures and rough materials for earth, concrete, asphalt and ballast. `models.ts` builds industrial vehicles and people around the existing named animation/physics anchors. `world.ts` provides a true perspective camera, neutral environment reflections, daylight/shadow lighting, material batching, and finite decorative ground cover that clears installed/planned footprints. Ground cover uses rendering layer 1; solid objects use layer 0. Both are visible in the beauty pass.
+
+`contact-shading.ts` temporarily excludes scenery and disables repeated shadow updates for the depth/normal pass, restoring camera layers and shadow settings in `finally`. Color rendering remains full resolution with multisampling; contact shading uses a smaller buffer. All of these are presentation objects, separate from the serialized simulation.

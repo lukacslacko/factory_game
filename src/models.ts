@@ -6,11 +6,11 @@ const steel = 0x424b4d,
   tire = 0x25282a,
   yellow = 0xd6a329;
 const glass = new THREE.MeshPhysicalMaterial({
-  color: 0x91bcc8,
-  roughness: 0.2,
-  metalness: 0.05,
+  color: 0x7f999f,
+  roughness: 0.29,
+  metalness: 0.04,
   transparent: true,
-  opacity: 0.27,
+  opacity: 0.44,
   depthWrite: false,
   side: THREE.DoubleSide,
 });
@@ -27,7 +27,7 @@ function rounded(
 ) {
   const m = new THREE.Mesh(
     new RoundedBoxGeometry(w, h, d, 2, Math.min(r, w / 4, h / 4, d / 4)),
-    material(color, 0.54, 0.25),
+    material(color, 0.73, 0.13),
   );
   m.position.set(x, y, z);
   m.castShadow = m.receiveShadow = true;
@@ -63,6 +63,90 @@ function tube(g: THREE.Object3D, pts: THREE.Vector3[], r: number, color: number)
   g.add(m);
   return m;
 }
+/** A sheet-metal silhouette in the local X/Y plane, with readable bevels. */
+function profile(
+  parent: THREE.Object3D,
+  points: [number, number][],
+  depth: number,
+  color: number,
+  z = 0,
+  bevel = 0.018,
+  hole?: [number, number][],
+) {
+  const shape = new THREE.Shape();
+  points.forEach(([x, y], i) => (i ? shape.lineTo(x, y) : shape.moveTo(x, y)));
+  shape.closePath();
+  if (hole) {
+    const opening = new THREE.Path();
+    hole.forEach(([x, y], i) => (i ? opening.lineTo(x, y) : opening.moveTo(x, y)));
+    opening.closePath();
+    shape.holes.push(opening);
+  }
+  const geometry = new THREE.ExtrudeGeometry(shape, {
+    depth: Math.max(0.001, depth - bevel * 2),
+    bevelEnabled: bevel > 0,
+    bevelThickness: bevel,
+    bevelSize: bevel,
+    bevelSegments: 1,
+    steps: 1,
+  });
+  geometry.translate(0, 0, -depth / 2 + bevel);
+  const mesh = new THREE.Mesh(geometry, material(color, 0.76, 0.15));
+  mesh.position.z = z;
+  mesh.castShadow = mesh.receiveShadow = true;
+  parent.add(mesh);
+  return mesh;
+}
+function pivot(parent: THREE.Object3D, name: string, r: number, width: number) {
+  const group = new THREE.Group();
+  group.name = name;
+  const collar = cylinder(group, 0, 0, 0, r, width, 0x5e6664, 16);
+  collar.rotation.x = Math.PI / 2;
+  for (const sign of [-1, 1]) {
+    const cap = cylinder(group, 0, 0, sign * (width / 2 + 0.014), r * 0.62, 0.035, 0xa4aaa2, 12);
+    cap.rotation.x = Math.PI / 2;
+    const bolt = cylinder(group, 0, 0, sign * (width / 2 + 0.037), r * 0.27, 0.02, steel, 6);
+    bolt.rotation.x = Math.PI / 2;
+  }
+  parent.add(group);
+  return group;
+}
+function hydraulic(parent: THREE.Object3D, name: string) {
+  // Unit-length actuator; segment() sets its live end points without changing the API.
+  const group = new THREE.Group();
+  group.name = name;
+  cylinder(group, 0, -0.18, 0, 0.75, 0.64, 0x515b59, 12);
+  cylinder(group, 0, 0.18, 0, 0.39, 0.64, 0xb2c0c0, 12);
+  cylinder(group, 0, 0.14, 0, 0.82, 0.045, 0x394341, 12);
+  parent.add(group);
+  return group;
+}
+function boomMember(parent: THREE.Object3D, name: string, width: number, color: number) {
+  const group = new THREE.Group();
+  group.name = name;
+  const p: [number, number][] = [
+    [-0.33, -0.5],
+    [0.34, -0.5],
+    [width, -0.15],
+    [width * 0.8, 0.26],
+    [0.25, 0.5],
+    [-0.25, 0.5],
+    [-width * 0.65, 0.17],
+    [-width * 0.8, -0.23],
+  ];
+  profile(group, p, 0.95, color, 0, 0.025);
+  // Dark recessed pin plates and raised perimeter reinforcement read at yard scale.
+  for (const z of [-0.49, 0.49]) box(group, -0.17, 0.02, z, 0.08, 0.7, 0.055, 0xbd8b22);
+  const hose = cylinder(group, -width * 0.7, 0, -0.6, 0.065, 0.86, 0x333d3b, 8);
+  hose.name = 'hydraulic-hose';
+  parent.add(group);
+  return group;
+}
+function grille(parent: THREE.Object3D, x: number, y: number, z: number, w: number, h: number) {
+  rounded(parent, x, y, z, w, h, 0.025, 0x323b3b, 0.014);
+  for (let dy = -h / 2 + 0.055; dy < h / 2; dy += 0.065)
+    box(parent, x, y + dy, z + Math.sign(z || 1) * 0.018, w - 0.055, 0.019, 0.025, 0x657068);
+}
 function tireWheel(
   g: THREE.Object3D,
   x: number,
@@ -83,7 +167,17 @@ function tireWheel(
   root.add(rotor);
   const t = cylinder(rotor, 0, 0, 0, r, width, rail ? 0x687276 : tire, 24);
   t.rotation.x = Math.PI / 2;
+  t.material = material(rail ? 0x687276 : tire, rail ? 0.58 : 0.95, rail ? 0.6 : 0.02);
   const out = z > 0 ? 1 : -1;
+  if (!rail) {
+    const sidewall = new THREE.Mesh(
+      new THREE.TorusGeometry(r * 0.84, r * 0.115, 7, 22),
+      material(0x303434, 0.96, 0.015),
+    );
+    sidewall.position.z = out * (width / 2 - 0.015);
+    sidewall.castShadow = sidewall.receiveShadow = true;
+    rotor.add(sidewall);
+  }
   if (rail) {
     const flange = cylinder(rotor, 0, 0, -out * width * 0.37, r + 0.035, 0.035, 0x474f54, 24);
     flange.rotation.x = Math.PI / 2;
@@ -149,40 +243,73 @@ export function workerModel(role: string, seated = false) {
   const g = new THREE.Group();
   g.userData.seated = seated;
   const vest = role === 'operator' ? 0xe1b137 : role === 'engineer' ? 0x76a5a8 : 0xe17f28;
-  rounded(g, 0, 1.14, 0, 0.31, 0.49, 0.44, vest, 0.06);
-  box(g, 0, 1.06, 0, 0.322, 0.06, 0.452, 0xe0e5cb);
-  for (const z of [-0.13, 0.13]) box(g, 0.161, 1.22, z, 0.012, 0.34, 0.035, 0xe0e5cb);
-  cylinder(g, 0, 1.51, 0, 0.145, 0.25, 0xc59b79, 12);
-  rounded(g, 0.115, 1.54, 0, 0.09, 0.08, 0.09, 0xc59b79, 0.025);
-  const helmetColor = role === 'engineer' ? 0xe2dfce : 0xe4be35;
+  // Tapered work clothes retain the original shoulders, hip, and boot anchors.
+  const torso = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.205, 0.172, 0.45, 10),
+    material(vest, 0.94),
+  );
+  torso.position.y = 1.135;
+  torso.scale.set(0.78, 1, 1.1);
+  torso.castShadow = torso.receiveShadow = true;
+  g.add(torso);
+  rounded(g, -0.025, 0.91, 0, 0.29, 0.14, 0.34, 0x37474e, 0.045);
+  rounded(g, 0, 1.065, 0, 0.307, 0.049, 0.4, 0xdedfc7, 0.01);
+  for (const z of [-0.118, 0.118]) {
+    box(g, 0.15, 1.225, z, 0.012, 0.24, 0.027, 0xe3e4ce);
+    box(g, -0.15, 1.225, z, 0.012, 0.24, 0.027, 0xe3e4ce);
+  }
+  box(g, 0.164, 1.19, 0, 0.012, 0.31, 0.013, 0x5b6659);
+  rounded(g, 0.172, 1.235, -0.065, 0.025, 0.074, 0.07, 0x4b5350, 0.009);
+  cylinder(g, 0, 1.4, 0, 0.065, 0.12, 0xc39b7e, 10);
+  const head = new THREE.Mesh(new THREE.SphereGeometry(0.145, 14, 10), material(0xc59b79, 0.91));
+  head.position.set(0.013, 1.526, 0);
+  head.scale.set(0.91, 1.04, 0.86);
+  head.castShadow = head.receiveShadow = true;
+  g.add(head);
+  rounded(g, 0.145, 1.53, 0, 0.047, 0.058, 0.049, 0xc59b79, 0.018);
+  for (const side of [-1, 1]) {
+    const ear = new THREE.Mesh(new THREE.SphereGeometry(0.032, 8, 6), material(0xbb9274, 0.91));
+    ear.position.set(-0.005, 1.526, side * 0.125);
+    ear.scale.set(0.65, 1.1, 0.6);
+    g.add(ear);
+  }
+  const helmetColor = role === 'engineer' ? 0xe5e1d6 : 0xe2ba35;
   const hat = new THREE.Mesh(
-    new THREE.SphereGeometry(0.184, 16, 8, 0, Math.PI * 2, 0, Math.PI / 2),
-    material(helmetColor, 0.65, 0.04),
+    new THREE.SphereGeometry(0.178, 18, 9, 0, Math.PI * 2, 0, Math.PI / 2),
+    material(helmetColor, 0.72, 0.025),
   );
   hat.position.set(0, 1.625, 0);
-  hat.scale.z = 0.95;
+  hat.scale.z = 0.92;
   hat.castShadow = hat.receiveShadow = true;
   g.add(hat);
-  cylinder(g, 0.018, 1.626, 0, 0.207, 0.026, helmetColor, 16).scale.x = 1.08;
-  rounded(g, 0, 1.785, 0, 0.22, 0.025, 0.024, helmetColor, 0.009);
-  for (const side of [-1, 1]) box(g, 0.14, 1.56, side * 0.065, 0.015, 0.017, 0.024, 0x423d35);
+  cylinder(g, 0.018, 1.626, 0, 0.193, 0.021, helmetColor, 18).scale.x = 1.1;
+  rounded(g, 0.015, 1.788, 0, 0.21, 0.023, 0.022, helmetColor, 0.009);
   for (const z of [-0.13, 0.13]) {
     const leg = new THREE.Group();
     leg.name = z < 0 ? 'leg-left' : 'leg-right';
     leg.userData.side = z < 0 ? -1 : 1;
     leg.position.z = z;
     g.add(leg);
-    const upper = box(leg, 0, 0.7, 0, 0.16, 0.46, 0.17, 0x394a51);
-    upper.name = 'thigh';
-    const lower = box(leg, 0, 0.29, 0, 0.14, 0.38, 0.15, 0x394a51);
-    lower.name = 'shin';
+    for (const name of ['thigh', 'shin']) {
+      const limb = new THREE.Mesh(
+        new THREE.CylinderGeometry(name === 'thigh' ? 0.55 : 0.51, 0.46, 1, 9),
+        material(0x394a51, 0.95),
+      );
+      limb.name = name;
+      limb.castShadow = limb.receiveShadow = true;
+      leg.add(limb);
+    }
     rounded(leg, 0.07, 0.075, 0, 0.29, 0.15, 0.2, 0x292e30, 0.035).name = 'boot';
     const arm = new THREE.Group();
-    arm.position.set(0, 1.32, z < 0 ? -0.29 : 0.29);
+    arm.position.set(0, 1.32, z < 0 ? -0.26 : 0.26);
     arm.name = z < 0 ? 'arm-left' : 'arm-right';
     g.add(arm);
-    box(arm, 0, -0.18, 0, 0.13, 0.37, 0.15, vest);
-    rounded(arm, 0.02, -0.39, 0, 0.13, 0.15, 0.14, 0xc59b79, 0.03);
+    const sleeve = cylinder(arm, -0.006, -0.112, 0, 0.074, 0.25, vest, 10);
+    sleeve.rotation.z = -0.07;
+    const forearm = cylinder(arm, 0.025, -0.298, 0, 0.055, 0.17, 0x687677, 10);
+    forearm.rotation.z = 0.24;
+    rounded(arm, 0.05, -0.41, 0, 0.11, 0.135, 0.12, 0xa89d7c, 0.04);
+    cylinder(arm, 0.012, -0.225, 0, 0.076, 0.035, 0xe3e4ce, 10);
   }
   animatePerson(g, 0, false);
   return g;
@@ -232,7 +359,9 @@ export function forklift(g: THREE.Group) {
     box(g, -0.72, 1.76, z, 0.075, 1.82, 0.075, steel);
     box(g, 0.58, 1.76, z, 0.075, 1.82, 0.075, steel);
   }
-  rounded(g, -0.08, 2.7, 0, 1.66, 0.1, 1.65, 0x414b4e, 0.035);
+  for (const z of [-0.78, 0.78]) rounded(g, -0.08, 2.7, z, 1.66, 0.105, 0.08, 0x414b4e, 0.025);
+  for (let x = -0.81; x <= 0.71; x += 0.25)
+    rounded(g, x, 2.7, 0, 0.065, 0.09, 1.56, 0x414b4e, 0.017);
   box(g, -0.38, 1.14, 0, 0.46, 0.13, 0.54, 0x2c3439);
   box(g, -0.61, 1.4, 0, 0.1, 0.5, 0.53, 0x2c3439);
   const steering = cylinder(g, 0.3, 1.49, 0, 0.2, 0.045, 0x242e33, 16);
@@ -276,6 +405,39 @@ export function forklift(g: THREE.Group) {
   for (const z of [-0.63, 0.63]) box(g, -1.54, 1.03, z, 0.035, 0.13, 0.17, 0xba3c2d);
   const beacon = cylinder(g, -0.44, 2.83, 0, 0.075, 0.16, 0xd68826, 12);
   beacon.material = material(0xf9b039, 0.35, 0.1);
+  for (const z of [-0.748, 0.748]) {
+    grille(g, -0.86, 0.77, z, 0.6, 0.32);
+    box(g, -0.36, 0.74, z, 0.018, 0.39, 0.025, 0x725a23);
+    box(g, -0.22, 0.96, z, 0.16, 0.029, 0.034, 0x303c38);
+    box(g, -0.14, 0.45, z, 0.7, 0.12, 0.12, 0x4a5450);
+    tube(
+      g,
+      [
+        new THREE.Vector3(0.48, 1.02, z),
+        new THREE.Vector3(0.48, 1.41, z),
+        new THREE.Vector3(0.26, 1.48, z),
+      ],
+      0.02,
+      0x303b37,
+    );
+  }
+  for (const z of [-0.82, 0.82]) {
+    const guard = new THREE.Mesh(
+      new THREE.TorusGeometry(0.466, 0.045, 6, 16, Math.PI),
+      material(0xba8925, 0.82, 0.12),
+    );
+    guard.position.set(0.78, 0.41, z);
+    guard.scale.z = 3;
+    guard.castShadow = guard.receiveShadow = true;
+    g.add(guard);
+  }
+  for (const z of [-0.16, 0.16]) {
+    box(g, 1.15, 1.57, z, 0.028, 2.56, 0.022, 0x293331);
+    for (let y = 0.34; y < 2.85; y += 0.115) box(g, 1.168, y, z, 0.023, 0.022, 0.039, 0x8a9591);
+  }
+  rounded(g, 0.47, 2.53, -0.7, 0.15, 0.12, 0.22, 0x2b3634, 0.025);
+  box(g, 0.553, 2.53, -0.7, 0.017, 0.07, 0.15, 0xe3e0ce);
+  rounded(g, -1.42, 1.18, 0, 0.28, 0.08, 0.51, 0xd6a329, 0.025);
   sign(g, '2.5 t', -0.45, 0.89, 0.736, 0.42);
   driver(g, -0.37, 0.32, 0).visible = false;
 }
@@ -310,17 +472,71 @@ export function excavator(g: THREE.Group) {
   upper.name = 'upper';
   upper.position.y = 1.1;
   g.add(upper);
-  rounded(upper, -0.75, 0.55, -0.28, 1.8, 1.02, 1.36, yellow, 0.18);
-  rounded(upper, -1.24, 0.55, 0, 0.55, 1, 1.88, 0xbf8c24, 0.17);
-  for (let x = -1.25; x < -0.4; x += 0.12) box(upper, x, 1.07, -0.37, 0.045, 0.01, 0.66, 0x514b38);
-  // A glazed cab with actual pillars and a visible seated operator.
-  box(upper, 0.26, 0.32, 0.51, 1.32, 0.21, 0.92, steel);
-  for (const x of [-0.35, 0.87])
-    for (const z of [0.04, 1]) box(upper, x, 1.18, z, 0.07, 1.74, 0.07, steel);
-  rounded(upper, 0.26, 2.08, 0.52, 1.4, 0.1, 1.06, 0xd5b85e, 0.055);
-  windowPane(upper, 0.26, 1.48, 1.012, 1.15, 1.05, 0.025);
-  windowPane(upper, 0.26, 1.48, 0.01, 1.15, 1.05, 0.025);
-  windowPane(upper, 0.89, 1.48, 0.52, 0.025, 1.05, 0.84);
+  // The tail wraps around the slew deck; engine cover, service doors and cab are distinct assemblies.
+  rounded(upper, -0.6, 0.18, 0, 2.44, 0.33, 1.98, 0x424b48, 0.11);
+  rounded(upper, -0.92, 0.62, -0.31, 1.49, 1.03, 1.35, yellow, 0.2);
+  rounded(upper, -1.3, 0.53, 0, 0.54, 1.02, 1.9, 0xd2a02c, 0.2);
+  rounded(upper, -0.72, 1.16, -0.32, 0.99, 0.13, 1.12, 0x505950, 0.045);
+  for (let x = -1.11; x < -0.3; x += 0.105)
+    box(upper, x, 1.231, -0.33, 0.048, 0.012, 0.73, 0x262e2c);
+  for (const z of [-0.991, 0.991]) {
+    rounded(upper, -1.22, 0.56, z, 0.38, 0.7, 0.025, 0xc18c24, 0.02);
+    box(upper, -1.03, 0.56, z + Math.sign(z) * 0.013, 0.012, 0.62, 0.018, 0x6b602d);
+    box(upper, -1.3, 0.69, z + Math.sign(z) * 0.02, 0.1, 0.028, 0.028, 0x3a4440);
+    box(upper, -1.38, 0.3, z + Math.sign(z) * 0.02, 0.14, 0.045, 0.015, 0xe5c564);
+  }
+  grille(upper, -0.65, 0.69, -1.003, 0.74, 0.61);
+  // Chamfered, forward-raked cab. The dark lower door panel gives the glazing a real frame.
+  const outline: [number, number][] = [
+    [-0.4, 0.29],
+    [0.88, 0.29],
+    [0.99, 0.69],
+    [0.85, 1.85],
+    [0.65, 2.06],
+    [-0.31, 2.06],
+    [-0.43, 1.87],
+  ];
+  const window: [number, number][] = [
+    [-0.315, 0.96],
+    [0.813, 0.96],
+    [0.732, 1.805],
+    [0.57, 1.941],
+    [-0.28, 1.941],
+  ];
+  for (const z of [0.026, 1.01]) {
+    profile(upper, outline, 0.062, 0x384441, z, 0.025, window);
+    const pane = profile(upper, window, 0.013, 0x769599, z + (z > 0.5 ? 0.039 : -0.039), 0);
+    pane.material = glass;
+    pane.castShadow = false;
+    box(upper, -0.2, 1.44, z + (z > 0.5 ? 0.05 : -0.05), 0.039, 1.025, 0.022, 0x2c3735);
+    box(upper, 0.41, 0.82, z + (z > 0.5 ? 0.05 : -0.05), 0.18, 0.035, 0.028, 0x9da69a);
+    profile(
+      upper,
+      [
+        [-0.31, 0.37],
+        [0.79, 0.37],
+        [0.86, 0.68],
+        [0.81, 0.84],
+        [-0.31, 0.84],
+      ],
+      0.021,
+      0xc69729,
+      z + (z > 0.5 ? 0.055 : -0.055),
+      0.009,
+    );
+  }
+  const windscreen = windowPane(upper, 0.844, 1.42, 0.52, 0.024, 1.09, 0.875);
+  windscreen.rotation.z = 0.115;
+  beam(
+    upper,
+    new THREE.Vector3(0.901, 0.93, 0.52),
+    new THREE.Vector3(0.795, 1.57, 0.62),
+    0.023,
+    0x202b2b,
+  );
+  windowPane(upper, -0.421, 1.52, 0.52, 0.021, 0.86, 0.87);
+  rounded(upper, 0.17, 2.075, 0.52, 1.34, 0.115, 1.1, 0xd9b33d, 0.065);
+  rounded(upper, 0.85, 0.55, 0.52, 0.2, 0.39, 0.91, 0x49534b, 0.06);
   box(upper, 0.02, 0.94, 0.52, 0.49, 0.1, 0.5, 0x283335);
   rounded(upper, -0.22, 1.17, 0.52, 0.1, 0.48, 0.5, 0x283335, 0.035);
   for (const z of [0.2, 0.83]) {
@@ -329,32 +545,92 @@ export function excavator(g: THREE.Group) {
     cylinder(upper, 0.36, 1.31, z, 0.048, 0.045, 0x242e30, 10);
   }
   driver(upper, 0.04, 0.1, 0.52).visible = false;
-  cylinder(upper, -0.95, 1.37, -0.65, 0.05, 0.63, steel, 10);
+  cylinder(upper, -0.95, 1.52, -0.65, 0.043, 0.63, steel, 10);
+  cylinder(upper, -0.95, 1.23, -0.65, 0.09, 0.19, 0x3d4844, 12);
+  for (const z of [0.12, 0.88]) {
+    rounded(upper, 0.71, 2.025, z, 0.13, 0.1, 0.17, 0x273633, 0.018);
+    box(upper, 0.781, 2.025, z, 0.015, 0.057, 0.119, 0xe2dfc9);
+  }
+  tube(
+    upper,
+    [
+      new THREE.Vector3(-0.49, 0.25, 1.08),
+      new THREE.Vector3(-0.49, 1.25, 1.08),
+      new THREE.Vector3(-0.22, 1.36, 1.08),
+    ],
+    0.022,
+    0x303b36,
+  );
+  box(upper, 0.16, 0.17, 1.04, 0.83, 0.08, 0.17, 0x606963);
   const boom = new THREE.Group();
   boom.name = 'boom-system';
   upper.add(boom);
-  for (const name of ['boom-link', 'stick-link', 'hydraulic-a', 'hydraulic-b']) {
-    const m = box(boom, 0, 0, 0, 1, 1, 1, name.startsWith('hydraulic') ? 0x9ba8aa : yellow);
-    m.name = name;
-  }
+  boomMember(boom, 'boom-link', 0.63, yellow);
+  boomMember(boom, 'stick-link', 0.59, 0xd5a32d);
+  hydraulic(boom, 'hydraulic-a');
+  hydraulic(boom, 'hydraulic-b');
+  pivot(boom, 'boom-base-pin', 0.17, 0.54);
+  pivot(boom, 'boom-elbow-pin', 0.145, 0.47);
+  pivot(boom, 'bucket-pin', 0.115, 0.4);
   const hook = new THREE.Group();
   hook.name = 'tool-tip';
   boom.add(hook);
   const bucket = new THREE.Group();
   bucket.name = 'bucket';
   hook.add(bucket);
-  // Open bucket shell: curved back, bottom and side cheeks, rather than a solid cube.
-  box(bucket, 0.06, -0.38, 0, 0.76, 0.085, 0.82, 0x65614e);
-  const back = box(bucket, -0.28, -0.15, 0, 0.085, 0.54, 0.82, 0x65614e);
-  back.rotation.z = -0.22;
-  for (const side of [-1, 1]) {
-    const cheek = box(bucket, 0.04, -0.23, side * 0.4, 0.67, 0.32, 0.065, 0x706b57);
-    cheek.rotation.z = 0.16;
+  // Curved bucket cheeks and folded shell leave the mouth visibly open.
+  const cheek: [number, number][] = [
+    [-0.3, 0.06],
+    [-0.37, -0.14],
+    [-0.24, -0.39],
+    [0.35, -0.42],
+    [0.53, -0.32],
+    [0.12, -0.25],
+    [-0.1, -0.02],
+  ];
+  for (const z of [-0.39, 0.39]) profile(bucket, cheek, 0.055, 0x565d58, z, 0.013);
+  const shell = [
+    [-0.32, -0.015],
+    [-0.335, -0.17],
+    [-0.22, -0.35],
+    [0.12, -0.39],
+    [0.38, -0.37],
+  ];
+  for (let i = 1; i < shell.length; i++) {
+    const [ax, ay] = shell[i - 1],
+      [bx, by] = shell[i];
+    const plate = box(
+      bucket,
+      (ax + bx) / 2,
+      (ay + by) / 2,
+      0,
+      Math.hypot(bx - ax, by - ay),
+      0.05,
+      0.77,
+      0x636960,
+      0.3,
+    );
+    plate.rotation.z = Math.atan2(by - ay, bx - ax);
   }
   for (const z of [-0.28, 0, 0.28]) {
-    const tooth = box(bucket, 0.5, -0.395, z, 0.26, 0.08, 0.105, 0xb2afa1);
-    tooth.rotation.z = -0.07;
+    const tooth = profile(
+      bucket,
+      [
+        [0.35, -0.34],
+        [0.62, -0.38],
+        [0.52, -0.43],
+        [0.34, -0.42],
+      ],
+      0.1,
+      0xa2a697,
+      z,
+      0.006,
+    );
+    tooth.name = 'bucket-tooth';
   }
+  rounded(bucket, -0.09, 0.015, 0, 0.28, 0.17, 0.29, 0x454f4b, 0.025);
+  const curl = pivot(bucket, 'bucket-coupler', 0.08, 0.42);
+  curl.position.set(-0.11, 0.04, 0);
   const hookRing = new THREE.Mesh(
     new THREE.TorusGeometry(0.1, 0.027, 6, 14, Math.PI * 1.65),
     material(steel, 0.4, 0.7),
@@ -428,6 +704,9 @@ export function animateMachine(
       .add(new THREE.Vector3(0, 0.1, -0.2)),
     0.06,
   );
+  system.getObjectByName('boom-base-pin')!.position.copy(a);
+  system.getObjectByName('boom-elbow-pin')!.position.copy(b);
+  system.getObjectByName('bucket-pin')!.position.copy(c);
   const tip = system.getObjectByName('tool-tip')!;
   tip.position.copy(c);
   tip.getObjectByName('bucket')!.visible = true;
@@ -528,6 +807,24 @@ export function locomotive() {
   for (const x of [-3.6, 3.6])
     for (const z of [-1.12, 1.12])
       for (let y = 0.57; y < 1.4; y += 0.25) box(g, x, y, z, 0.48, 0.06, 0.32, steel);
+  rounded(g, 0.55, 0.91, 0, 2.05, 0.44, 1.21, 0x3a4542, 0.06);
+  for (const z of [-0.858, 0.858]) {
+    for (const x of [-0.45, 0.65, 1.75, 2.85]) {
+      box(g, x, 1.89, z, 0.015, 0.67, 0.026, 0x293b33);
+      box(g, x + 0.11, 2.02, z, 0.018, 0.15, 0.03, 0xb3bcac);
+    }
+    rounded(g, 3.27, 2.18, z, 0.15, 1.02, 0.03, 0x3a5045, 0.02);
+  }
+  for (const x of [-2.5, 2.5])
+    for (const z of [-1.065, 1.065]) rounded(g, x, 0.82, z, 0.5, 0.3, 0.2, 0x48524d, 0.035);
+  for (const x of [-3.44, -1.06])
+    for (const z of [-0.72, 0.72]) {
+      box(g, x, 2.96, z, 0.026, 0.73, 0.026, 0x33433c);
+      const wipe = box(g, x + Math.sign(x) * 0.021, 2.77, z, 0.035, 0.43, 0.021, 0x242f2d);
+      wipe.rotation.x = 0.24;
+    }
+  cylinder(g, 0.45, 3.35, 0, 0.12, 0.04, 0x3c4842, 12);
+  rounded(g, -2.25, 3.64, 0, 0.95, 0.095, 0.79, 0x526157, 0.04);
   sign(g, 'D 01', 0.8, 1.74, 0.868, 0.7);
   return g;
 }
@@ -555,6 +852,21 @@ export function flatcar() {
   const brake = new THREE.Mesh(new THREE.TorusGeometry(0.22, 0.024, 6, 18), material(0x9e7540));
   brake.position.set(-7.65, 1.52, 1.38);
   g.add(brake);
+  for (let x = -7; x <= 7; x += 2) {
+    box(g, x, 0.88, 0, 0.14, 0.17, 2.4, 0x46514d);
+    for (const z of [-1.335, 1.335]) {
+      const ring = new THREE.Mesh(
+        new THREE.TorusGeometry(0.075, 0.017, 5, 10, Math.PI),
+        material(0x969b8b, 0.8, 0.35),
+      );
+      ring.position.set(x, 1.2, z);
+      ring.rotation.x = Math.PI / 2;
+      g.add(ring);
+    }
+  }
+  const tank = cylinder(g, -1.9, 0.72, 0, 0.2, 1.07, 0x58615a, 12);
+  tank.rotation.x = Math.PI / 2;
+  box(g, 0.9, 0.77, 0, 3.6, 0.065, 0.085, 0x3e4b45);
   sign(g, 'FLAT 01 · 48 t', 0, 1.02, 1.353, 1.15);
   return g;
 }
@@ -570,14 +882,16 @@ export function roadVehicle(kind: string, passengers = 0) {
   axle(g, front, 0.5, 0.5, 1.08, false, true);
   axle(g, rear, low ? 0.33 : 0.5, low ? 0.33 : 0.5, low ? 1.17 : 1.08);
   if (!bus) axle(g, rear + 1.14, low ? 0.33 : 0.5, low ? 0.33 : 0.5, low ? 1.17 : 1.08);
-  const paint = bus ? 0xc7ba8c : 0xd6d8cc;
+  const paint = bus ? 0xcbd1ca : 0xd6d8cc;
   rounded(g, front, 1.05, 0, 2.5, 1.03, 2.4, paint, 0.15);
-  rounded(g, front, 2.71, 0, 2.53, 0.15, 2.43, paint, 0.075);
+  rounded(g, front, bus ? 2.82 : 2.71, 0, 2.57, 0.15, 2.43, bus ? 0xdfe3db : paint, 0.075);
   for (const x of [front - 1.17, front + 1.17])
-    for (const z of [-1.14, 1.14]) box(g, x, 2.08, z, 0.11, 1.18, 0.11, paint);
+    for (const z of [-1.14, 1.14])
+      box(g, x, bus ? 2.13 : 2.08, z, 0.11, bus ? 1.29 : 1.18, 0.11, paint);
   box(g, front - 1.18, 2.06, 0, 0.12, 1.14, 2.36, paint);
   box(g, front + 0.78, 1.57, 0, 0.76, 0.15, 2.22, 0x41504e);
-  windowPane(g, front + 1.225, 2.11, 0, 0.027, 1.02, 2.15);
+  const frontGlass = windowPane(g, front + 1.187, 2.11, 0, 0.027, 1.02, 2.15);
+  frontGlass.rotation.z = 0.115;
   for (const z of [-0.55, 0.55]) {
     const wipe = box(g, front + 1.246, 1.83, z, 0.027, 0.43, 0.024, 0x364442);
     wipe.rotation.x = 0.28;
@@ -609,11 +923,13 @@ export function roadVehicle(kind: string, passengers = 0) {
   box(g, front - 0.53, 1.72, -0.58, 0.13, 0.56, 0.55, 0x384846);
   driver(g, front - 0.28, 0.61, -0.58, 'engineer');
   if (bus) {
-    rounded(g, -1.24, 1.16, 0, 6.25, 1.28, 2.4, 0xbcb492, 0.12);
-    rounded(g, -1.24, 2.82, 0, 6.25, 0.16, 2.4, 0xbcb492, 0.075);
-    box(g, -4.31, 2.19, 0, 0.12, 1.12, 2.36, 0xbcb492);
+    for (const z of [-1.19, 1.19]) box(g, 1.9, 1.94, z, 0.145, 1.72, 0.08, paint);
+    rounded(g, 1.9, 2.82, 0, 0.2, 0.16, 2.42, 0xdfe3db, 0.025);
+    rounded(g, -1.24, 1.16, 0, 6.25, 1.28, 2.4, 0xcbd1ca, 0.12);
+    rounded(g, -1.24, 2.82, 0, 6.25, 0.16, 2.4, 0xdfe3db, 0.075);
+    box(g, -4.31, 2.19, 0, 0.12, 1.12, 2.36, 0xcbd1ca);
     for (let x = -4.28; x < 1.9; x += 1.02)
-      for (const z of [-1.16, 1.16]) box(g, x, 2.21, z, 0.09, 1.08, 0.075, 0xbcb492);
+      for (const z of [-1.16, 1.16]) box(g, x, 2.21, z, 0.075, 1.08, 0.075, 0x47534e);
     for (let x = -3.8; x < 1.4; x += 1.02)
       for (const z of [-1.213, 1.213]) windowPane(g, x, 2.24, z, 0.86, 0.85, 0.026);
     for (let n = 0; n < Math.min(12, passengers); n++) {
@@ -665,6 +981,53 @@ export function roadVehicle(kind: string, passengers = 0) {
         for (let x = -4.4; x < 0; x += 0.24) box(ramp, x, 0.012, 0, 0.08, 0.024, 0.65, 0x8a9690);
         ramp.rotation.z = -Math.PI / 2;
       }
+    }
+  }
+  for (const z of [-1.04, 1.04]) {
+    const tank = cylinder(g, low ? 2.23 : 0.92, 0.7, z, 0.24, 1.02, 0x8c9690, 14);
+    tank.rotation.z = Math.PI / 2;
+    for (const x of [front - 0.89, front - 0.45]) box(g, x, 0.44, z, 0.31, 0.07, 0.28, 0x515c57);
+    for (const x of [rear, rear + (!bus ? 1.14 : 0)]) {
+      const arch = new THREE.Mesh(
+        new THREE.TorusGeometry((low ? 0.33 : 0.5) + 0.075, 0.038, 6, 16, Math.PI),
+        material(0x4b5550, 0.87, 0.08),
+      );
+      arch.position.set(x, low ? 0.33 : 0.5, z);
+      arch.scale.z = 3.5;
+      arch.castShadow = arch.receiveShadow = true;
+      g.add(arch);
+    }
+    box(g, rear - 0.58, 0.43, z, 0.055, 0.55, 0.3, 0x323b37);
+  }
+  for (let x = low ? -4.9 : -4.1; x < 1.3; x += 1.25)
+    for (const z of [-1.32, 1.32]) box(g, x, 0.87, z, 0.17, 0.045, 0.025, 0xdda645);
+  if (bus) {
+    rounded(g, -1.62, 2.96, 0, 1.42, 0.18, 1.16, 0xd5d7cd, 0.09);
+    grille(g, -1.62, 2.975, 0.594, 1.12, 0.12);
+    for (const x of [-3.15, 0.03]) {
+      rounded(g, x, 2.934, 0, 0.69, 0.045, 0.83, 0x85928c, 0.025);
+      box(g, x, 2.96, 0, 0.58, 0.012, 0.72, 0x3c504f);
+    }
+    for (const z of [-1.238, 1.238]) {
+      box(g, -1.65, 1.62, z, 4.95, 0.025, 0.013, 0x707e74);
+      for (const x of [-3.67, -1.94, -0.23]) box(g, x, 1.23, z, 0.014, 0.52, 0.017, 0x8e9a89);
+      grille(g, -3.48, 1.1, z, 0.91, 0.4);
+    }
+    rounded(g, -4.38, 2.1, 0, 0.09, 1.04, 2.27, 0x3a4b49, 0.04);
+    windowPane(g, -4.434, 2.17, 0, 0.016, 0.78, 1.98);
+  } else {
+    for (const z of [-1.236, 1.236]) {
+      box(g, front - 0.86, 1.84, z, 0.021, 1.07, 0.015, 0x829089);
+      rounded(g, front + 0.24, 1.59, z, 0.27, 0.043, 0.032, 0x303d38, 0.012);
+      box(g, front - 0.07, 1.21, z, 1.27, 0.027, 0.022, 0xa8afa1);
+    }
+    if (service) {
+      for (const z of [-1.24, 1.24]) {
+        for (const x of [-2.75, -1.05, 0.65]) box(g, x, 1.63, z, 0.018, 1.55, 0.024, 0x809383);
+        box(g, -1.05, 2.3, z, 4.92, 0.08, 0.028, 0x597d74);
+      }
+      rounded(g, -1.1, 2.91, 0, 4.74, 0.11, 2.01, 0xaab8a6, 0.035);
+      for (const x of [-2.9, 0.66]) cylinder(g, x, 3.04, 0.82, 0.075, 0.14, 0xe2a232, 10);
     }
   }
   for (const z of [-1.13, 1.13]) {

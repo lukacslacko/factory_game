@@ -91,7 +91,10 @@ export async function checkOperationsUI(page, base) {
   await download.saveAs(file);
   const archive = JSON.parse(fs.readFileSync(file, 'utf8'));
   assert.equal(archive.format, 'plant01-diagnostics');
-  assert.equal(archive.gameVersion, '0.6.0');
+  assert.equal(
+    archive.gameVersion,
+    JSON.parse(fs.readFileSync(base + '/package.json', 'utf8')).version,
+  );
   assert(archive.entries.some((e) => e.type === 'equipment-assignment'));
   assert(archive.checkpoints.length > 0);
   assert(archive.current.equipment.some((e) => e.parking));

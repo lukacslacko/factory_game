@@ -114,3 +114,11 @@ The fresh Willow Siding example completes **145 construction jobs and two actual
 The final carrier regression makes an idle automatic worker walk clear, wait while the vehicle passes, and return through save/reload. A working refueling crew retains its carried can, pauses the service while clearing traffic, and completes afterward. A manual worker remains an obstruction until the player's command moves them.
 
 The final production check passes with no console warnings, page errors, failed asset requests, or external requests. Its version 0.6.0 menu and guide, local SQL/WebAssembly, old nighttime import, fresh 147-job example import, three guide images, and 768-pixel guide width pass. The idle-yard 80-frame sample averaged 16.67 ms (60 fps) on this Mac; this is not a dense-factory performance guarantee.
+
+## Version 0.7 visual verification
+
+The visual release passes strict TypeScript and build checks, the full integrated browser suite (no page/console errors, all 18 register/width combinations), actual perspective/navigation/physical contact/interpolation checks, 62 standalone model geometry assertions, and three diagnostics regressions. The production build independently passes version/guide, local SQL/WebAssembly, no development harness, nighttime save and 147-job example import, guide images/768-pixel width, and zero failed or external requests.
+
+At 1680 × 1000 and DPR2, the final isolated seven-view capture measured 16.7 ms median frame times. The default yard, overview, equipment, containers, stock/shed and turnout had p95 at most 16.8 ms; the train view had occasional 33.3 ms frames. Initial full-scene contact shading added unnecessary work; the retained pass excludes ground cover, reuses existing shadow maps, and computes broad contact shading in a smaller buffer. These measurements apply to this Mac and these paused views, not arbitrary factories.
+
+No simulation core file changed; `visual-simulation-baseline.json` identifies the unchanged 141-test v0.6 baseline. The prior balanced example is reused without regeneration. This distinction avoids labeling old simulation results as a fresh run. Visual reports, model assertion metadata, diagnostic and browser/production records accompany the release.
