@@ -1,10 +1,10 @@
 # Publication
 
-Version 0.8.0 is published privately at https://plant-01-starter-yard.lukacslacko.chatgpt.site.
+Version 0.10.0 is published privately at https://plant-01-starter-yard.lukacslacko.chatgpt.site.
 
 The editable game lives in this starter-yard directory. The Site repository is a separate, build-only checkout at `../../work/plant01-publish` relative to this directory, with its own `.openai/hosting.json` and Git metadata. It contains only `dist/` and the hosting manifest. Do not upload the full game project or the private design documents when updating that Site.
 
-The Site identity is `appgprj_6ac1ff4c01388191b1d9d0dba709095e`. Reuse it; do not create a replacement. The successful build-only source commit for version 0.9.0 is `64605856db792baa1af8ab5d1c3c2e99966c6cf4`.
+The Site identity is `appgprj_6ac1ff4c01388191b1d9d0dba709095e`. Reuse it; do not create a replacement. The successful build-only source commit for version 0.10.0 is `9a77979aa92d8cf05192c836d8cd29c30b21bf03`.
 
 For an update, follow the Sites hosting skill to open the existing build-only checkout, build and test the editable game, replace the checkout's `dist/` with that build, inspect its file list, and publish through the same private Site workflow. Keep credentials in process memory/stdin only. The game requires no server secrets, cloud database, or external connectors.
 
@@ -54,9 +54,16 @@ The release adds independent slab finishing/prefetch, early receiving assistance
 
 All 167 simulation regressions pass, including the complete-base save/reload and material/fuel audits. Final integrated browser, maximum-map renderer, TypeScript/build and production checks pass. The fresh example completes 145 construction tasks, two physical refueling jobs and 19 deliveries with balanced materials and fuel. Source and documentation are published separately in the public MIT repository. The local package includes the exact deployed build, example and validation records.
 
-
 ## Version 0.9 shared procurement and terrain fixes
 
 Version 0.9.0 deployed successfully on October 4, 2026 at 21:25 UTC, preserving the existing private Site and origin. Deployment ID: `appgdep_6ac2c42707f88191b15bb743c5bc8814`. Source commit: `64605856db792baa1af8ab5d1c3c2e99966c6cf4`. The nine built assets plus hosting manifest match the verified production build. Source, design notes, examples, diagnostic captures, and credentials are excluded from the hosted payload.
 
 Mixed catalog lines share physical freight carriers or crew buses. Packing previews and item/quantity weights explain road and rail choices. Dedicated equipment and utility deliveries retain their existing physical operations. Ground self-shadow artifacts and coplanar gate overlap are corrected, and scenery clearing no longer relocates unrelated vegetation. All 175 simulation regressions, integrated browser checks, and production checks pass. The existing balanced example remains a verified prior-release save; it was not regenerated for this release. The public MIT source and local downloadable package retain source, documentation, previews, and validation records separately from the private Site.
+
+## Version 0.10 supported cargo and staged construction
+
+Version 0.10.0 deployed successfully on October 4, 2026 at 22:48 UTC, preserving the existing private Site and origin. Deployment ID: `appgdep_6ac2d7baac988191b436e14685167d8a`. Build-only source commit: `9a77979aa92d8cf05192c836d8cd29c30b21bf03`. Its nine built assets and hosting manifest match the final locally verified production build. Source, design notes, examples, diagnostic captures, and credentials remain excluded from the Site payload.
+
+Forklift cargo rests on the working sections of both fixed fork extensions, and the carriage retracts for travel. Automatic work offers a multi-checkbox dropdown in both equipment views. Shed kits now pass through physical staging, anchors, individual member lifts, positioning, and worker fastening with an assembly ladder before the completed building appears. Partial construction survives saving and can be recovered after cancellation. Two clearance regressions found during verification were fixed without bypassing collisions.
+
+All 189 sequential simulation regressions, integrated browser checks, TypeScript/build validation, and independent production checks pass. Actual forklift and partial-shed gameplay captures were visually inspected. The existing balanced example remains a compatible v0.8 save, checked in production and not regenerated for this release. The public MIT source and downloadable project include implementation, documentation, previews, and validation records separately from the private Site.

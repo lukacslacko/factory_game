@@ -1,6 +1,6 @@
 # Starter Yard architecture
 
-Version 0.9.0 separates serializable simulation, physical delivery sequences, motion, rendering, and the Condensed interface. The simulation is deterministic for a given sequence of commands and time steps and runs without a browser.
+Version 0.10.0 separates serializable simulation, physical delivery sequences, motion, rendering, and the Condensed interface. The simulation is deterministic for a given sequence of commands and time steps and runs without a browser.
 
 ## Files
 
@@ -9,7 +9,7 @@ Version 0.9.0 separates serializable simulation, physical delivery sequences, mo
 | `src/types.ts`                                                              | Serializable entities, assignments, cargo, motion, and save versions                                     |
 | `src/equipment-roles.ts`                                                    | Shared machine work roles, activity mapping, and assignment eligibility                                  |
 | `src/catalog.ts`                                                            | Dimensions, mass, capacity, prices, roles, footprints, and gauge                                         |
-| `src/procurement.ts`                                                     | Validated mixed manifests, shared carrier packing, weight and deck calculations                           |
+| `src/procurement.ts`                                                        | Validated mixed manifests, shared carrier packing, weight and deck calculations                          |
 | `src/sim.ts`                                                                | Procurement, storage, planning, construction, recovery, fuel, accounting, and migration                  |
 | `src/delivery.ts`                                                           | Carrier movement, equipment deployment, crew arrivals, owned-machine unloading, and storage reservations |
 | `src/boarding.ts`                                                           | Worker transitions when entering or leaving a machine                                                    |
@@ -140,3 +140,11 @@ Steering and translation target the same first nonzero waypoint. The previous st
 The Purchase cart holds a draft separately from the simulation until **Place batch order**. Its preview uses the same `planPurchaseBatch` packing function as actual creation; changing material transport recalculates the carrier count before commitment. Direct per-row Hire/Order uses the same packing rules. Catalog and delivery views report unit, quantity, and carrier mass in kg or metric tons.
 
 Ground shadow/depth settings and nonoverlapping gate/apron surfaces address the reported striped terrain artifacts. Decorative terrain candidates derive their position and shape from stable candidate seeds before any installed/planned footprint or wear filtering. Rebuilding scenery therefore only removes or reveals the affected candidates, rather than advancing a shared random sequence and relocating distant vegetation. Decoration remains presentation only and cannot change simulation obstacles or inventory.
+
+## Supported fork loads and staged shed assembly
+
+`fork-geometry.ts` defines fixed 2.7 m heavy-load extensions and the 2.45 m supported load center. Reach translates the entire carriage and its backrest through a visible pantograph rather than stretching the tines. Traffic uses the full tip envelope; reach changes check people and equipment. Delivery loads retract for travel and extend at the storage dock. Their carried pose is synchronized after the chassis movement pass, removing a one-tick lag.
+
+`shed-construction.ts` owns a serializable assembly state: kit staging/unpacking, foundation anchors, component collection/rigging/lifting/carrying/lowering/fastening, and completion. `shed-geometry.ts` provides shared component locations; `shed-visuals.ts` builds matching partial and finished models. Six posts, three roof frames, four roof sections, two back wall panels and one brace appear individually. Materials report the unpacked kit as `inConstruction`, then `installed` after completion. Saves retain the partly built structure and moving member. Cancellation reverses assembly before returning the packed kit to stock. Forward high fastening uses a kit-supplied ladder with saved worker elevation and smooth climb/descent. Recovery unrigging remains schematic, and completed building recovery still uses the existing whole-kit sequence. This is schematic construction rather than structural engineering or rigid-body lifting physics.
+
+Equipment's optional `allowedWork` array stores checked automatic job kinds. Older `workRole` values normalize to all, none or one kind; direct assignments still override automatic eligibility. The register and inspector share the same checkbox popover and defer periodic replacement while it is open. SQL includes both the legacy role and selected kinds.

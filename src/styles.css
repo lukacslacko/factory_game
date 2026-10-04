@@ -759,6 +759,7 @@ h3 {
   padding-top: 8px;
 }
 .equipment-role {
+  position: relative;
   max-width: 100%;
   padding: 2px 4px;
   font: inherit;
@@ -766,6 +767,55 @@ h3 {
   background: var(--paper, #f2f1e7);
   border: 1px solid #adb5a1;
   border-radius: 2px;
+}
+.equipment-role > summary {
+  cursor: pointer;
+  white-space: normal;
+  min-width: 100px;
+}
+.equipment-role[open] {
+  z-index: 20;
+}
+.equipment-work-options {
+  position: fixed;
+  margin: 0;
+  inset: auto;
+  width: 230px;
+  max-width: min(230px, 75vw);
+  padding: 5px 7px;
+  background: #f2f1e7;
+  border: 1px solid #adb5a1;
+  box-shadow: 0 3px 7px #25342635;
+  white-space: normal;
+}
+.equipment-work-options label {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 23px;
+  cursor: pointer;
+}
+.equipment-work-options input {
+  margin: 0;
+  accent-color: #586c48;
+}
+.equipment-work-options label:has(input:disabled) {
+  color: #7d8477;
+  cursor: default;
+}
+.equipment-work-options small {
+  display: block;
+  margin-top: 4px;
+  font-size: 10px;
+}
+.equipment-work-presets {
+  display: flex;
+  gap: 5px;
+  margin-bottom: 4px;
+}
+.equipment-work-presets button {
+  padding: 2px 8px;
+  font: inherit;
 }
 .role-pending {
   display: block;

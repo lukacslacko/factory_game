@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import { box, cylinder, beam, material, sign } from './mesh';
 import { RAIL_CENTER_OFFSET } from './catalog';
+import { FORK_LENGTH, FORK_LOAD_CENTER, forkCarriageOffset } from './fork-geometry';
 const steel = 0x424b4d,
   tire = 0x25282a,
   yellow = 0xd6a329;
@@ -376,11 +377,33 @@ export function forklift(g: THREE.Group) {
   const lift = new THREE.Group();
   lift.name = 'fork-carriage';
   g.add(lift);
+  // A two-stage reach carriage keeps fixed-length forks beneath the load. Its visible
+  // pantograph joins the mast to the translated carriage during pickup and placement.
+  const reachFrame = new THREE.Group();
+  reachFrame.name = 'fork-reach-frame';
+  g.add(reachFrame);
+  for (const z of [-0.51, 0.51]) {
+    for (let stage = 0; stage < 2; stage++) {
+      for (let diagonal = 0; diagonal < 2; diagonal++) {
+        const arm = box(reachFrame, 0, 0, z, 0.072, 1, 0.072, 0x626d70, 0.7);
+        arm.name = 'fork-reach-link';
+        arm.userData = { stage, diagonal, side: z };
+      }
+    }
+    for (let station = 0; station < 3; station++) {
+      for (let high = 0; high < 2; high++) {
+        const pin = cylinder(reachFrame, 0, 0, z, 0.06, 0.11, 0x9aa5a4, 10);
+        pin.rotation.x = Math.PI / 2;
+        pin.name = 'fork-reach-pin';
+        pin.userData = { station, high };
+      }
+    }
+  }
   box(lift, 1.25, 0.4, 0, 0.14, 0.76, 1.27, 0x626d70);
   for (let z = -0.56; z <= 0.6; z += 0.14) box(lift, 1.3, 0.82, z, 0.065, 0.7, 0.04, 0x616d6f);
   const contact = new THREE.Object3D();
   contact.name = 'cargo-contact';
-  contact.position.set(2.4, 0, 0);
+  contact.position.set(FORK_LOAD_CENTER, 0, 0);
   lift.add(contact);
   for (const z of [-0.4, 0.4]) {
     const section = new THREE.Shape();
@@ -393,8 +416,8 @@ export function forklift(g: THREE.Group) {
     const geo = new THREE.ExtrudeGeometry(section, { depth: 1, bevelEnabled: false });
     geo.translate(0, 0, -0.5);
     const fork = new THREE.Mesh(geo, material(0x727d7e, 0.6, 0.75));
-    fork.position.set(2.05, 0, z);
-    fork.scale.set(1.9, 0.04, 0.12);
+    fork.position.set(FORK_LOAD_CENTER, 0, z);
+    fork.scale.set(FORK_LENGTH, 0.04, 0.12);
     fork.castShadow = fork.receiveShadow = true;
     lift.add(fork);
     fork.name = 'fork-tine';
@@ -440,6 +463,7 @@ export function forklift(g: THREE.Group) {
   rounded(g, -1.42, 1.18, 0, 0.28, 0.08, 0.51, 0xd6a329, 0.025);
   sign(g, '2.5 t', -0.45, 0.89, 0.736, 0.42);
   driver(g, -0.37, 0.32, 0).visible = false;
+  animateMachine(g, 'forklift', false, 0, 0.075, FORK_LOAD_CENTER);
 }
 export function excavator(g: THREE.Group) {
   for (const z of [-0.91, 0.91]) {
@@ -660,14 +684,29 @@ export function animateMachine(
   if (kind === 'forklift') {
     const carriage = g.getObjectByName('fork-carriage')!;
     carriage.position.y = Math.max(0.075, lift);
+    carriage.position.x = forkCarriageOffset(reach);
     g.getObjectByName('inner-mast')!.position.y = Math.max(0, lift - 1.5);
-    // Extension forks stay attached to the carriage and support the center of long pallets.
-    const tip = Math.max(3.0, Math.min(4.2, reach + 0.35));
-    for (const tine of carriage.children.filter((o) => o.name === 'fork-tine')) {
-      tine.position.x = (1.1 + tip) / 2;
-      tine.scale.x = tip - 1.1;
+    const frame = g.getObjectByName('fork-reach-frame')!;
+    frame.position.y = carriage.position.y;
+    const mastX = 1.16,
+      gap = 1.25 + carriage.position.x - mastX,
+      half = gap / 2,
+      armLength = Math.max(1.6, half + 0.01),
+      span = Math.sqrt(armLength * armLength - half * half),
+      bottom = 0.09;
+    for (const link of frame.children.filter((o) => o.name === 'fork-reach-link')) {
+      const { stage, diagonal, side } = link.userData;
+      segment(
+        link,
+        new THREE.Vector3(mastX + stage * half, bottom + (diagonal ? span : 0), side),
+        new THREE.Vector3(mastX + (stage + 1) * half, bottom + (diagonal ? 0 : span), side),
+        0.072,
+      );
     }
-    carriage.getObjectByName('cargo-contact')!.position.x = reach;
+    for (const pin of frame.children.filter((o) => o.name === 'fork-reach-pin')) {
+      pin.position.x = mastX + pin.userData.station * half;
+      pin.position.y = bottom + pin.userData.high * span;
+    }
     return;
   }
   const system = g.getObjectByName('boom-system');

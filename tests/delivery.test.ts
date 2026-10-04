@@ -19,7 +19,7 @@ function conserve(s: State, item: Item) {
   const totals = S.totals(s, item);
   assert.equal(
     totals.delivered,
-    totals.stored + totals.cargo + totals.installed,
+    totals.stored + totals.cargo + totals.inConstruction + totals.installed,
     JSON.stringify(totals),
   );
   for (const order of s.orders.filter((o) => o.item === item)) {

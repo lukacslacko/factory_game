@@ -8,6 +8,8 @@ import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { surfaceMaterial } from './surfaces';
 import { WornPaths } from './worn-paths';
 import { GATE_PADS, groundPad, sceneryRandom } from './terrain-visuals';
+import { assembledShed, shedComponentModel } from './shed-visuals';
+import { shedComponentPose, shedPostPoints } from './shed-geometry';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import type {
   State,
@@ -21,6 +23,8 @@ import type {
   Item,
   RailWork,
   RailWorkPose,
+  Job,
+  ShedPartKind,
 } from './types';
 import { MATERIALS, BUILDINGS, footprint, RAIL_CENTER_OFFSET, RAIL_HEAD_WIDTH } from './catalog';
 import { center, dist } from './path';
@@ -228,6 +232,11 @@ export class World {
     string,
     { pose: RailWorkPose; toolLift: number; toolReach: number; phase: string; clock: number }
   >();
+  private previousShedWork = new Map<string, { phase: string; clock: number }>();
+  private previousShedParts = new Map<
+    string,
+    { pose: RailWorkPose; kind: ShedPartKind; index: number }
+  >();
   private shadowExtent = 0;
   /** Capture only moving values before a fixed simulation step. Rendering blends
    * between two real states without changing the simulation or its timestamps. */
@@ -236,6 +245,23 @@ export class World {
     this.previousDeliveries.clear();
     this.previousRailWork.clear();
     this.previousHandling.clear();
+    this.previousShedParts.clear();
+    this.previousShedWork.clear();
+    for (const j of s.jobs)
+      if (j.shedAssembly)
+        this.previousShedWork.set(j.id, {
+          phase: j.shedAssembly.phase,
+          clock: j.shedAssembly.clock,
+        });
+    for (const j of s.jobs)
+      if (j.shedAssembly?.part) {
+        const part = j.shedAssembly.part;
+        this.previousShedParts.set(j.id, {
+          pose: { ...part.pose },
+          kind: part.kind,
+          index: part.index,
+        });
+      }
     for (const j of s.jobs)
       if (j.handling)
         this.previousHandling.set(j.id, {
@@ -1016,7 +1042,16 @@ export class World {
         d = spec?.d || b.d;
       if (b.kind === 'office' || b.kind === 'sanitary')
         container(g, w, d, MATERIALS[b.kind].color, b.kind);
-      else if (b.kind === 'shed' || b.kind === 'store') shed(g, w, d, b.kind === 'store');
+      else if (b.kind === 'shed') {
+        const local = { ...b, x: -w / 2, z: -d / 2, w, d, rotation: 0 } as unknown as Job;
+        g.add(assembledShed(local));
+        for (const p of shedPostPoints(local)) {
+          box(g, p.x, 0.185, p.z, 0.4, 0.12, 0.4, 0xb2b1a8);
+          for (const dx of [-0.13, 0.13])
+            for (const dz of [-0.13, 0.13])
+              cylinder(g, p.x + dx, 0.26, p.z + dz, 0.022, 0.07, 0x68737a, 6);
+        }
+      } else if (b.kind === 'store') shed(g, w, d, true);
       else if (b.kind === 'lamp') {
         box(g, 0, 0.11, 0, 0.55, 0.15, 0.55, 0xb0b2ab);
         for (const x of [-0.19, 0.19])
@@ -1129,6 +1164,23 @@ export class World {
       this.previousDeliveries.clear();
       this.previousRailWork.clear();
       this.previousHandling.clear();
+      this.previousShedParts.clear();
+      this.previousShedWork.clear();
+      for (const j of s.jobs)
+        if (j.shedAssembly)
+          this.previousShedWork.set(j.id, {
+            phase: j.shedAssembly.phase,
+            clock: j.shedAssembly.clock,
+          });
+      for (const j of s.jobs)
+        if (j.shedAssembly?.part) {
+          const part = j.shedAssembly.part;
+          this.previousShedParts.set(j.id, {
+            pose: { ...part.pose },
+            kind: part.kind,
+            index: part.index,
+          });
+        }
       for (const j of s.jobs)
         if (j.handling)
           this.previousHandling.set(j.id, {
@@ -1231,6 +1283,29 @@ export class World {
           id: w.id,
         });
         updateBeam(lever, 0, top, foot, 0.028, 0x7f8b8e);
+      }
+      const shedTask = s.jobs.find(
+        (j) => j.status === 'doing' && j.worker === w.id && j.shedAssembly,
+      );
+      const assembly = shedTask?.shedAssembly;
+      if (
+        assembly &&
+        ['unpack', 'anchor', 'rig', 'fasten'].includes(assembly.phase) &&
+        !w.path.length &&
+        assembly.clock > 0
+      ) {
+        const old = this.previousShedWork.get(shedTask!.id);
+        const clock = lerp(old?.phase === assembly.phase ? old.clock : 0, assembly.clock, alpha);
+        if (arm) arm.rotation.z = 0.8 + Math.sin(clock * 6) * 0.16;
+        const other = g.getObjectByName('arm-left');
+        if (other) other.rotation.z = 0.65 - Math.sin(clock * 6) * 0.12;
+        if (tool) tool.visible = assembly.phase === 'anchor' || assembly.phase === 'fasten';
+        if (assembly.ladder && /climb|descend/i.test(w.status)) {
+          animatePerson(g, pose.y * 2, true);
+          if (arm) arm.rotation.z = 2.1 + Math.sin(clock * 6) * 0.18;
+          if (other) other.rotation.z = 2.1 - Math.sin(clock * 6) * 0.18;
+          if (tool) tool.visible = false;
+        }
       }
       if (working) {
         const old = this.previousRailWork.get(railTask!.id);
@@ -1338,6 +1413,15 @@ export class World {
             yaw: mixAngle(oldCargo?.yaw ?? cargo.yaw, cargo.yaw, alpha),
           }
         : undefined;
+      if (renderedCargo && e.cargo && unload && ['clear', 'carry'].includes(unload.phase)) {
+        // Interpolate the carrying machine, then derive its attachment point.
+        // Interpolating two world-space cargo points cuts the corner during a
+        // turn and separates a supported load from its forks between ticks.
+        const contact = localPoint(pose, pose.reach, 0);
+        renderedCargo.x = contact.x;
+        renderedCargo.z = contact.z;
+        renderedCargo.yaw = pose.yaw + Math.PI / 2;
+      }
       const unloadingItem = unload?.item || handlingOrder?.item;
       const load =
         e.cargo ||
@@ -1386,10 +1470,9 @@ export class World {
           lift = lerp(g.userData.armLift, lift, Math.min(1, dt * s.speed * 2));
         g.userData.armLift = lift;
       } else {
-        const offset = load?.item === 'slab' ? 0.08 : load?.item === 'rail' ? 0.05 : 0;
+        const offset = load?.item === 'slab' ? 0.08 : load?.item === 'rail' ? 0.015 : 0;
         if (unload?.phase === 'rig')
           lift = lerp(0.12, unload.sourceY - pose.y + offset, rigProgress);
-        else if (e.cargo) lift += offset;
       }
       if (
         e.kind === 'excavator' &&
@@ -1460,8 +1543,82 @@ export class World {
             upperYaw = -(Math.atan2(slabPose.z - pose.z, slabPose.x - pose.x) - pose.yaw);
         }
       }
+      const shedTask = s.jobs.find(
+        (j) => j.status === 'doing' && j.equipment === e.id && j.shedAssembly,
+      );
+      const shedPart = shedTask?.shedAssembly?.part;
+      if (
+        shedPart &&
+        e.kind === 'excavator' &&
+        ['rig', 'lift', 'carry', 'lower', 'fasten'].includes(shedTask!.shedAssembly!.phase)
+      ) {
+        const previous = this.previousShedParts.get(shedTask!.id);
+        const partPose = interpolateWorkPose(
+          previous?.kind === shedPart.kind && previous.index === shedPart.index
+            ? previous.pose
+            : undefined,
+          shedPart.pose,
+          alpha,
+        );
+        const top =
+          shedPart.kind === 'post'
+            ? 2.15
+            : shedPart.kind === 'wall'
+              ? 1.9
+              : shedPart.kind === 'brace'
+                ? 1.95
+                : 0.4;
+        const targetLift = partPose.y - pose.y + top + 0.3;
+        const targetReach = Math.hypot(partPose.x - pose.x, partPose.z - pose.z);
+        const targetYaw = -(Math.atan2(partPose.z - pose.z, partPose.x - pose.x) - pose.yaw);
+        if (shedTask!.shedAssembly!.phase === 'rig') {
+          const key = `${shedTask!.id}/${shedPart.kind}/${shedPart.index}`;
+          if (g.userData.shedRigKey !== key) {
+            g.userData.shedRigKey = key;
+            g.userData.shedRigFrom = {
+              lift: g.userData.shedToolLift ?? lift,
+              reach: g.userData.shedToolReach ?? reach,
+              yaw: g.userData.shedToolYaw ?? upperYaw,
+            };
+          }
+          const old = this.previousShedWork.get(shedTask!.id);
+          const clock = lerp(
+            old?.phase === 'rig' ? old.clock : 0,
+            shedTask!.shedAssembly!.clock,
+            alpha,
+          );
+          const f = smoothstep(clock / 2),
+            from = g.userData.shedRigFrom;
+          lift = lerp(from.lift, targetLift, f);
+          reach = lerp(from.reach, targetReach, f);
+          upperYaw = mixAngle(from.yaw, targetYaw, f);
+        } else {
+          lift = targetLift;
+          reach = targetReach;
+          upperYaw = targetYaw;
+          g.userData.shedRigKey = undefined;
+        }
+      }
+      if (shedTask?.shedAssembly?.phase === 'withdraw' && e.kind === 'excavator') {
+        lift = pose.lift;
+        reach = pose.reach;
+        upperYaw = 0;
+      }
+      g.userData.shedToolLift = lift;
+      g.userData.shedToolReach = reach;
+      g.userData.shedToolYaw = upperYaw;
       const upper = g.getObjectByName('upper');
       if (upper) upper.rotation.y = upperYaw;
+      if (e.kind === 'forklift' && load && !handling && (renderedCargo || e.cargo)) {
+        lift +=
+          load.item === 'rail'
+            ? 0.015
+            : load.item === 'slab'
+              ? 0.08
+              : load.item === 'diesel'
+                ? 0.01
+                : 0.04;
+      }
       animateMachine(
         g,
         e.kind,
@@ -1473,27 +1630,6 @@ export class World {
         !!e.cargo || unload?.phase === 'rig',
       );
       if (e.kind === 'forklift') {
-        if (legacyForkRail || g.userData.legacyForkTip !== undefined) {
-          const normal = Math.max(3, Math.min(4.2, reach + 0.35));
-          const supporting =
-            legacyForkRail &&
-            (railWork?.panel.state === 'carried' ||
-              (railWork?.phase === 'legacy-fork-withdraw' && railWork.clock < 1));
-          const target = supporting ? Math.max(4.2, reach + 0.85) : normal;
-          const tip = supporting
-            ? target
-            : lerp(
-                g.userData.legacyForkTip ?? target,
-                target,
-                Math.min(1, dt * (s.paused ? 1 : s.speed) * 2),
-              );
-          g.userData.legacyForkTip = Math.abs(tip - normal) < 0.01 && !supporting ? undefined : tip;
-          const carriage = g.getObjectByName('fork-carriage');
-          for (const tine of carriage?.children.filter((c) => c.name === 'fork-tine') || []) {
-            tine.position.x = (1.1 + tip) / 2;
-            tine.scale.x = tip - 1.1;
-          }
-        }
         const before = this.previous.get(e.id),
           travel = before ? (e.travel || 0) - before.travel : 0;
         const curvature =
@@ -1515,6 +1651,7 @@ export class World {
         () => {
           const c = this.stockModel(e.cargo!.item, e.cargo!.qty);
           c.position.set(pose.reach, Math.max(0.12, pose.lift), 0);
+          c.rotation.y = -Math.PI / 2;
           return c;
         },
       );
@@ -1680,6 +1817,150 @@ export class World {
         });
         g.position.set(j.x + 0.5, 0, j.z + 0.5);
         g.rotation.y = -p.yaw;
+      }
+    }
+    for (const j of s.jobs) {
+      const a = j.shedAssembly;
+      if (j.status !== 'doing' || !a || a.phase === 'complete') continue;
+      if (a.ladder) {
+        const ladder = ensure(`${j.id}-shed-ladder`, () => new THREE.Group(), {
+          type: 'job',
+          id: j.id,
+        });
+        const height = a.ladder.height;
+        replaceContents(ladder, 'ladder', height.toFixed(3), () => {
+          const frame = new THREE.Group();
+          for (const z of [-0.35, 0.35]) {
+            box(frame, 0.3, height / 2, z, 0.05, height, 0.055, 0xadb8be, 0.6);
+            beam(
+              frame,
+              new THREE.Vector3(-1.1, 0.03, z),
+              new THREE.Vector3(0.3, height - 0.1, z),
+              0.055,
+              0xadb8be,
+            );
+            box(frame, -1.1, 0.03, z, 0.2, 0.06, 0.14, 0x4d585d);
+            box(frame, 0.3, 0.03, z, 0.2, 0.06, 0.14, 0x4d585d);
+          }
+          for (let y = 0.28; y < height - 0.2; y += 0.28)
+            box(frame, 0.15, y, 0, 0.35, 0.045, 0.65, 0x9aa8ae, 0.5);
+          return frame;
+        });
+        const worker = s.workers.find((w) => w.id === j.worker);
+        ladder.position.set(a.ladder.x, this.surface(s, a.ladder), a.ladder.z);
+        ladder.rotation.y = -(worker?.yaw || 0);
+      }
+      const counts: [ShedPartKind, number][] = [
+        ['post', a.posts],
+        ['beam', a.beams],
+        ['roof', a.roofSheets],
+        ['wall', a.wallPanels],
+        ['brace', a.braces],
+      ];
+      const frame = ensure(`${j.id}-shed-frame`, () => new THREE.Group(), {
+        type: 'job',
+        id: j.id,
+      });
+      replaceContents(
+        frame,
+        'members',
+        `${a.anchors}/${counts.map(([, n]) => n).join('/')}`,
+        () => {
+          const members = new THREE.Group();
+          for (const p of shedPostPoints(j).slice(0, a.anchors)) {
+            box(members, p.x, 0.185, p.z, 0.4, 0.12, 0.4, 0xb2b1a8);
+            for (const dx of [-0.13, 0.13])
+              for (const dz of [-0.13, 0.13])
+                cylinder(members, p.x + dx, 0.26, p.z + dz, 0.022, 0.07, 0x68737a, 6);
+          }
+          for (const [kind, count] of counts)
+            for (let i = 0; i < count; i++) {
+              const part = shedComponentModel(j, kind, i),
+                p = shedComponentPose(j, kind, i);
+              part.position.set(p.x, p.y, p.z);
+              part.rotation.y = -p.yaw;
+              members.add(part);
+            }
+          return members;
+        },
+      );
+      const separatePart = a.part && (!a.recovering || a.part.carried) ? 1 : 0;
+      const remaining = Math.max(
+        0,
+        16 - counts.reduce((n, [, count]) => n + count, 0) - separatePart,
+      );
+      if (j.delivered && (remaining > 0 || a.recovering)) {
+        const kit = ensure(`${j.id}-shed-kit`, () => new THREE.Group(), { type: 'job', id: j.id });
+        replaceContents(kit, 'unpacked', `${remaining}/${a.phase === 'unpack'}`, () => {
+          if (a.phase === 'unpack') return this.stockModel('shed', 1);
+          const supplies = new THREE.Group();
+          for (const x of [-1.35, 1.35]) box(supplies, x, -0.075, 0, 0.15, 0.15, 1.9, 0x847958);
+          box(supplies, 0, 0.05, 0, 3.9, 0.1, 1.9, 0x847958);
+          for (let i = 0; i < remaining; i++)
+            box(
+              supplies,
+              0,
+              0.14 + i * 0.045,
+              -0.65 + (i % 4) * 0.4,
+              3.7,
+              0.05,
+              0.18,
+              i % 3 ? 0x73818a : 0xaeb8bd,
+              0.35,
+            );
+          return supplies;
+        });
+        this.positionModel(kit, a.kitPose);
+      }
+      if (a.part) {
+        const current = a.part,
+          previous = this.previousShedParts.get(j.id);
+        const pose = interpolateWorkPose(
+          previous?.kind === current.kind && previous.index === current.index
+            ? previous.pose
+            : undefined,
+          current.pose,
+          alpha,
+        );
+        const part = ensure(`${j.id}-shed-moving-part`, () => new THREE.Group(), {
+          type: 'job',
+          id: j.id,
+        });
+        replaceContents(part, 'member', `${current.kind}/${current.index}`, () =>
+          shedComponentModel(j, current.kind, current.index),
+        );
+        this.positionModel(part, pose);
+        if (current.carried || ['lift', 'lower'].includes(a.phase)) {
+          const e = s.equipment.find((m) => m.id === j.equipment),
+            model = e && this.models.get(e.id);
+          const tip = model?.getObjectByName('tool-tip');
+          if (tip && e?.kind === 'excavator') {
+            const slings = ensure(`${j.id}-shed-slings`, () => new THREE.Group(), {
+              type: 'job',
+              id: j.id,
+            });
+            model!.updateMatrixWorld(true);
+            updateBeam(
+              slings,
+              0,
+              tip.getWorldPosition(new THREE.Vector3()),
+              new THREE.Vector3(
+                pose.x,
+                pose.y +
+                  (current.kind === 'post'
+                    ? 2.15
+                    : current.kind === 'wall'
+                      ? 1.9
+                      : current.kind === 'brace'
+                        ? 1.95
+                        : 0.4),
+                pose.z,
+              ),
+              0.025,
+              0x424b4d,
+            );
+          }
+        }
       }
     }
     for (const o of s.orders) {

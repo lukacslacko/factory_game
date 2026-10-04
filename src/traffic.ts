@@ -1,5 +1,7 @@
 import type { State, Point, Equipment, Order, Worker, Rect } from './types';
 import { MATERIALS } from './catalog';
+import { forkTip } from './fork-geometry';
+import { shedComponentPose, shedPostPoints } from './shed-geometry';
 import {
   localPoint,
   carPose,
@@ -137,14 +139,25 @@ export function equipmentBoxes(
   ];
   if (attachments) {
     const reach = e.reach ?? (e.kind === 'excavator' ? 2.7 : 2.4),
-      front = localPoint({ ...pose, yaw }, (1.1 + reach + 0.45) / 2, 0);
+      tip = e.kind === 'forklift' ? forkTip(reach) : reach + 0.45,
+      front = localPoint({ ...pose, yaw }, (1.1 + tip) / 2, 0);
     boxes.push({
       ...front,
       yaw,
-      length: Math.max(0.1, reach + 0.45 - 1.1),
+      length: Math.max(0.1, tip - 1.1),
       width: e.kind === 'excavator' ? 0.85 : 1.1,
       id: e.id,
     });
+    if (e.assemblyLoad) {
+      const p = localPoint({ ...pose, yaw }, reach, 0);
+      boxes.push({
+        ...p,
+        yaw: yaw + e.assemblyLoad.yawOffset,
+        length: e.assemblyLoad.length,
+        width: e.assemblyLoad.width,
+        id: e.id,
+      });
+    }
     if (e.cargo) {
       const m = MATERIALS[e.cargo.item],
         p = localPoint({ ...pose, yaw }, reach, 0);
@@ -163,6 +176,33 @@ export function equipmentBoxes(
     }
   }
   return boxes;
+}
+/** A reach change moves the supported load even when the chassis is stationary.
+ * Check the changing tool/load envelope against actors before advancing it. */
+export function equipmentReachBlocked(s: State, e: Equipment, reach: number) {
+  const before = equipmentBoxes(e),
+    after = equipmentBoxes({ ...e, reach });
+  for (const person of people(s)) {
+    if (person.worker?.transition?.equipmentId === e.id) continue;
+    if (
+      after.some(
+        (box, i) =>
+          personOverlapDepth(person, box, 0.42) >
+          personOverlapDepth(person, before[i], 0.42) + 1e-7,
+      )
+    )
+      return person.id;
+  }
+  for (const other of s.equipment) {
+    if (other.id === e.id || other.transportOrder) continue;
+    if (
+      equipmentBoxes(other).some((box) =>
+        after.some((next, i) => boxOverlap(next, box, 0.08) && !boxOverlap(before[i], box, 0.08)),
+      )
+    )
+      return other.id;
+  }
+  return '';
 }
 export function carrierBoxes(o: Order, pose?: Point & { yaw: number }): TrafficBox[] {
   const k = deliveryKind(o),
@@ -194,6 +234,25 @@ export function staticObstacleRects(s: State): (Rect & { id: string })[] {
   const out: (Rect & { id: string })[] = s.stacks
     .filter((t) => t.qty > 0 || t.item === 'diesel')
     .map((t) => ({ x: t.x, z: t.z, w: t.w, d: t.d, id: t.id }));
+  for (const j of s.jobs) {
+    const h = j.shedAssembly;
+    if (!h || j.status !== 'doing' || !j.delivered) continue;
+    const rotated = Math.abs(Math.sin(h.kitPose.yaw)) > 0.5;
+    out.push({
+      x: h.kitPose.x - (rotated ? 1 : 2),
+      z: h.kitPose.z - (rotated ? 2 : 1),
+      w: rotated ? 2 : 4,
+      d: rotated ? 4 : 2,
+      id: j.id + '-kit',
+    });
+    for (const p of shedPostPoints(j).slice(0, h.posts))
+      out.push({ x: p.x - 0.2, z: p.z - 0.2, w: 0.4, d: 0.4, id: j.id + '-post' });
+    for (let index = 0; index < h.wallPanels; index++) {
+      const p = shedComponentPose(j, 'wall', index);
+      const width = (j.rotation % 2 ? j.d : j.w) / 2;
+      out.push({ ...boxRect({ ...p, length: width, width: 0.08 }), id: j.id + '-wall-' + index });
+    }
+  }
   for (const b of s.buildings) {
     const c = { x: b.x + b.w / 2, z: b.z + b.d / 2 },
       yaw = ((b.rotation % 2) * Math.PI) / 2;
@@ -363,7 +422,13 @@ export function navigationActors(s: State, ignore: string): Rect[] {
 /** Route previews and executed motion must use the same steering speed. */
 export function equipmentTravelSpeed(s: State, e: Equipment) {
   const job = s.jobs.find((j) => j.equipment === e.id && j.status === 'doing');
-  return job?.railWork ? 1 : job?.handling ? 1.6 : e.kind === 'excavator' ? 2.3 : 3.1;
+  return job?.railWork
+    ? 1
+    : job?.handling || job?.shedAssembly
+      ? 1.6
+      : e.kind === 'excavator'
+        ? 2.3
+        : 3.1;
 }
 export function machineRoute(
   s: State,

@@ -13,7 +13,11 @@ function emptyYard() {
 
 function conserved(s: State, item: Item) {
   const t = S.totals(s, item);
-  assert.equal(t.delivered + t.recovered, t.stored + t.cargo + t.installed, JSON.stringify(t));
+  assert.equal(
+    t.delivered + t.recovered,
+    t.stored + t.cargo + t.inConstruction + t.installed,
+    JSON.stringify(t),
+  );
   for (const stack of s.stacks) assert.ok(stack.qty >= stack.reserved && stack.reserved >= 0);
 }
 
@@ -256,4 +260,66 @@ test('construction, rail, recovery, and paving roles gate their actual work inde
   assert.ok(!s.buildings.some((b) => b.id === office.id));
   assert.ok(s.paving['56,35']);
   for (const item of ['slab', 'rail', 'sanitary', 'office'] as const) conserved(s, item);
+});
+
+test('checkbox work kinds combine independently and round-trip without broadening older roles', () => {
+  const s = S.demoState();
+  const e = s.equipment[0];
+  assert.equal(S.setEquipmentActivities(s, e.id, ['paving', 'receiving']), '');
+  assert.deepEqual(e.allowedWork, ['receiving', 'paving']);
+  const restored = S.load(S.save(s));
+  assert.deepEqual(restored.equipment[0].allowedWork, ['receiving', 'paving']);
+  for (const activity of ['receiving', 'paving', 'construction', 'rail', 'recovery'] as const)
+    assert.equal(
+      equipmentAllows(restored.equipment[0], activity),
+      ['receiving', 'paving'].includes(activity),
+    );
+  assert.equal(S.setEquipmentRole(s, e.id, 'all'), '');
+  assert.equal(
+    e.allowedWork,
+    undefined,
+    'Legacy All command must actually clear a mixed checklist',
+  );
+  assert.ok(equipmentAllows(e, 'rail'));
+  assert.equal(S.setEquipmentActivities(s, e.id, []), '');
+  assert.equal(e.workRole, 'hold');
+  assert.deepEqual(S.load(S.save(s)).equipment[0].allowedWork, []);
+  assert.equal(equipmentAllows(e, 'receiving'), false);
+  for (const activities of [['flying'], ['paving', 'paving'], null, {}, [3]]) {
+    const bad = JSON.parse(S.save(s));
+    bad.equipment[0].allowedWork = activities;
+    assert.throws(() => S.load(JSON.stringify(bad)), /Invalid save/);
+    assert.notEqual(S.setEquipmentActivities(s, e.id, activities as any), '');
+    assert.deepEqual(e.allowedWork, [], 'Rejected selection must not change the existing policy');
+  }
+});
+
+test('a mixed checklist change finishes the lifted slab and excludes the next paving job', () => {
+  let s = S.demoState();
+  let excavator = s.equipment.find((e) => e.kind === 'excavator')!;
+  S.setEquipmentRole(s, s.equipment.find((e) => e.kind === 'forklift')!.id, 'hold');
+  assert.equal(S.setEquipmentActivities(s, excavator.id, ['paving', 'recovery']), '');
+  S.pave(s, { x: 56, z: 35, w: 2, d: 1 });
+  tickUntil(s, () => !!excavator.cargo && !!excavator.job);
+  const active = excavator.job,
+    cargo = { ...excavator.cargo! };
+  assert.equal(S.setEquipmentActivities(s, excavator.id, ['rail', 'receiving']), '');
+  assert.deepEqual(excavator.cargo, cargo);
+  assert.equal(excavator.job, active);
+  s = S.load(S.save(s));
+  excavator = s.equipment.find((e) => e.id === excavator.id)!;
+  tickUntil(
+    s,
+    () => s.jobs.find((j) => j.id === active)!.status === 'done',
+    1200,
+    () => conserved(s, 'slab'),
+  );
+  advance(s, 30);
+  const next = s.jobs.find((j) => j.id !== active)!;
+  assert.equal(next.equipment, undefined);
+  assert.notEqual(next.status, 'done');
+  assert.deepEqual(excavator.allowedWork, ['receiving', 'rail']);
+  assert.equal(S.setEquipmentActivities(s, excavator.id, ['paving', 'recovery']), '');
+  tickUntil(s, () => s.jobs.every((j) => j.status === 'done'));
+  conserved(s, 'slab');
 });

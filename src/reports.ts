@@ -6,11 +6,11 @@ import { MATERIALS } from './catalog';
 import { orderLines, orderMass, itemMass } from './procurement';
 import { parkingStatus } from './workforce';
 import { equipmentAssignment, jobRows } from './jobs';
-import { equipmentRole } from './equipment-roles';
+import { equipmentRole, equipmentActivities, equipmentWorkSummary } from './equipment-roles';
 export const SQL_EXAMPLES = [
   {
     name: 'Material balance',
-    sql: 'SELECT item, delivered, stored, reserved, cargo, installed, incoming FROM inventory ORDER BY item;',
+    sql: 'SELECT item, delivered, stored, reserved, cargo, inConstruction, installed, incoming FROM inventory ORDER BY item;',
   },
   {
     name: 'Cost by category',
@@ -30,7 +30,7 @@ export const SQL_EXAMPLES = [
   },
   {
     name: 'Vehicle work roles',
-    sql: 'SELECT id, kind, workRole, fuel FROM equipment ORDER BY id;',
+    sql: 'SELECT id, kind, automaticWork, allowedWork, fuel FROM equipment ORDER BY id;',
   },
   {
     name: 'Active work orders',
@@ -61,6 +61,8 @@ export async function query(s: State, sql: string) {
     equipment: s.equipment.map(({ path, cargo, ...e }) => ({
       ...e,
       workRole: equipmentRole(e),
+      allowedWork: equipmentActivities(e),
+      automaticWork: equipmentWorkSummary(e),
       parkingStatus: parkingStatus(s, { ...e, path }),
       parking_x: e.parking?.x,
       parking_z: e.parking?.z,
@@ -95,6 +97,17 @@ export async function query(s: State, sql: string) {
     zones: s.zones.map((z) => ({ ...z })),
   };
   const defaultCols: Record<string, string[]> = {
+    inventory: [
+      'item',
+      'delivered',
+      'recovered',
+      'stored',
+      'reserved',
+      'cargo',
+      'inConstruction',
+      'installed',
+      'incoming',
+    ],
     order_lines: ['order_id', 'line', 'item', 'qty', 'arrived', 'mass_kg'],
     rails: ['id', 'x', 'z', 'rotation', 'length'],
     zones: ['id', 'name', 'x', 'z', 'w', 'd'],
@@ -133,6 +146,8 @@ export async function query(s: State, sql: string) {
       'id',
       'kind',
       'workRole',
+      'allowedWork',
+      'automaticWork',
       'fuel',
       'tank',
       'used',

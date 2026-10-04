@@ -232,7 +232,7 @@
         ><a href="#limits">Version boundaries</a>
       </nav>
       <article>
-        <small>PLAYER GUIDE · VERSION 0.9.0 · OCTOBER 4, 2026</small>
+        <small>PLAYER GUIDE · VERSION 0.10.0 · OCTOBER 5, 2026</small>
         <h1>Build the starter yard</h1>
         <p class="lead">
           Bring people, equipment, and materials to an open industrial site. Give every piece a
@@ -318,7 +318,11 @@
           <li>
             <b>Build welfare and shelter.</b> Place the WC/showers and an equipment shed.
             Foundations are planned automatically. Order water service for the sanitary container.
-            The open shed allows equipment to be parked underneath.
+            The open shed allows equipment to be parked underneath. The crew lowers and unpacks its
+            kit, bolts the base anchors, then lifts and fastens individual posts, roof frames, roof
+            sections, wall panels, and bracing. The partly built structure stays visible and
+            survives saving. Erection needs an excavator; the builder uses the kit's assembly ladder
+            to reach high fastening points.
           </li>
           <li>
             <b>Extend the track.</b> Choose Rail end. Start at the existing buffer, E125, S5. Each
@@ -367,20 +371,22 @@
         <p>
           Open <b>Equipment</b> and change each vehicle's <b>Automatic work</b> selector. The same
           setting is available when you select a vehicle in the yard. To receive supplies while
-          paving, set your forklift to <b>Receiving only</b> and your excavator to
-          <b>Paving only</b>, with an operator for each machine.
+          paving, check only <b>Receiving deliveries</b> for your forklift and only
+          <b>Paving</b> for your excavator, with an operator for each machine.
         </p>
         <p>
-          <b>All work</b> returns a machine to shared assignments. Other choices are
-          <b>Building only</b>, <b>Rail work only</b> for an excavator, <b>Recovery only</b>, and
-          <b>Hold new work</b>. Paving includes the foundations beneath buildings; Building only
-          covers installing the structure once its foundation is ready.
+          Open the dropdown and check any combination of receiving deliveries, paving, building,
+          rail work (excavator), and recovery / dismantling. <b>All</b> selects every kind;
+          <b>None</b> holds new automatic work. Paving includes the foundations beneath buildings;
+          Building covers installing the structure once its foundation is ready.
         </p>
         <p>
           A role change lets the current job or unloading batch finish safely first. The selector
           shows when that switch is pending. Direct driving, deployment, and refueling remain
           available. Job assignments respect the role even when you choose their operator manually.
-          Roles are saved with the yard; older saves default to All work.
+          Selections are saved with the yard; older saves retain their original role. SQL exposes
+          the complete list in <code>equipment.allowedWork</code> and its readable summary in
+          <code>equipment.automaticWork</code>.
         </p>
         <h3>Work orders and urgent assignments</h3>
         <p>
@@ -417,24 +423,26 @@
         </p>
         <p>
           In <b>Purchase</b>, enter each quantity and click <b>Add</b> to collect a batch. Different
-          worker roles can share one bus; different material types can share one truck or train load.
-          Choose <b>Material transport</b> to compare road and rail packing. The preview shows cargo
-          weight, planned carriers, and total cost before <b>Place batch order</b> commits the request.
-          The per-row <b>Hire</b> and <b>Order</b> buttons still order immediately.
+          worker roles can share one bus; different material types can share one truck or train
+          load. Choose <b>Material transport</b> to compare road and rail packing. The preview shows
+          cargo weight, planned carriers, and total cost before <b>Place batch order</b> commits the
+          request. The per-row <b>Hire</b> and <b>Order</b> buttons still order immediately.
         </p>
         <p>
-          Catalog rows show unit weight and quantity weight in kg or metric tons (t). A truck carries
-          at most 12 t on a 6 m deck; a train load carries at most 48 t on a 16 m flatcar. Physical
-          stack dimensions can fill the deck before its weight limit. Buses have 12 seats, and mixed
-          roles share those seats. Equipment and utility services use dedicated road deliveries;
-          selecting rail applies to materials. Each packed carrier has its own transport charge.
-          The delivery charge pays for transport; it does not supply a free unloading machine.
+          Catalog rows show unit weight and quantity weight in kg or metric tons (t). A truck
+          carries at most 12 t on a 6 m deck; a train load carries at most 48 t on a 16 m flatcar.
+          Physical stack dimensions can fill the deck before its weight limit. Buses have 12 seats,
+          and mixed roles share those seats. Equipment and utility services use dedicated road
+          deliveries; selecting rail applies to materials. Each packed carrier has its own transport
+          charge. The delivery charge pays for transport; it does not supply a free unloading
+          machine.
         </p>
         <p>
           Deliveries and their inspectors show the complete manifest, received quantity for each
           item, and full cargo weight. Mixed cargo retains its original deck positions during
           unloading. Saving preserves each line's progress; older single-item orders keep their
-          contents. SQL <code>order_lines</code> exposes those line quantities and weights for analysis.
+          contents. SQL <code>order_lines</code> exposes those line quantities and weights for
+          analysis.
         </p>
         <p>
           Road vehicles keep right. Buses stop at the curb and continue forward after everyone has
@@ -729,7 +737,7 @@
           design vision recorded in the project documents.
         </p>
         <div class="footer">
-          Plant 01 · Starter Yard 0.9.0 · Built locally with Three.js and sql.js · See the included
+          Plant 01 · Starter Yard 0.10.0 · Built locally with Three.js and sql.js · See the included
           README, architecture notes, and test record for technical details.
         </div>
       </article>

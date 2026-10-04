@@ -6,7 +6,7 @@ import {
   orderMass,
 } from './procurement';
 import type { State } from './types';
-import { EQUIPMENT_ROLES } from './equipment-roles';
+import { EQUIPMENT_ROLES, EQUIPMENT_ACTIVITIES } from './equipment-roles';
 import { MATERIALS, EQUIPMENT, ROLES, SERVICES } from './catalog';
 const fail = (message: string): never => {
   throw new Error(`Invalid save: ${message}.`);
@@ -208,6 +208,17 @@ export function validateState(value: any): asserts value is State {
     )
       fail('invalid equipment work role');
     if (
+      e.allowedWork !== undefined &&
+      (!Array.isArray(e.allowedWork) ||
+        e.allowedWork.length > 5 ||
+        new Set(e.allowedWork).size !== e.allowedWork.length ||
+        !e.allowedWork.every(
+          (activity: unknown) =>
+            typeof activity === 'string' && Object.hasOwn(EQUIPMENT_ACTIVITIES, activity),
+        ))
+    )
+      fail('invalid equipment automatic activities');
+    if (
       !point(e) ||
       !motion(e) ||
       !path(e.path) ||
@@ -222,6 +233,17 @@ export function validateState(value: any): asserts value is State {
       e.tank <= 0
     )
       fail('invalid equipment');
+    if (
+      e.assemblyLoad &&
+      !s.jobs.some(
+        (j: any) =>
+          j.id === e.assemblyLoad.job &&
+          j.status === 'doing' &&
+          j.equipment === e.id &&
+          j.shedAssembly,
+      )
+    )
+      fail('orphaned shed component load');
     if (
       e.cargo &&
       (!(e.cargo.item in MATERIALS) ||
@@ -297,6 +319,84 @@ export function validateState(value: any): asserts value is State {
           )))
     )
       fail('active job has missing crew or equipment');
+    if (j.shedAssembly) {
+      const h = j.shedAssembly;
+      const pose = (p: any) => point(p) && finite(p.y) && finite(p.yaw);
+      if (
+        j.kind !== 'shed' ||
+        ![
+          'stage',
+          'unpack',
+          'anchor',
+          'collect',
+          'rig',
+          'lift',
+          'carry',
+          'lower',
+          'fasten',
+          'withdraw',
+          'complete',
+        ].includes(h.phase) ||
+        !finite(h.clock) ||
+        h.clock < 0 ||
+        !pose(h.kitPose) ||
+        typeof h.recovering !== 'boolean' ||
+        ![
+          ['anchors', 6],
+          ['posts', 6],
+          ['beams', 3],
+          ['roofSheets', 4],
+          ['wallPanels', 2],
+          ['braces', 1],
+        ].every(([name, max]) => Number.isInteger(h[name]) && h[name] >= 0 && h[name] <= max) ||
+        (h.dock && !point(h.dock)) ||
+        (h.workerPoint && !point(h.workerPoint)) ||
+        (h.ladder &&
+          (!point(h.ladder) ||
+            !finite(h.ladder.height) ||
+            h.ladder.height < 0 ||
+            h.ladder.height > 6)) ||
+        (h.part &&
+          (!['post', 'beam', 'roof', 'wall', 'brace'].includes(h.part.kind) ||
+            !Number.isInteger(h.part.index) ||
+            h.part.index < 0 ||
+            h.part.index >=
+              ({ post: 6, beam: 3, roof: 4, wall: 2, brace: 1 } as any)[h.part.kind] ||
+            ![h.part.pose, h.part.from, h.part.to].every(pose) ||
+            (h.part.carried !== undefined && typeof h.part.carried !== 'boolean')))
+      )
+        fail('invalid staged shed assembly');
+      if (
+        j.status === 'doing' &&
+        !['stage', 'unpack'].includes(h.phase) &&
+        (!j.delivered || s.equipment.some((e: any) => e.id === j.equipment && e.cargo))
+      )
+        fail('invalid shed kit ownership');
+      if (
+        j.status === 'doing' &&
+        !['stage', 'unpack', 'anchor', 'withdraw', 'complete'].includes(h.phase) &&
+        !h.part
+      )
+        fail('missing active shed component');
+    }
+    const machine = s.equipment.find((e: any) => e.id === j.equipment);
+    if (machine?.assemblyLoad) {
+      const a = machine.assemblyLoad;
+      if (
+        j.status !== 'doing' ||
+        !j.shedAssembly?.part ||
+        !['lift', 'carry', 'lower'].includes(j.shedAssembly.phase) ||
+        a.job !== j.id ||
+        a.kind !== j.shedAssembly.part.kind ||
+        machine.cargo ||
+        ![a.length, a.width, a.yawOffset].every(finite) ||
+        a.length <= 0 ||
+        a.length > 10 ||
+        a.width <= 0 ||
+        a.width > 10
+      )
+        fail('invalid carried shed component');
+    }
     if (j.handling) {
       const h = j.handling;
       const pose = (p: any) => point(p) && finite(p.y) && finite(p.yaw);

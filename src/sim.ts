@@ -3,6 +3,7 @@ export { packPurchase as planPurchaseBatch } from './procurement';
 import { tickWorkforce, workerAvailable } from './workforce';
 import { recordEquipmentTravel } from './ground-wear';
 import { tickRailWork } from './railwork';
+import { tickShedConstruction } from './shed-construction';
 import {
   constructionSourceBusy,
   syncConstructionLoad,
@@ -15,7 +16,15 @@ import {
   equipmentReservedForJob,
   equipmentCanDoJob,
 } from './jobs';
-import { EQUIPMENT_ROLES, equipmentAllows, equipmentRole, jobActivity } from './equipment-roles';
+import {
+  EQUIPMENT_ROLES,
+  EQUIPMENT_ACTIVITIES,
+  equipmentActivities,
+  equipmentWorkSummary,
+  equipmentAllows,
+  equipmentRole,
+  jobActivity,
+} from './equipment-roles';
 import { leaveMachine, boardMachine, tickBoarding, machineStep } from './boarding';
 import {
   staticObstacleRects,
@@ -75,6 +84,7 @@ import {
   requestUnloading,
   migrateRoadDrive,
   constructionStorageClearance,
+  syncDeliveryCargo,
 } from './delivery';
 const PREFIX: Record<string, string> = {
   worker: 'WRK',
@@ -159,7 +169,12 @@ export const obstacles = (s: State) => [...staticObstacleRects(s), ...carrierRec
 // Choose a work approach whose actual chassis and tools fit beside the target.
 // Other machines can occupy an otherwise valid grid cell, so a nearest-point
 // perimeter search alone is not enough for a live yard.
-function machineApproach(s: State, e: Equipment, target: Rect): Point[] | null {
+function machineApproach(
+  s: State,
+  e: Equipment,
+  target: Rect,
+  forwardOnly = false,
+): Point[] | null {
   const obs = obstacles(s),
     candidates: Point[] = [];
   for (const gap of [2.5, 3.5]) {
@@ -178,7 +193,7 @@ function machineApproach(s: State, e: Equipment, target: Rect): Point[] | null {
   for (const p of candidates) {
     let reverse = !!e.reverse;
     let path = machineRoute(s, e, p, pedestrianObstacles(s), 350, true);
-    if (!path) {
+    if (!path && !forwardOnly) {
       reverse = !reverse;
       path = machineRoute(s, { ...e, reverse }, p, pedestrianObstacles(s), 350, true);
     }
@@ -210,8 +225,9 @@ export function setEquipmentRole(s: State, eid: string, role: EquipmentWorkRole)
   if (!e) return 'Equipment not found.';
   if (typeof role !== 'string' || !Object.hasOwn(EQUIPMENT_ROLES, role))
     return 'Choose a valid equipment work role.';
-  if (equipmentRole(e) === role) return '';
+  if (equipmentRole(e) === role && e.allowedWork === undefined) return '';
   e.workRole = role;
+  delete e.allowedWork;
   // The current job or unloading batch retains its crew, cargo, and reservation.
   // Only the next assignment is filtered by the new role.
   event(
@@ -219,6 +235,39 @@ export function setEquipmentRole(s: State, eid: string, role: EquipmentWorkRole)
     'Equipment',
     e.id,
     `Automatic work set to ${EQUIPMENT_ROLES[role]}. Current work finishes safely before reassignment.`,
+  );
+  s.revision++;
+  for (const o of s.orders) if (o.status === 'unloading' && !o.unload) o.retryAt = undefined;
+  return '';
+}
+export function setEquipmentActivities(
+  s: State,
+  eid: string,
+  activities: import('./types').EquipmentActivity[],
+): string {
+  const e = s.equipment.find((e) => e.id === eid);
+  if (!e) return 'Equipment not found.';
+  if (
+    !Array.isArray(activities) ||
+    activities.length > 5 ||
+    new Set(activities).size !== activities.length ||
+    !activities.every(
+      (activity) => typeof activity === 'string' && Object.hasOwn(EQUIPMENT_ACTIVITIES, activity),
+    )
+  )
+    return 'Choose valid automatic work kinds.';
+  const next = (Object.keys(EQUIPMENT_ACTIVITIES) as import('./types').EquipmentActivity[]).filter(
+    (activity) => activities.includes(activity),
+  );
+  if (JSON.stringify(equipmentActivities(e)) === JSON.stringify(next)) return '';
+  e.allowedWork = next;
+  e.workRole = next.length === 0 ? 'hold' : next.length === 1 ? next[0] : 'all';
+  // Retain all crew, load, and material ownership until the existing operation finishes.
+  event(
+    s,
+    'Equipment',
+    e.id,
+    `Automatic work set to ${equipmentWorkSummary(e)}. Current work finishes safely before reassignment.`,
   );
   s.revision++;
   for (const o of s.orders) if (o.status === 'unloading' && !o.unload) o.retryAt = undefined;
@@ -544,6 +593,11 @@ function pedestrianObstacles(s: State) {
   return staticObstacleRects(s);
 }
 function stepAside(s: State, w: Worker, e: Equipment) {
+  if (
+    (w.y || 0) > 0.15 ||
+    s.jobs.some((j) => j.worker === w.id && j.status === 'doing' && j.shedAssembly?.ladder)
+  )
+    return;
   if (w.duty !== 'auto' || w.path.length || w.vehicle || w.transition || w.transportOrder) return;
   const destination = e.path[e.path.length - 1];
   if (dist(w, e) > 8 && (!destination || dist(w, destination) > 5)) return;
@@ -654,7 +708,22 @@ function tickMove(s: State, p: Worker | Equipment, dt: number, speed: number) {
   }
   if (s.elapsed < (p.trafficRetry || 0)) return;
   p.trafficRetry = s.elapsed + 1.5;
-  const goal = p.path[p.path.length - 1];
+  const otherMachine = vehicle ? s.equipment.find((e) => e.id === blocker) : undefined;
+  // A yielding waypoint can become occupied after the other machine completes
+  // its trip. Resume the original destination rather than repeatedly routing
+  // into an obsolete escape endpoint beside its parked load and forks.
+  const resumeGoal =
+    vehicle &&
+    p.trafficGoal &&
+    otherMachine &&
+    !otherMachine.path.length &&
+    !otherMachine.work &&
+    !otherMachine.job &&
+    !otherMachine.deliveryOrder &&
+    !otherMachine.transportOrder
+      ? p.trafficGoal
+      : undefined;
+  const goal = resumeGoal || p.path[p.path.length - 1];
   // Replan around stationary people or parked machines; a crossing person simply gets right of way.
   const otherWorker = s.workers.find((w) => w.id === blocker);
   if (vehicle && otherWorker?.path.length) return;
@@ -666,7 +735,6 @@ function tickMove(s: State, p: Worker | Equipment, dt: number, speed: number) {
       )
         stepAside(s, w, p);
     }
-  const otherMachine = vehicle ? s.equipment.find((e) => e.id === blocker) : undefined;
   if (
     vehicle &&
     otherMachine &&
@@ -778,6 +846,7 @@ function tickMove(s: State, p: Worker | Equipment, dt: number, speed: number) {
   }
   if (path?.length) {
     p.path = path;
+    if (resumeGoal) p.trafficGoal = undefined;
     p.trafficWait = 0;
   }
 }
@@ -974,7 +1043,7 @@ export function cancelJob(s: State, jid: string) {
     j.reason = 'Finish pouring this service can, then stop refueling.';
     return;
   }
-  if (j.phase === 'Return recovered kit') {
+  if (['Withdraw recovered kit', 'Return recovered kit'].includes(j.phase)) {
     j.reason = 'Recovery is already carrying the kit back to storage.';
     return;
   }
@@ -1183,7 +1252,10 @@ function assign(s: State, j: Job) {
     return;
   }
   if (requested && !equipmentCanDoJob(requested, j)) {
-    j.reason = `Assigned ${requested.id} cannot lift or handle this load`;
+    j.reason =
+      j.kind === 'shed'
+        ? `Assigned ${requested.id} cannot erect the shed; assign an excavator`
+        : `Assigned ${requested.id} cannot lift or handle this load`;
     return;
   }
   const worker =
@@ -1263,7 +1335,7 @@ function assign(s: State, j: Job) {
           !e.path.length &&
           allowed(e) &&
           (!e.operator || e.operator === candidate.id) &&
-          (j.kind !== 'rail' || e.kind === 'excavator') &&
+          (!['rail', 'shed'].includes(j.kind) || e.kind === 'excavator') &&
           EQUIPMENT[e.kind].capacity >= mass &&
           e.fuel > 0.2,
       )
@@ -1279,25 +1351,28 @@ function assign(s: State, j: Job) {
       (e) =>
         !e.job &&
         allowed(e) &&
-        (j.kind !== 'rail' || e.kind === 'excavator') &&
+        (!['rail', 'shed'].includes(j.kind) || e.kind === 'excavator') &&
         EQUIPMENT[e.kind].capacity >= mass &&
         e.fuel <= 0.2,
     )
       ? 'Equipment needs diesel — request refueling'
       : s.equipment.some(
             (e) =>
-              (j.kind !== 'rail' || e.kind === 'excavator') && EQUIPMENT[e.kind].capacity >= mass,
+              (!['rail', 'shed'].includes(j.kind) || e.kind === 'excavator') &&
+              EQUIPMENT[e.kind].capacity >= mass,
           ) &&
           !s.equipment.some(
             (e) =>
               allowed(e) &&
-              (j.kind !== 'rail' || e.kind === 'excavator') &&
+              (!['rail', 'shed'].includes(j.kind) || e.kind === 'excavator') &&
               EQUIPMENT[e.kind].capacity >= mass,
           )
         ? `No suitable machine allows ${EQUIPMENT_ROLES[jobActivity(j)].replace(' only', '').toLowerCase()} — change Automatic work in Equipment`
         : j.kind === 'rail'
           ? 'Need an available excavator for rail laying and buffer handling'
-          : 'Need available equipment with enough lift capacity';
+          : j.kind === 'shed'
+            ? 'Need an available excavator to erect and lift shed components'
+            : 'Need available equipment with enough lift capacity';
     return;
   }
   if (!operator) return;
@@ -1377,7 +1452,51 @@ function assign(s: State, j: Job) {
 }
 function recoveryDestination(s: State, j: Job, e: Equipment) {
   const clearance = constructionStorageClearance(s);
-  const loaded = { ...e, cargo: { item: j.item!, qty: 1 } };
+  const loaded = { ...e, reverse: false, cargo: { item: j.item!, qty: 1 } };
+  const returnRoute = (target: Rect) => {
+    const probe = { ...loaded, reverse: false };
+    const direct = machineApproach(s, probe, target);
+    if (!direct) return undefined;
+    if (!probe.reverse) return { path: direct, withdrawal: false };
+    // The approach planner can find a reverse route when a wide recovered load
+    // cannot turn beside its old site. Execute its straight withdrawal in the
+    // same gear it was planned in, then drive forward once there is turning room.
+    const candidates = [
+      direct[0],
+      ...[4, 6, 8, 10].map((distance) =>
+        localPoint({ ...loaded, yaw: loaded.yaw ?? (loaded.heading * Math.PI) / 2 }, -distance, 0),
+      ),
+    ];
+    for (const clear of candidates) {
+      if (!clear || dist(loaded, clear) < 1) continue;
+      const facing = loaded.yaw ?? (loaded.heading * Math.PI) / 2;
+      if (
+        Math.abs(angleDelta(facing + Math.PI, Math.atan2(clear.z - loaded.z, clear.x - loaded.x))) >
+        0.005
+      )
+        continue;
+      const withdrawal = machineRoute(
+        s,
+        { ...loaded, reverse: true },
+        clear,
+        pedestrianObstacles(s),
+        120,
+        true,
+      );
+      if (
+        !withdrawal ||
+        withdrawal.some(
+          (p) =>
+            Math.abs(angleDelta(facing + Math.PI, Math.atan2(p.z - loaded.z, p.x - loaded.x))) >
+            0.005,
+        )
+      )
+        continue;
+      const after = { ...loaded, ...clear, yaw: facing, reverse: false };
+      if (machineApproach(s, after, target, true)) return { path: withdrawal, withdrawal: true };
+    }
+    return undefined;
+  };
   for (const stack of s.stacks.filter(
     (t) =>
       t.item === j.item &&
@@ -1392,12 +1511,12 @@ function recoveryDestination(s: State, j: Job, e: Equipment) {
           .reduce((n, k) => n + (k.recoveryStack?.qty || 0), 0) <
         MATERIALS[t.item].max,
   )) {
-    const path = machineApproach(s, loaded, stack);
-    if (path) return { spot: stack as Rect, merge: stack, path };
+    const drive = returnRoute(stack);
+    if (drive) return { spot: stack as Rect, merge: stack, ...drive };
   }
-  let path: Point[] | null = null;
-  const spot = allocate(s, j.item!, e, (r) => !!(path = machineApproach(s, loaded, r)));
-  return spot && path ? { spot, merge: undefined, path } : undefined;
+  let drive: { path: Point[]; withdrawal: boolean } | undefined;
+  const spot = allocate(s, j.item!, e, (r) => !!(drive = returnRoute(r)));
+  return spot && drive ? { spot, merge: undefined, ...drive } : undefined;
 }
 function tickJob(s: State, j: Job, dt: number) {
   if (j.status !== 'doing') return;
@@ -1577,6 +1696,17 @@ function tickJob(s: State, j: Job, dt: number) {
     })
   )
     return;
+  if (
+    tickShedConstruction(s, j, dt, {
+      id,
+      obstacles,
+      movement,
+      event,
+      complete,
+      release: finishRelease,
+    })
+  )
+    return;
   if (j.phase === 'Board equipment' && !op.path.length) {
     if (op.transition) return;
     if (op.vehicle !== e.id) {
@@ -1673,7 +1803,7 @@ function tickJob(s: State, j: Job, dt: number) {
           j.reason = 'Recovery needs accessible storage space';
           return;
         }
-        const { spot, merge, path } = destination;
+        const { spot, merge, path, withdrawal } = destination;
         const b = recoveryTarget(s, j.target)!;
         if (b.kind === 'slab') delete s.paving[key(b.x, b.z)];
         else if (b.kind === 'rail') {
@@ -1711,8 +1841,9 @@ function tickJob(s: State, j: Job, dt: number) {
           assetId: b.kind === 'slab' || b.kind === 'rail' ? undefined : b.id,
         }; // Load the recovered kit, then haul it before it enters stock.
         e.cargo = { item: j.item!, qty: 1 };
-        j.phase = 'Return recovered kit';
+        j.phase = withdrawal ? 'Withdraw recovered kit' : 'Return recovered kit';
         j.recoveryStack = t;
+        e.reverse = withdrawal;
         e.path = path;
         s.revision++;
         return;
@@ -1795,10 +1926,20 @@ function tickJob(s: State, j: Job, dt: number) {
       );
       complete(s, j);
     }
+  } else if (j.phase === 'Withdraw recovered kit' && !e.path.length) {
+    e.reverse = false;
+    const path = machineApproach(s, e, j.recoveryStack!, true);
+    if (!path) {
+      j.reason = 'Waiting for a clear forward route from the withdrawal position';
+      return;
+    }
+    e.path = path;
+    j.phase = 'Return recovered kit';
+    j.reason = '';
   } else if (j.phase === 'Return recovered kit' && !e.path.length) {
     let t = j.recoveryStack!;
     if (dist(e, center(t)) > Math.max(t.w, t.d) / 2 + 3.6) {
-      let path = machineApproach(s, e, t);
+      let path = machineApproach(s, e, t, true);
       if (!path) {
         const destination = recoveryDestination(s, j, e);
         if (destination) {
@@ -1811,6 +1952,8 @@ function tickJob(s: State, j: Job, dt: number) {
             source: j.id,
           };
           path = destination.path;
+          e.reverse = destination.withdrawal;
+          if (destination.withdrawal) j.phase = 'Withdraw recovered kit';
           s.revision++;
         }
       }
@@ -1896,6 +2039,7 @@ export function tick(s: State, dt: number) {
       }
     }
   }
+  syncDeliveryCargo(s);
   for (const o of s.orders) {
     const c = o.contractor;
     if (!c || c.phase === 'seated' || !c.path.length) continue;
@@ -1942,6 +2086,9 @@ export function tick(s: State, dt: number) {
 }
 export function totals(s: State, item: Item) {
   return {
+    inConstruction: s.jobs.filter(
+      (j) => j.status === 'doing' && j.kind === item && j.delivered && j.shedAssembly,
+    ).length,
     stored: s.stacks.filter((t) => t.item === item).reduce((n, t) => n + t.qty, 0),
     reserved: s.stacks.filter((t) => t.item === item).reduce((n, t) => n + t.reserved, 0),
     cargo: s.equipment

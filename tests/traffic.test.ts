@@ -312,6 +312,9 @@ test('a machine stopped during a turn creates clearance along its current headin
   );
   assert.ok(Math.hypot(excavator.x - 26.5, excavator.z - 45.5) < 0.1);
   assert.ok(Math.hypot(forklift.x - 10.5, forklift.z - 39.5) < 0.1);
+  assert.equal(excavator.trafficGoal, undefined, 'The obsolete yielding endpoint must be released');
+  assert.equal(excavator.trafficReverse, undefined);
+  assert.equal(forklift.cargo?.item, 'slab', 'The parked loaded forklift must keep its real cargo');
 });
 
 test('a machine reroutes around newly placed stock instead of sweeping its tracks through it', () => {

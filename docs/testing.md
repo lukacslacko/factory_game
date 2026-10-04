@@ -1,6 +1,6 @@
 # Starter Yard validation
 
-This record documents vehicle roles and physical slab handling for version 0.5, while preserving the earlier traffic, rail, and rendering checks. It does not certify every browser, an arbitrary large factory, or an unattended multi-hour soak.
+This record includes version 0.10 forklift support, work checklists, and staged shed assembly, alongside the earlier handling, traffic, and rendering checks. It does not certify every browser, an arbitrary large factory, or an unattended multi-hour soak.
 
 ## Simulation and motion regressions
 
@@ -158,3 +158,17 @@ Terrain regressions run the actual landscape geometry builder and compare every 
 The full sequential simulation suite passes **175/175** tests in **116.81 seconds**, with no failures or skipped tests and a 384 MB JavaScript heap cap per test process. Browser verification runs separately. The existing balanced Willow Siding example is retained as a compatible prior-release save; it is not a newly generated v0.9 example.
 
 The final integrated browser check passes with no page or console errors. It orders six mixed-role workers on one bus, previews the same 8,355 kg manifest as two road loads or one rail load, checks six line-level SQL rows and save validation, and verifies procurement at 1440/1024/768 pixels. The turnaround and receiving hardstanding screenshot was inspected and no longer has the reported diagonal stripes. All 18 register/width combinations, controls, roles, shifts, diagnostics, interpolated work animations, real-time controls, and maximum-map wear rendering pass. The production build and independent production-browser check pass version 0.9.0 menu/guide, local SQL assets, older saved yards, the existing 147-job example, and loaded guide images with no console warnings, errors, failed requests, or external requests. These browser and build checks follow the simulation run; simulation inputs remain unchanged.
+
+## Version 0.10 support, checklist, and construction coverage
+
+Fork geometry regressions raycast the actual tines at both rail-panel bearing locations across working reach positions. Delivery checks cover retracting travel, person clearance during reach changes, and conserved rail cargo. The browser checks sample seven interpolated frames during rail and slab travel and lowering, measuring actual tine contact, fixed tine lengths, carriage support, and frame displacement.
+
+Automatic work regressions cover multiple selected activities, legacy roles, explicit assignments, saved selections, and invalid imports. Browser controls exercise the register and inspector, keep a focused checkbox through running refreshes, and close the checklist with Escape while retaining the selected equipment.
+
+Shed regressions exercise staging and unpacking, each anchor and component phase, operator and builder participation, elevated fastening on a supplied ladder, rotated construction, mid-lift saves, old forklift handoff, partial cancellation, and kit balance throughout assembly. Browser checks inspect the actual partial and completed models, component counts, smooth load/tool motion, and worker climbing. The finished building is absent until its last component is fastened. Actual screenshots are captured from live simulation snapshots, rather than generated illustrations.
+
+The wider suite also covers a recovered office backing clear before turning beside the longer forks, and a yielding machine returning to its original destination after its blocker parks. Existing collision checks remain active in these scenarios.
+
+The final frozen implementation passes **189/189** sequential simulation regressions in **109.84 seconds**, with no failures, cancellations, or skipped tests and a 384 MB heap cap. The integrated browser suite passes with no page or console errors, including all five shed component types, ladder climbing, supported rail/slab loads, retained checklist focus, and all 18 register/width combinations. The contact tests measure actual cargo/tine meshes; the motion bound accounts for chassis travel, turn radius, extension and lift. Worker-clearance pauses are retained, with interpolation sampled during an advancing tick.
+
+The final production check passes version 0.10.0 menu/guide, local SQL/WebAssembly, absence of the development harness, older nighttime and 147-job example imports, all three guide images, and the guide at 768 pixels. No page errors, console warnings, failed requests, or external asset requests were observed. A paused-yard sample averaged 16.67 ms per frame on this Mac; it is not a large-factory performance guarantee. The complete source/test fingerprint and deployed build hashes are recorded in the local release package.

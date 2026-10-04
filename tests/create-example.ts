@@ -67,7 +67,7 @@ for (const item of [
   'fence',
 ] as const) {
   const total = S.totals(s, item);
-  if (total.delivered !== total.stored + total.cargo + total.installed)
+  if (total.delivered !== total.stored + total.cargo + total.inConstruction + total.installed)
     throw new Error(`Example inventory is not balanced: ${item}`);
 }
 if (s.version !== 4 || s.workers.some((w, i) => w.name !== `Worker #${i + 1}`))

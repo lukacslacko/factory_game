@@ -123,7 +123,7 @@ export function equipmentCanDoJob(e: Equipment, j: Job, s?: State): boolean {
           : (s.buildings.find((b) => b.id === j.target)?.kind as Item | undefined)
       : undefined);
   return (
-    (j.kind !== 'rail' || e.kind === 'excavator') &&
+    (!['rail', 'shed'].includes(j.kind) || e.kind === 'excavator') &&
     !(j.kind === 'remove' && s && !item) &&
     EQUIPMENT[e.kind].capacity >= (MATERIALS[item!]?.mass || 1)
   );
@@ -143,7 +143,7 @@ export function setJobEquipment(s: State, workId: string, equipmentId?: string):
     );
     work.preferredEquipment = old;
     if (impossible)
-      return `${equipmentId} cannot perform ${label(impossible.kind)}; rail laying requires an excavator and other loads must fit its lift capacity.`;
+      return `${equipmentId} cannot perform ${label(impossible.kind)}; ${impossible.kind === 'shed' ? 'shed erection requires an excavator' : impossible.kind === 'rail' ? 'rail laying requires an excavator' : 'the load must fit its lift capacity'}.`;
   }
   work.preferredEquipment = equipmentId;
   work.equipmentPriority = equipmentId ? s.next : undefined;

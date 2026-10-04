@@ -6,7 +6,7 @@ The world uses a true perspective 3D camera, with a meter grid, dimensional stoc
 
 ## Play
 
-The private game Site is **https://plant-01-starter-yard.lukacslacko.chatgpt.site**. This package documents version **0.9.0**; deployment status is recorded in `docs/publishing.md`. Sign in with the account that owns the Site. Local and hosted browser saves are separate; use Export save / Import save to transfer a yard.
+The private game Site is **https://plant-01-starter-yard.lukacslacko.chatgpt.site**. This package documents version **0.10.0**; deployment status is recorded in `docs/publishing.md`. Sign in with the account that owns the Site. Local and hosted browser saves are separate; use Export save / Import save to transfer a yard.
 
 On this Mac, double-click **Start Plant 01.command**. It starts the included local server and opens the game at **http://127.0.0.1:4173/**. Keep its Terminal window open while playing; Control-C stops the server.
 
@@ -40,6 +40,12 @@ Open **manual.html** through the local server for the illustrated player guide, 
 - Inspect materials, workers, equipment, structures, deliveries, jobs, events, material movements, actual costs, and outstanding commitments. Track notifications in To do / Doing / Done.
 - Query a fresh SQLite reporting snapshot and export costs as CSV. Autosave locally, export/import a portable save, and restore the previous yard backup.
 
+## Version 0.10 handling and assembly update
+
+Forklift loads sit over the working lengths of both forks, with rail panels carried across them rather than balanced at their tips. Automatic work uses a dropdown checklist so a machine can share several chosen job kinds. Shed construction proceeds through visible anchors, posts, beams, roof sheets, wall panels, and bracing; the inspector reports installed parts, and materials in an unfinished assembly remain in the inventory balance. Shed erection requires an excavator; the forklift can receive the packed kit. An assembly ladder supplied with the kit lets workers reach the elevated fastening points.
+
+Actual gameplay captures: [supported forklift cargo](forklift-load-preview.png) and [shed roof assembly](shed-assembly-preview.png).
+
 ## Ordering a batch
 
 Open **Purchase**, enter a quantity on each catalog row, and click **Add**. Add builders and operators to share a bus, or slabs, rail panels, poles, and other materials to share freight. Choose **Material transport** to compare truck and rail packing. The batch summary shows cargo weight, planned material loads, crew buses, dedicated deliveries, and total cost. Use **Place batch order** to commit the entire request. **Hire** and **Order** still place an individual row immediately.
@@ -54,11 +60,11 @@ Paving now uses the actual top slab in its stack. The machine faces the loading 
 
 ## Assigning vehicles to work
 
-Open **Equipment** and use each vehicle's **Automatic work** selector. You can also select a vehicle in the yard and change the same setting in its inspector. For simultaneous deliveries and paving, choose **Receiving only** for the forklift and **Paving only** for the excavator, with an available operator for each.
+Open **Equipment** and open each vehicle's **Automatic work** dropdown. The same checklist appears when you select a vehicle in the yard. Check any combination of **Receiving deliveries**, **Paving**, **Building**, **Rail work** (excavator), and **Recovery / dismantling**. For simultaneous deliveries and paving, check only Receiving deliveries for the forklift and only Paving for the excavator, with an available operator for each.
 
-**All work** keeps the original shared pool. Other choices are **Building only**, **Rail work only** (excavator), **Recovery only**, and **Hold new work**. Paving includes building foundations; Building only covers the structure after its foundation is ready. Roles also apply when assigning an automatic job to a controlled operator. Direct driving, equipment deployment, and refueling remain available regardless of role.
+**All** restores the shared pool; **None** holds new automatic work. Paving includes building foundations; Building covers the structure after its foundation is ready. Direct driving, equipment deployment, and refueling remain available. Explicit equipment assignments in Work override these automatic selections after current handling finishes safely.
 
-Changes take effect after the current construction job or unloading batch finishes safely. The selector shows when a switch is waiting for current work. A receiving machine cannot be borrowed for paving, and a paving machine cannot be borrowed to unload. Blocked work explains when role settings exclude every suitable machine. Roles persist in saves and appear as `equipment.workRole` in SQL; older saves default to All work.
+Changes preserve the current construction job or unloading batch until it finishes safely. The dropdown shows when a change is waiting for current work. Blocked jobs explain when the selected kinds exclude every suitable machine. Selections persist in saves; older saves retain their original single role or default to All work. SQL exposes the complete list in `equipment.allowedWork` and its readable summary in `equipment.automaticWork`; `equipment.workRole` remains available for older queries.
 
 ## Work orders, parking, and shifts
 

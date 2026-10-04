@@ -2,7 +2,13 @@ import './styles.css';
 import { World } from './world';
 import { orderLines, orderDescription, orderMass } from './procurement';
 import * as Sim from './sim';
-import { EQUIPMENT_ROLES, equipmentRole, equipmentAllows, jobActivity } from './equipment-roles';
+import {
+  EQUIPMENT_ACTIVITIES,
+  equipmentActivities,
+  equipmentWorkSummary,
+  equipmentAllows,
+  jobActivity,
+} from './equipment-roles';
 import {
   MATERIALS,
   BUILDINGS,
@@ -24,7 +30,7 @@ import type {
   BuildKind,
   Worker,
   Equipment,
-  EquipmentWorkRole,
+  EquipmentActivity,
   Job,
 } from './types';
 import { SQL_EXAMPLES, query, csv } from './reports';
@@ -488,22 +494,48 @@ function locateAny(id: string) {
 }
 const details = (rows: [string, unknown][]) =>
   `<dl>${rows.map(([k, v]) => `<dt>${k}</dt><dd>${linkCells(String(v))}</dd>`).join('')}</dl>`;
-function equipmentRoleControl(e: Equipment) {
+function equipmentPendingWork(e: Equipment) {
   const active = e.job ? state.jobs.find((j) => j.id === e.job) : undefined;
-  const finishing =
-    e.deliveryOrder && !equipmentAllows(e, 'receiving')
-      ? 'After current unloading batch'
-      : active && !equipmentAllows(e, jobActivity(active))
-        ? 'After current job'
-        : '';
-  return `<select class="equipment-role" data-equipment-role="${esc(e.id)}" aria-label="Automatic work for ${esc(e.id)}">${Object.entries(
-    EQUIPMENT_ROLES,
+  return e.deliveryOrder && !equipmentAllows(e, 'receiving')
+    ? 'After current unloading batch'
+    : active && !equipmentAllows(e, jobActivity(active))
+      ? 'After current job'
+      : '';
+}
+function equipmentRoleControl(e: Equipment) {
+  const selected = equipmentActivities(e),
+    finishing = equipmentPendingWork(e);
+  return `<div class="equipment-work-control"><details class="equipment-role" data-equipment-work="${esc(e.id)}"><summary aria-label="Automatic work for ${esc(e.id)}">${esc(equipmentWorkSummary(e))}</summary><div class="equipment-work-options" popover="manual" role="group" aria-label="Automatic job kinds for ${esc(e.id)}"><div class="equipment-work-presets"><button type="button" data-equipment-work-preset="all" data-equipment-id="${esc(e.id)}">All</button><button type="button" data-equipment-work-preset="none" data-equipment-id="${esc(e.id)}">None</button></div>${Object.entries(
+    EQUIPMENT_ACTIVITIES,
   )
     .map(
-      ([value, text]) =>
-        `<option value="${value}" ${equipmentRole(e) === value ? 'selected' : ''} ${value === 'rail' && e.kind !== 'excavator' ? 'disabled' : ''}>${text}</option>`,
+      ([activity, text]) =>
+        `<label ${activity === 'rail' && e.kind !== 'excavator' ? 'title="Rail construction requires an excavator"' : ''}><input type="checkbox" data-equipment-activity="${esc(e.id)}" value="${activity}" ${selected.includes(activity as EquipmentActivity) ? 'checked' : ''} ${activity === 'rail' && e.kind !== 'excavator' ? 'disabled' : ''}> ${text}${activity === 'rail' && e.kind !== 'excavator' ? ' · excavator' : ''}</label>`,
     )
-    .join('')}</select>${finishing ? `<small class="role-pending">${finishing}</small>` : ''}`;
+    .join(
+      '',
+    )}<small>Driving and refueling remain available.</small></div></details><small class="role-pending" ${finishing ? '' : 'hidden'}>${finishing}</small></div>`;
+}
+function updateEquipmentWork(eid: string, activities: EquipmentActivity[]) {
+  const error = Sim.setEquipmentActivities(state, eid, activities);
+  const equipment = state.equipment.find((e) => e.id === eid);
+  if (error || !equipment) {
+    toast(error || 'Equipment not found.', true);
+    return;
+  }
+  const selected = equipmentActivities(equipment);
+  // Update both views in place, retaining the open checklist and keyboard focus.
+  for (const dropdown of document.querySelectorAll<HTMLElement>(`[data-equipment-work="${eid}"]`)) {
+    dropdown.querySelector('summary')!.textContent = equipmentWorkSummary(equipment);
+    for (const input of dropdown.querySelectorAll<HTMLInputElement>('input[type="checkbox"]'))
+      input.checked = selected.includes(input.value as EquipmentActivity);
+    const pending = dropdown.parentElement!.querySelector<HTMLElement>('.role-pending')!;
+    pending.textContent = equipmentPendingWork(equipment);
+    pending.hidden = !pending.textContent;
+  }
+  recorder.record(state, 'equipment-automatic-work', { equipmentId: eid, activities: selected });
+  toast(`Automatic work: ${equipmentWorkSummary(equipment)}.`);
+  persist(true);
 }
 function assignmentControl(id: string) {
   const a = equipmentAssignment(state, id),
@@ -541,8 +573,9 @@ function renderInspector(force = false) {
   }
   if (
     !force &&
-    panel.contains(document.activeElement) &&
-    ['INPUT', 'SELECT', 'TEXTAREA'].includes(document.activeElement?.tagName || '')
+    (panel.querySelector('details.equipment-role[open]') ||
+      (panel.contains(document.activeElement) &&
+        ['INPUT', 'SELECT', 'TEXTAREA'].includes(document.activeElement?.tagName || '')))
   )
     return;
   panel.hidden = false;
@@ -638,6 +671,25 @@ function renderInspector(force = false) {
         ['Operator', esc(j.operator || 'Unassigned')],
         ['Reserved stock', esc(j.stack || 'None')],
         ['Material', j.item ? `${j.qty} × ${label(j.item)}` : 'Service'],
+        ...(j.shedAssembly
+          ? ([
+              ['Shed assembly', esc(j.shedAssembly.phase)],
+              [
+                'Installed parts',
+                `${j.shedAssembly.anchors}/6 anchors · ${j.shedAssembly.posts}/6 posts · ${j.shedAssembly.beams}/3 beams`,
+              ],
+              [
+                'Enclosure',
+                `${j.shedAssembly.roofSheets}/4 roof sheets · ${j.shedAssembly.wallPanels}/2 wall panels · ${j.shedAssembly.braces}/1 braces`,
+              ],
+              [
+                'Current part',
+                j.shedAssembly.part
+                  ? `${label(j.shedAssembly.part.kind)} #${j.shedAssembly.part.index + 1}`
+                  : 'None',
+              ],
+            ] as [string, unknown][])
+          : []),
         ['Footprint', `${j.w} × ${j.d} m`],
       ]) +
       (j.reason ? `<div class="blocked">${esc(j.reason)}</div>` : '') +
@@ -811,8 +863,9 @@ function renderRecords(force = false) {
   if (tab === 'site') return;
   if (
     !force &&
-    $('#records').contains(document.activeElement) &&
-    ['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement!.tagName)
+    ($('#records').querySelector('details.equipment-role[open]') ||
+      ($('#records').contains(document.activeElement) &&
+        ['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement!.tagName)))
   )
     return;
   const title = tabs.find((t) => t[0] === tab)?.[1] || 'Inbox';
@@ -837,6 +890,7 @@ function renderRecords(force = false) {
           'Reserved',
           'Free',
           'In equipment',
+          'Assembly',
           'Installed',
           'Incoming',
           'Unit',
@@ -853,6 +907,7 @@ function renderRecords(force = false) {
               `${t.reserved}`,
               `${t.stored - t.reserved}`,
               `${t.cargo}`,
+              `${t.inConstruction}`,
               `${t.installed}`,
               `${t.incoming}`,
               MATERIALS[item as Item].unit,
@@ -1210,10 +1265,10 @@ function openModal(which: string) {
   const root = $('#modal-root');
   let content = '';
   if (which === 'start') {
-    content = `<div class="start-title"><span class="eyebrow">A PHYSICAL FACTORY SANDBOX</span><h1>Every piece<br>has a place.</h1><p>Start with an open yard and a rail connection.<br>Bring people and materials. Build what comes next.</p></div><div class="start-choices">${btn('new:starter', '<b>Start a new yard</b><span>Empty ground, with a starter supply order on its way.</span>', 'start-choice recommended')}${btn('new:empty', '<b>Start completely empty</b><span>Choose every worker, machine, and material yourself.</span>', 'start-choice')}${btn('new:demo', '<b>Explore Birch Junction</b><span>A small working base, stocked and ready to expand.</span>', 'start-choice')}</div><p class="note">No budget limit · construction and logistics · local saves · version 0.9</p>`;
+    content = `<div class="start-title"><span class="eyebrow">A PHYSICAL FACTORY SANDBOX</span><h1>Every piece<br>has a place.</h1><p>Start with an open yard and a rail connection.<br>Bring people and materials. Build what comes next.</p></div><div class="start-choices">${btn('new:starter', '<b>Start a new yard</b><span>Empty ground, with a starter supply order on its way.</span>', 'start-choice recommended')}${btn('new:empty', '<b>Start completely empty</b><span>Choose every worker, machine, and material yourself.</span>', 'start-choice')}${btn('new:demo', '<b>Explore Birch Junction</b><span>A small working base, stocked and ready to expand.</span>', 'start-choice')}</div><p class="note">No budget limit · construction and logistics · local saves · version 0.10</p>`;
   }
   if (which === 'menu') {
-    content = `<h1>${esc(state.name)}</h1><p class="subtitle">Starter Yard · version 0.9.0</p><div class="menu-grid">${btn('save', 'Save to browser', 'primary')}${btn('export-save', 'Export save file')}${btn('export-diagnostics', 'Export diagnostic history')}${btn('source-code', 'Source code · MIT')}${btn('import-save', 'Import save file')}${btn('restore-backup', 'Restore previous yard')}${btn('help', 'Controls and guide')}${btn('new-confirm', 'Start a new yard')}${btn('close-modal', 'Return to yard')}</div><p class="note">Autosaves every 20 seconds. Export a file for a portable backup. Your game stays on this computer.</p>`;
+    content = `<h1>${esc(state.name)}</h1><p class="subtitle">Starter Yard · version 0.10.0</p><div class="menu-grid">${btn('save', 'Save to browser', 'primary')}${btn('export-save', 'Export save file')}${btn('export-diagnostics', 'Export diagnostic history')}${btn('source-code', 'Source code · MIT')}${btn('import-save', 'Import save file')}${btn('restore-backup', 'Restore previous yard')}${btn('help', 'Controls and guide')}${btn('new-confirm', 'Start a new yard')}${btn('close-modal', 'Return to yard')}</div><p class="note">Autosaves every 20 seconds. Export a file for a portable backup. Your game stays on this computer.</p>`;
   }
   if (which === 'new-confirm') {
     content = `<h1>Start another yard</h1><p>Your current yard will be saved as a browser backup before the new yard is created.</p><div class="button-stack">${btn('new:starter', 'New yard + starter supplies', 'primary')}${btn('new:empty', 'Completely empty yard')}${btn('new:demo', 'Birch Junction example')}${btn('close-modal', 'Keep current yard')}</div>`;
@@ -1234,7 +1289,7 @@ function openModal(which: string) {
         ['Purchase', 'B'],
         ['Save', 'Ctrl / Cmd + S'],
       ],
-    )}<h3>Physical constraints</h3><p>Leave <b>3 m clear aisles</b> for machines. Offices need the 6 t excavator; the forklift cannot lift them. Diesel drums contain 200 L and stay in place when empty. Request refueling from Equipment.</p><p>The <b>Work</b> register explains blocked assignments. Canceling rail work first places its load safely and secures the buffer. A rail panel already installed stays in place. Other loaded jobs deposit their kits at the site. Finished buildings can be dismantled and recovered.</p><h3>Vehicle work roles</h3><p>Open <b>Equipment</b> and change a machine’s <b>Automatic work</b> selector, or select it in the yard. For parallel receiving and paving, set the forklift to <b>Receiving only</b> and the excavator to <b>Paving only</b>, with an operator for each. A role change finishes the current job or unloading batch before switching. <b>All work</b> restores shared assignments; <b>Hold new work</b> stops new assignments while leaving driving and refueling available.</p><h3>Work orders, parking, and shifts</h3><p><b>Work</b> starts with active orders. Expand a building or paving order; assign equipment to a parent or child. Explicit assignments override automatic roles after current work finishes. Click asset IDs to inspect assigned people, stock, or equipment. Click table headers to sort; use Column filters to narrow records.</p><p>Select equipment to choose a parking bay in the yard or enter its coordinates. Workers have Always on, daily, overnight, and custom schedules. They finish current work, park, exit, walk to the actual bus, and return next shift. Chartered trips appear in Costs.</p><p>Use <b>Activity → Export diagnostic history</b> after a problem. The local rolling record includes positions, routes, blockers, phases, and recent full yard checkpoints.</p><h3>Traffic</h3><p>Road traffic keeps right. Buses continue forward after their stop; delivery trucks back clear of their berth before departing forward. Machines yield to people and route around obstructions. Keep receiving and turning areas clear; the equipment inspector identifies any actor blocking a route.</p><h3>First-version boundaries</h3><p>A 232 × 98 m buildable yard, straight rail panels, owned-equipment freight handling and simplified utility services. No chemical production, seasons, maintenance failures, full rail dispatch yet.</p></section></div>`;
+    )}<h3>Physical constraints</h3><p>Leave <b>3 m clear aisles</b> for machines. Offices need the 6 t excavator; the forklift cannot lift them. Diesel drums contain 200 L and stay in place when empty. Request refueling from Equipment.</p><p>The <b>Work</b> register explains blocked assignments. Canceling rail work first places its load safely and secures the buffer. A rail panel already installed stays in place. Other loaded jobs deposit their kits at the site. Finished buildings can be dismantled and recovered.</p><h3>Vehicle work roles</h3><p>Open <b>Equipment</b> and change a machine’s <b>Automatic work</b> selector, or select it in the yard. For parallel receiving and paving, check only <b>Receiving deliveries</b> for the forklift and only <b>Paving</b> for the excavator, with an operator for each. The dropdown lets you check several job kinds together. Changes finish the current job or unloading batch before switching. <b>All</b> restores shared assignments; <b>None</b> holds new work while leaving driving and refueling available.</p><h3>Work orders, parking, and shifts</h3><p><b>Work</b> starts with active orders. Expand a building or paving order; assign equipment to a parent or child. Explicit assignments override automatic roles after current work finishes. Click asset IDs to inspect assigned people, stock, or equipment. Click table headers to sort; use Column filters to narrow records.</p><p>Select equipment to choose a parking bay in the yard or enter its coordinates. Workers have Always on, daily, overnight, and custom schedules. They finish current work, park, exit, walk to the actual bus, and return next shift. Chartered trips appear in Costs.</p><p>Use <b>Activity → Export diagnostic history</b> after a problem. The local rolling record includes positions, routes, blockers, phases, and recent full yard checkpoints.</p><h3>Traffic</h3><p>Road traffic keeps right. Buses continue forward after their stop; delivery trucks back clear of their berth before departing forward. Machines yield to people and route around obstructions. Keep receiving and turning areas clear; the equipment inspector identifies any actor blocking a route.</p><h3>First-version boundaries</h3><p>A 232 × 98 m buildable yard, straight rail panels, owned-equipment freight handling and simplified utility services. No chemical production, seasons, maintenance failures, full rail dispatch yet.</p></section></div>`;
   }
   if (which === 'shop') {
     content = `<div class="shop-head"><div><span class="eyebrow">PROCUREMENT</span><h1>People, machines & materials</h1><p>Order freely. Costs are recorded; there is no spending limit.</p></div>${btn('starter-order', 'Order starter supplies')}</div><div class="shop-options"><label>Material transport <select id="transport"><option value="road" ${purchaseTransport === 'road' ? 'selected' : ''}>Truck · 12 t loads</option><option value="rail" ${purchaseTransport === 'rail' ? 'selected' : ''}>Rail · 48 t loads</option></select></label><span>Your equipment unloads · $90 / road load · $240 / rail load</span></div><div id="purchase-cart" class="purchase-cart"></div><div class="catalog-head"><span>Item</span><span>Unit cost</span><span>Unit weight</span><span>Qty</span><span>Line weight</span><span>Order / batch</span></div>${[
@@ -1744,9 +1799,62 @@ async function action(value: string) {
     }
   }
 }
+document.addEventListener(
+  'toggle',
+  (e) => {
+    const dropdown = e.target;
+    if (!(dropdown instanceof HTMLDetailsElement) || !dropdown.dataset.equipmentWork) return;
+    const options = dropdown.querySelector<HTMLElement>('.equipment-work-options')!;
+    if (!dropdown.open) {
+      options.hidePopover();
+      return;
+    }
+    options.showPopover();
+    const anchor = dropdown.getBoundingClientRect(),
+      width = options.offsetWidth,
+      height = options.offsetHeight;
+    options.style.left = `${Math.max(8, Math.min(innerWidth - width - 8, anchor.right - width))}px`;
+    options.style.top = `${Math.max(
+      8,
+      Math.min(
+        innerHeight - height - 8,
+        anchor.bottom + height + 2 <= innerHeight - 8 ? anchor.bottom + 2 : anchor.top - height - 2,
+      ),
+    )}px`;
+  },
+  true,
+);
 document.addEventListener('click', (e) => {
+  const target = e.target as HTMLElement;
+  for (const open of document.querySelectorAll<HTMLDetailsElement>('details.equipment-role[open]'))
+    if (!open.contains(target)) open.open = false;
+  const preset = target.closest<HTMLElement>('[data-equipment-work-preset]');
+  if (preset) {
+    updateEquipmentWork(
+      preset.dataset.equipmentId!,
+      preset.dataset.equipmentWorkPreset === 'all'
+        ? (Object.keys(EQUIPMENT_ACTIVITIES) as EquipmentActivity[])
+        : [],
+    );
+    return;
+  }
   const b = (e.target as HTMLElement).closest<HTMLElement>('[data-action]');
   if (b && !(b as HTMLButtonElement).disabled) void action(b.dataset.action!);
+});
+document.addEventListener('keydown', (e) => {
+  if (e.key !== 'Escape') return;
+  let closed = false;
+  for (const open of document.querySelectorAll<HTMLDetailsElement>(
+    'details.equipment-role[open]',
+  )) {
+    open.open = false;
+    open.querySelector<HTMLElement>('summary')?.focus();
+    closed = true;
+  }
+  if (closed) {
+    e.preventDefault();
+    e.stopImmediatePropagation();
+  }
 });
 document.addEventListener('input', (e) => {
   const target = e.target as HTMLInputElement;
@@ -1828,19 +1936,12 @@ document.addEventListener('change', (e) => {
     persist(true);
     return;
   }
-  if (target.dataset.equipmentRole) {
-    const error = Sim.setEquipmentRole(
-      state,
-      target.dataset.equipmentRole,
-      target.value as EquipmentWorkRole,
-    );
-    toast(
-      error || `Automatic work: ${EQUIPMENT_ROLES[target.value as EquipmentWorkRole]}.`,
-      !!error,
-    );
-    renderInspector(true);
-    renderRecords(true);
-    persist(true);
+  if (target.dataset.equipmentActivity) {
+    const dropdown = target.closest<HTMLElement>('[data-equipment-work]')!;
+    const activities = [...dropdown.querySelectorAll<HTMLInputElement>('input[type="checkbox"]')]
+      .filter((input) => input.checked)
+      .map((input) => input.value as EquipmentActivity);
+    updateEquipmentWork(target.dataset.equipmentActivity, activities);
     return;
   }
   if (target.dataset.notice) {

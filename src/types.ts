@@ -7,6 +7,7 @@ export type Role = 'builder' | 'operator' | 'engineer';
 export type EquipmentKind = 'excavator' | 'forklift';
 export type EquipmentWorkRole =
   'all' | 'receiving' | 'paving' | 'construction' | 'rail' | 'recovery' | 'hold';
+export type EquipmentActivity = Exclude<EquipmentWorkRole, 'all' | 'hold'>;
 export type Move = { path: Point[]; destination?: Point };
 export type Motion = {
   yaw?: number;
@@ -53,6 +54,8 @@ export interface Equipment extends Point, Move, Motion {
   id: string;
   kind: EquipmentKind;
   workRole?: EquipmentWorkRole;
+  /** Selected automatic activities. Absent on older saves; workRole remains their fallback. */
+  allowedWork?: EquipmentActivity[];
   parking?: Point & { rotation: number };
   parkingState?: 'waiting-operator' | 'boarding' | 'driving' | 'aligning' | 'parked';
   parkingOperator?: string;
@@ -66,6 +69,13 @@ export interface Equipment extends Point, Move, Motion {
   refueling?: string;
   lowFuelWarned?: boolean;
   cargo?: { item: Item; qty: number; yaw?: number };
+  assemblyLoad?: {
+    job: string;
+    kind: ShedPartKind;
+    length: number;
+    width: number;
+    yawOffset: number;
+  };
   heading: number;
   work: number;
   transportOrder?: string;
@@ -197,6 +207,41 @@ export interface JobGroup extends Rect {
   equipmentPriority?: number;
   created: number;
 }
+export type ShedPartKind = 'post' | 'beam' | 'roof' | 'wall' | 'brace';
+export interface ShedAssembly {
+  phase:
+    | 'stage'
+    | 'unpack'
+    | 'anchor'
+    | 'collect'
+    | 'rig'
+    | 'lift'
+    | 'carry'
+    | 'lower'
+    | 'fasten'
+    | 'withdraw'
+    | 'complete';
+  clock: number;
+  anchors: number;
+  posts: number;
+  beams: number;
+  roofSheets: number;
+  wallPanels: number;
+  braces: number;
+  kitPose: RailWorkPose;
+  recovering: boolean;
+  dock?: Point;
+  workerPoint?: Point;
+  ladder?: Point & { height: number };
+  part?: {
+    kind: ShedPartKind;
+    index: number;
+    pose: RailWorkPose;
+    from: RailWorkPose;
+    to: RailWorkPose;
+    carried?: boolean;
+  };
+}
 export interface Job extends Rect {
   parentId?: string;
   preferredEquipment?: string;
@@ -230,6 +275,7 @@ export interface Job extends Rect {
   fuelLiters?: number;
   railWork?: RailWork;
   handling?: ConstructionHandling;
+  shedAssembly?: ShedAssembly;
 }
 export interface OrderLine {
   item: string;

@@ -4,6 +4,7 @@ import { workerAvailable, commuteDoor } from './workforce';
 import { equipmentHasAssignedWork } from './jobs';
 import { RAIL_PANEL_PITCH } from './railwork';
 import { equipmentAllows } from './equipment-roles';
+import { FORK_LOAD_CENTER } from './fork-geometry';
 import type {
   State,
   Order,
@@ -25,6 +26,7 @@ import {
   boxRect,
   equipmentSweepBlocked,
   equipmentMoveBlocked,
+  equipmentReachBlocked,
   equipmentBoxes,
   walkRoute,
   machineRoute,
@@ -507,6 +509,15 @@ function cargoFollow(t: UnloadTask, e: Equipment, y: number) {
   const p = localPoint({ ...e, yaw: e.yaw || 0 }, e.reach || 3, 0);
   t.cargo = { ...p, y, yaw: (e.yaw || 0) + Math.PI / 2 };
 }
+/** Carry poses must follow the chassis after the movement pass, not one tick behind it. */
+export function syncDeliveryCargo(s: State) {
+  for (const o of s.orders) {
+    const t = o.unload;
+    if (!t?.cargo || !['clear', 'carry'].includes(t.phase)) continue;
+    const e = s.equipment.find((e) => e.id === t.equipmentId);
+    if (e?.cargo) cargoFollow(t, e, t.cargo.y);
+  }
+}
 function unloadTick(s: State, o: Order, dt: number, api: DeliveryAPI) {
   if (!o.unload) {
     if (o.arrived >= o.qty) {
@@ -658,10 +669,23 @@ function unloadTick(s: State, o: Order, dt: number, api: DeliveryAPI) {
     // The carrier and storage docks have different working reaches. Retract
     // continuously while carrying; changing reach only at setdown snaps cargo.
     const dropReach = dist(t.drop, center(t.destination));
-    e.reach = (e.reach || 3) + Math.max(-dt * 0.8, Math.min(dt * 0.8, dropReach - (e.reach || 3)));
+    // Bring the center of the load back toward the mast while traveling. Reach
+    // out again only after arriving at the storage dock, never along the route.
+    const targetReach =
+      e.kind === 'forklift' && dist(e, t.drop) > 0.15 ? FORK_LOAD_CENTER : dropReach;
+    const nextReach =
+      (e.reach || 3) + Math.max(-dt * 0.8, Math.min(dt * 0.8, targetReach - (e.reach || 3)));
+    const reachBlocker = equipmentReachBlocked(s, e, nextReach);
+    if (!reachBlocker) e.reach = nextReach;
+    else {
+      e.blockedBy = reachBlocker;
+      o.note = `Waiting for ${reachBlocker} to clear the reach carriage`;
+    }
     cargoFollow(t, e, y);
     e.lift = y;
-    o.note = `${w.name} hauling to storage`;
+    o.note = reachBlocker
+      ? `Waiting for ${reachBlocker} to clear the reach carriage`
+      : `${w.name} hauling to storage`;
     if (
       !e.trafficGoal &&
       (e.trafficWait || 0) > 2 &&
@@ -691,7 +715,7 @@ function unloadTick(s: State, o: Order, dt: number, api: DeliveryAPI) {
     e.yaw = candidate.yaw;
     e.blockedBy = undefined;
     cargoFollow(t, e, y);
-    if (!aligned || Math.abs(e.reach - dropReach) > 0.005) return;
+    if (!aligned || reachBlocker || Math.abs((e.reach || 3) - dropReach) > 0.005) return;
     e.reach = dist(e, center(t.destination));
     cargoFollow(t, e, y);
     set('lower');
@@ -1130,6 +1154,8 @@ function clearCarrierPedestrian(
     w.commuteOrder ||
     w.parkingEquipment
   )
+    return;
+  if (s.jobs.some((j) => j.worker === w.id && j.status === 'doing' && j.shedAssembly?.ladder))
     return;
   if (w.yieldingTo && w.yieldingTo !== o.id) return;
   if (s.elapsed < (w.trafficRetry || 0)) return;

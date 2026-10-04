@@ -37,7 +37,7 @@ function checkBalance(s: State, item: Item) {
   const t = S.totals(s, item);
   assert.equal(
     t.delivered,
-    t.stored + t.cargo + t.installed,
+    t.stored + t.cargo + t.inConstruction + t.installed,
     `Conservation failed for ${item}: ${JSON.stringify(t)}`,
   );
 }
