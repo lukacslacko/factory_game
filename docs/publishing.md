@@ -1,10 +1,10 @@
 # Publication
 
-Version 0.7.0 is published privately at https://plant-01-starter-yard.lukacslacko.chatgpt.site.
+Version 0.8.0 is published privately at https://plant-01-starter-yard.lukacslacko.chatgpt.site.
 
 The editable game lives in this starter-yard directory. The Site repository is a separate, build-only checkout at `../../work/plant01-publish` relative to this directory, with its own `.openai/hosting.json` and Git metadata. It contains only `dist/` and the hosting manifest. Do not upload the full game project or the private design documents when updating that Site.
 
-The Site identity is `appgprj_6ac1ff4c01388191b1d9d0dba709095e`. Reuse it; do not create a replacement. The successful build-only source commit for version 0.7.0 is `d135cbfe1e3e9883193f3386989f38ee091e5cd6`.
+The Site identity is `appgprj_6ac1ff4c01388191b1d9d0dba709095e`. Reuse it; do not create a replacement. The successful build-only source commit for version 0.8.0 is `242478de8ac2090d014275d7e4940e39701194a7`.
 
 For an update, follow the Sites hosting skill to open the existing build-only checkout, build and test the editable game, replace the checkout's `dist/` with that build, inspect its file list, and publish through the same private Site workflow. Keep credentials in process memory/stdin only. The game requires no server secrets, cloud database, or external connectors.
 
@@ -45,3 +45,11 @@ Before publication, all 141 regressions, the final integrated browser suite, str
 Version 0.7.0 deployed successfully on October 4, 2026 at 17:10 UTC, on the same private Site and origin. Deployment ID: `appgdep_6ac2888e996081918e06b70e5e6ef34d`. The payload remains the nine built game/guide assets and hosting manifest. The public MIT repository is updated with the corresponding source and actual gameplay previews.
 
 The visual pass follows the accepted detailed-grid A/matte-miniature B concepts: closer perspective, neutral light and reflections, refined industrial models, material textures, restrained grid/seams, and clustered ground cover. Integrated browser, physical/contact/animation, 62 model-geometry assertions, three diagnostic tests, TypeScript, production and Retina checks pass. The simulation core and save schema are unchanged; the 141-test v0.6 simulation baseline and balanced example remain applicable and are recorded as baseline results, not a newly executed full simulation run.
+
+## Version 0.8 operations update
+
+Version 0.8.0 deployed successfully on October 4, 2026 at 20:32 UTC on the existing private Site and origin. Deployment ID: `appgdep_6ac2b7b4792c81919a2dd1d679c79584`. Source commit: `242478de8ac2090d014275d7e4940e39701194a7`. The verified payload contains nine built game/guide assets plus the hosting manifest. It matches the final locally tested production build; source, design notes, examples, diagnostic captures and credentials are excluded from the Site.
+
+The release adds independent slab finishing/prefetch, early receiving assistance, departing empty carriers, a real-time calendar and labor clock, a reproduced steering correction, persistent worn dirt paths and surface preference. Physical dock/crew deadlocks and redundant slab-route planning were corrected. A large-yard ground texture stall found during production verification was fixed and checked against the maximum supported wear map.
+
+All 167 simulation regressions pass, including the complete-base save/reload and material/fuel audits. Final integrated browser, maximum-map renderer, TypeScript/build and production checks pass. The fresh example completes 145 construction tasks, two physical refueling jobs and 19 deliveries with balanced materials and fuel. Source and documentation are published separately in the public MIT repository. The local package includes the exact deployed build, example and validation records.

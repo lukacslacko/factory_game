@@ -1,4 +1,5 @@
 import { tickWorkforce, workerAvailable } from './workforce';
+import { recordEquipmentTravel } from './ground-wear';
 import { tickRailWork } from './railwork';
 import {
   constructionSourceBusy,
@@ -56,7 +57,16 @@ import {
   bounds,
 } from './catalog';
 import { key, overlap, dist, center, route, approach } from './path';
-import { move, localPoint, turn, smoothstep, RAIL_STOP, roadLength, berth } from './motion';
+import {
+  angleDelta,
+  move,
+  localPoint,
+  turn,
+  smoothstep,
+  RAIL_STOP,
+  roadLength,
+  berth,
+} from './motion';
 import {
   tickDelivery,
   carrierRects,
@@ -129,6 +139,7 @@ export function createState(): State {
     buildings: [],
     rails: [],
     paving: {},
+    groundWear: {},
     zones: [],
     jobs: [],
     orders: [],
@@ -539,19 +550,41 @@ function stepAside(s: State, w: Worker, e: Equipment) {
     side = { x: -Math.sin(yaw), z: Math.cos(yaw) };
   const obs = pedestrianObstacles(s);
   const away = (w.x - e.x) * side.x + (w.z - e.z) * side.z >= 0 ? 1 : -1;
-  for (const sign of [away, -away])
-    for (const distance of [3, 4.5, 6]) {
-      const target = { x: w.x + side.x * distance * sign, z: w.z + side.z * distance * sign };
-      if (workerMoveBlocked(s, w, target)) continue;
-      const path = walkRoute(s, w, target, obs);
-      if (path) {
-        w.yieldTarget ??= { x: w.x, z: w.z };
-        w.yieldingTo = e.id;
-        w.path = path;
-        w.status = 'Stepping clear of moving equipment';
-        return;
-      }
+  const candidates = [away, -away].flatMap((sign) =>
+    [3, 4.5, 6].map((distance) => ({
+      x: w.x + side.x * distance * sign,
+      z: w.z + side.z * distance * sign,
+    })),
+  );
+  // A stock row can block both sideways walks. Search around the machine as
+  // well, rather than leaving its crew trapped beside a suspended load.
+  const next = e.path[0];
+  const targetYaw = next ? Math.atan2(next.z - e.z, next.x - e.x) + (e.reverse ? Math.PI : 0) : yaw;
+  const turnDelta = angleDelta(yaw, targetYaw);
+  const turnBoxes = Array.from({ length: 13 }, (_, i) =>
+    equipmentBoxes(e, { ...e, yaw: yaw + (turnDelta * i) / 12 }),
+  ).flat();
+  const radial = [5.5, 7, 9]
+    .flatMap((radius) =>
+      Array.from({ length: 8 }, (_, i) => ({
+        x: e.x + Math.cos((i * Math.PI) / 4) * radius,
+        z: e.z + Math.sin((i * Math.PI) / 4) * radius,
+      })),
+    )
+    .sort((a, b) => dist(w, a) - dist(w, b));
+  candidates.push(...radial);
+  for (const target of candidates) {
+    if (turnBoxes.some((b) => personTouchesBox(target, b, 0.65)) || workerMoveBlocked(s, w, target))
+      continue;
+    const path = walkRoute(s, w, target, obs);
+    if (path) {
+      w.yieldTarget ??= { x: w.x, z: w.z };
+      w.yieldingTo = e.id;
+      w.path = path;
+      w.status = 'Stepping clear of moving equipment';
+      return;
     }
+  }
 }
 function tickMove(s: State, p: Worker | Equipment, dt: number, speed: number) {
   if (!p.path.length) {
@@ -568,6 +601,7 @@ function tickMove(s: State, p: Worker | Equipment, dt: number, speed: number) {
     ? equipmentSweepBlocked(s, p, candidate)
     : workerMoveBlocked(s, p, candidate);
   if (!blocker) {
+    const previousPose = { x: p.x, z: p.z, yaw: p.yaw };
     Object.assign(p, {
       x: candidate.x,
       z: candidate.z,
@@ -577,6 +611,7 @@ function tickMove(s: State, p: Worker | Equipment, dt: number, speed: number) {
       velocity: candidate.velocity,
       path: candidate.path,
     });
+    if (vehicle) recordEquipmentTravel(s, p, previousPose);
     if (vehicle && !p.path.length && p.trafficReverse) {
       p.reverse = false;
       p.trafficReverse = undefined;
@@ -1173,7 +1208,24 @@ function assign(s: State, j: Job) {
         workerAvailable(s, w) &&
         w.duty === 'auto',
     );
-  if (!worker) {
+  const prefetch =
+    !worker &&
+    j.kind === 'slab' &&
+    s.workers.some(
+      (w) =>
+        w.role !== 'operator' &&
+        workerAvailable(s, w) &&
+        (w.id === j.preferredWorker || w.duty === 'auto') &&
+        s.jobs.some(
+          (k) =>
+            k.id === w.job &&
+            k.kind === 'slab' &&
+            k.status === 'doing' &&
+            k.handling?.equipmentReleased &&
+            k.handling.phase === 'settle',
+        ),
+    );
+  if (!worker && !prefetch) {
     j.reason = 'Need an available construction worker';
     return;
   }
@@ -1254,9 +1306,12 @@ function assign(s: State, j: Job) {
       : undefined;
   const operatorFrom = oldVehicle ? machineStep(oldVehicle) : operator;
   const obs = obstacles(s),
-    workerPath = approach(worker, j.kind === 'rail' && stack ? stack : j, obs, 0.1),
+    workerPath = worker ? approach(worker, j.kind === 'rail' && stack ? stack : j, obs, 0.1) : [],
     operatorPath = operator.vehicle === eq.id ? [] : route(operatorFrom, machineStep(eq), obs, 0.1);
-  let loadPath = machineApproach(s, eq, stack || j);
+  // Slabs use physical docking in construction-handling after boarding.
+  // A generic stock approach would be discarded immediately, and can search
+  // the whole yard twice before a busy placement lane is even checked.
+  let loadPath = j.kind === 'slab' ? [] : machineApproach(s, eq, stack || j);
   if (stack && !loadPath) {
     for (const alternative of s.stacks.filter(
       (t) =>
@@ -1287,13 +1342,13 @@ function assign(s: State, j: Job) {
         ? Math.atan2(loadEnd.z - loadBefore.z, loadEnd.x - loadBefore.x) +
           (eq.reverse ? Math.PI : 0)
         : (eq.yaw ?? (eq.heading * Math.PI) / 2);
-  if (stack && !machineApproach(s, { ...eq, ...loadEnd, yaw: loadYaw }, j)) {
+  if (j.kind !== 'slab' && stack && !machineApproach(s, { ...eq, ...loadEnd, yaw: loadYaw }, j)) {
     j.reason = 'No equipment access to the construction site';
     j.retryAt = s.elapsed + 5;
     j.retryRevision = s.revision;
     return;
   }
-  j.worker = worker.id;
+  j.worker = worker?.id;
   j.operator = operator.id;
   j.equipment = eq.id;
   j.stack = stack?.id;
@@ -1301,14 +1356,16 @@ function assign(s: State, j: Job) {
   j.phase = 'Board equipment';
   j.reason = '';
   j.elapsed = 0;
-  worker.job = j.id;
+  if (worker) worker.job = j.id;
   // Rail rigging starts only after the crane is parked and aligned. Preserve
   // an existing step-aside walk, but do not send the crew into its approach.
-  if (j.kind !== 'rail' && j.kind !== 'slab') worker.path = workerPath;
-  worker.status =
-    j.kind === 'rail' || j.kind === 'slab'
-      ? 'Waiting for equipment to park'
-      : 'Walk to installation';
+  if (worker) {
+    if (j.kind !== 'rail' && j.kind !== 'slab') worker.path = workerPath;
+    worker.status =
+      j.kind === 'rail' || j.kind === 'slab'
+        ? 'Waiting for equipment to park'
+        : 'Walk to installation';
+  }
   if (oldVehicle) leaveMachine(s, operator);
   operator.job = j.id;
   operator.path = operatorPath;
@@ -1343,10 +1400,63 @@ function recoveryDestination(s: State, j: Job, e: Equipment) {
 }
 function tickJob(s: State, j: Job, dt: number) {
   if (j.status !== 'doing') return;
-  const w = s.workers.find((w) => w.id === j.worker),
-    op = s.workers.find((w) => w.id === j.operator),
+  let w = s.workers.find((w) => w.id === j.worker);
+  const op = s.workers.find((w) => w.id === j.operator),
     e = s.equipment.find((e) => e.id === j.equipment),
     stack = s.stacks.find((t) => t.id === j.stack);
+  if (!w && j.kind === 'slab' && e) {
+    w = s.workers.find(
+      (q) =>
+        q.role !== 'operator' &&
+        workerAvailable(s, q) &&
+        !q.job &&
+        !q.transition &&
+        !q.vehicle &&
+        !q.deliveryOrder &&
+        !q.transportOrder &&
+        (q.id === j.preferredWorker || q.duty === 'auto'),
+    );
+    if (w) {
+      j.worker = w.id;
+      w.job = j.id;
+      w.status = 'Waiting for equipment to park';
+      s.revision++;
+    }
+  }
+  if (w && j.kind === 'slab' && j.handling?.phase === 'settle') {
+    if (w.yieldingTo?.startsWith('PO-')) {
+      j.reason = `Waiting for ${w.yieldingTo} to pass safely`;
+      return;
+    }
+    if (j.reason.startsWith('Waiting for PO-') && j.reason.endsWith('to pass safely'))
+      j.reason = '';
+    tickConstructionHandling(s, j, dt, {
+      id,
+      obstacles,
+      movement,
+      event,
+      complete,
+      release: finishRelease,
+    });
+    return;
+  }
+  if (!w && j.kind === 'slab' && e && op) {
+    if (op.yieldingTo?.startsWith('PO-') || e.fuel <= 0 || e.refueling) return;
+    if (op.vehicle !== e.id) {
+      if (!op.path.length && !op.transition) boardMachine(op, e);
+      return;
+    }
+    if (j.phase === 'Board equipment') j.phase = 'Collect material';
+    tickConstructionHandling(s, j, dt, {
+      id,
+      obstacles,
+      movement,
+      event,
+      complete,
+      release: finishRelease,
+    });
+    return;
+  }
   if (!w || !e) return;
   if (w.yieldingTo?.startsWith('PO-') || op?.yieldingTo?.startsWith('PO-')) {
     j.reason = `Waiting for ${w.yieldingTo || op?.yieldingTo} to pass safely`;
@@ -1473,7 +1583,7 @@ function tickJob(s: State, j: Job, dt: number) {
       return;
     }
     const target = stack || j;
-    e.path = machineApproach(s, e, target) || [];
+    e.path = j.kind === 'slab' ? [] : machineApproach(s, e, target) || [];
     j.phase = 'Collect material';
     op.status = 'Driving to stock';
   } else if (j.phase === 'Collect material' && !e.path.length) {
@@ -1719,14 +1829,14 @@ function tickJob(s: State, j: Job, dt: number) {
 export function tick(s: State, dt: number) {
   if (s.paused) return;
   s.elapsed += dt;
-  s.time += dt * 30;
-  s.wageClock += dt * 30;
+  s.time += dt;
+  s.wageClock += dt;
   for (const o of s.orders) advanceOrder(s, o, dt);
   tickWorkforce(s, dt, deliveryAPI);
   for (const w of s.workers) {
     if (w.shiftPhase === 'home' || w.shiftPhase === 'returning' || w.shiftPhase === 'aboard')
       continue;
-    w.hours += dt / 120;
+    w.hours += dt / 3600;
     if (w.transition) tickBoarding(s, w, dt);
     else if (!w.transportOrder && !w.vehicle) tickMove(s, w, dt, 1.7);
     if (w.status.startsWith('Board EQ') && !w.path.length && !w.vehicle) {
@@ -1925,6 +2035,7 @@ export function load(json: string): State {
   }
   if (s.version < 4) migrateLegacyRailJobs(s, { release: finishRelease, event });
   s.version = 4;
+  s.groundWear ??= {};
   for (const order of s.orders) migrateRoadDrive(s, order);
   s.revision++;
   return s;

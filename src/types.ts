@@ -30,7 +30,8 @@ export interface Worker extends Point, Move, Motion {
   job?: string;
   vehicle?: string;
   schedule?: { start: number; end: number };
-  shiftPhase?: 'working' | 'finishing' | 'parking' | 'walking-to-bus' | 'aboard' | 'home' | 'returning';
+  shiftPhase?:
+    'working' | 'finishing' | 'parking' | 'walking-to-bus' | 'aboard' | 'home' | 'returning';
   commuteOrder?: string;
   parkingEquipment?: string;
   hours: number;
@@ -169,6 +170,7 @@ export type ConstructionPhase =
   | 'settle'
   | 'complete';
 export interface ConstructionHandling {
+  equipmentReleased?: boolean;
   phase: ConstructionPhase;
   clock: number;
   pose: RailWorkPose;
@@ -230,13 +232,19 @@ export interface Job extends Rect {
   handling?: ConstructionHandling;
 }
 export interface Order {
-  commute?: { direction: 'outbound' | 'inbound'; workers: string[]; boarding?: { worker: string; clock: number; from: Point } };
+  commute?: {
+    direction: 'outbound' | 'inbound';
+    workers: string[];
+    boarding?: { worker: string; clock: number; from: Point };
+  };
   id: string;
   item: string;
   qty: number;
   arrived: number;
   mode: 'road' | 'rail';
   status: 'ordered' | 'approaching' | 'unloading' | 'departing' | 'done';
+  /** Carrier has left the yard; site handling may still be finishing. */
+  carrierDeparted?: boolean;
   eta: number;
   total: number;
   invoiced: boolean;
@@ -341,6 +349,8 @@ export interface State {
   buildings: Building[];
   rails: Rail[];
   paving: Record<string, string>;
+  /** Compaction from accepted equipment travel, bounded to one value per meter cell. */
+  groundWear?: Record<string, number>;
   zones: Zone[];
   jobs: Job[];
   jobGroups?: JobGroup[];
@@ -355,6 +365,15 @@ export interface State {
   guide: boolean;
 }
 export type Selection = {
-  type: 'worker' | 'equipment' | 'stack' | 'building' | 'job' | 'jobGroup' | 'order' | 'zone' | 'buffer';
+  type:
+    | 'worker'
+    | 'equipment'
+    | 'stack'
+    | 'building'
+    | 'job'
+    | 'jobGroup'
+    | 'order'
+    | 'zone'
+    | 'buffer';
   id: string;
 };

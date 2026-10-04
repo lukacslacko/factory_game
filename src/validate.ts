@@ -51,22 +51,50 @@ export function validateState(value: any): asserts value is State {
     }
   }
   if (s.jobGroups !== undefined) {
-    if (!Array.isArray(s.jobGroups) || s.jobGroups.length > 150000) fail('invalid work-order groups');
+    if (!Array.isArray(s.jobGroups) || s.jobGroups.length > 150000)
+      fail('invalid work-order groups');
     for (const g of s.jobGroups) {
-      if (!g || typeof g.id !== 'string' || !g.id || ids.has(g.id) || !point(g) || !finite(g.w) || !finite(g.d) || g.w <= 0 || g.d <= 0 || typeof g.label !== 'string' || !finite(g.created)) fail('invalid work-order group');
+      if (
+        !g ||
+        typeof g.id !== 'string' ||
+        !g.id ||
+        ids.has(g.id) ||
+        !point(g) ||
+        !finite(g.w) ||
+        !finite(g.d) ||
+        g.w <= 0 ||
+        g.d <= 0 ||
+        typeof g.label !== 'string' ||
+        !finite(g.created)
+      )
+        fail('invalid work-order group');
       ids.add(g.id);
     }
   }
-  const groups = new Map<string, any>((s.jobGroups || []).map((g:any) => [g.id,g]));
+  const groups = new Map<string, any>((s.jobGroups || []).map((g: any) => [g.id, g]));
   for (const work of [...(s.jobGroups || []), ...s.jobs]) {
-    if (work.equipmentPriority !== undefined && (!Number.isInteger(work.equipmentPriority) || work.equipmentPriority < 0)) fail('invalid work-order assignment priority');
-    if (work.preferredEquipment !== undefined && (typeof work.preferredEquipment !== 'string' || !s.equipment.some((e:any)=>e.id===work.preferredEquipment))) fail('invalid work-order equipment assignment');
-    if (work.parentId !== undefined && (typeof work.parentId !== 'string' || !groups.has(work.parentId))) fail('invalid work-order parent');
+    if (
+      work.equipmentPriority !== undefined &&
+      (!Number.isInteger(work.equipmentPriority) || work.equipmentPriority < 0)
+    )
+      fail('invalid work-order assignment priority');
+    if (
+      work.preferredEquipment !== undefined &&
+      (typeof work.preferredEquipment !== 'string' ||
+        !s.equipment.some((e: any) => e.id === work.preferredEquipment))
+    )
+      fail('invalid work-order equipment assignment');
+    if (
+      work.parentId !== undefined &&
+      (typeof work.parentId !== 'string' || !groups.has(work.parentId))
+    )
+      fail('invalid work-order parent');
     const seen = new Set<string>([work.id]);
     let parent = work.parentId;
     while (parent) {
       if (seen.has(parent)) fail('cyclic work-order hierarchy');
-      seen.add(parent); parent = groups.get(parent)?.parentId;
+      seen.add(parent);
+      parent = groups.get(parent)?.parentId;
     }
   }
   if (
@@ -79,6 +107,26 @@ export function validateState(value: any): asserts value is State {
   if (!s.paving || typeof s.paving !== 'object' || Array.isArray(s.paving)) fail('invalid paving');
   for (const [k, v] of Object.entries(s.paving))
     if (!/^-?\d+,-?\d+$/.test(k) || typeof v !== 'string') fail('invalid paving cell');
+  if (s.groundWear !== undefined) {
+    if (
+      !s.groundWear ||
+      typeof s.groundWear !== 'object' ||
+      Array.isArray(s.groundWear) ||
+      Object.keys(s.groundWear).length > 12000
+    )
+      fail('invalid ground wear');
+    for (const [key, amount] of Object.entries(s.groundWear)) {
+      const coords = key.split(',').map(Number);
+      if (
+        !/^-?\d+,-?\d+$/.test(key) ||
+        coords.some((v) => Math.abs(v) >= 10000) ||
+        !finite(amount) ||
+        (amount as number) < 0 ||
+        (amount as number) > 1
+      )
+        fail('invalid ground wear cell');
+    }
+  }
   for (const w of s.workers) {
     if (
       !point(w) ||
@@ -93,16 +141,60 @@ export function validateState(value: any): asserts value is State {
       !finite(w.heading)
     )
       fail('invalid worker');
-    if (w.schedule && (!finite(w.schedule.start) || !finite(w.schedule.end) || w.schedule.start < 0 || w.schedule.start >= 24 || w.schedule.end < 0 || w.schedule.end >= 24 || w.schedule.start === w.schedule.end)) fail('invalid worker schedule');
-    if (w.shiftPhase !== undefined && !['working','finishing','parking','walking-to-bus','aboard','home','returning'].includes(w.shiftPhase)) fail('invalid shift phase');
-    if (w.commuteOrder && !s.orders.some((o: any) => o.id === w.commuteOrder && o.commute?.workers?.includes(w.id))) fail('missing worker commute bus');
-    if (w.parkingEquipment && !s.equipment.some((e: any) => e.id === w.parkingEquipment)) fail('missing parking equipment');
+    if (
+      w.schedule &&
+      (!finite(w.schedule.start) ||
+        !finite(w.schedule.end) ||
+        w.schedule.start < 0 ||
+        w.schedule.start >= 24 ||
+        w.schedule.end < 0 ||
+        w.schedule.end >= 24 ||
+        w.schedule.start === w.schedule.end)
+    )
+      fail('invalid worker schedule');
+    if (
+      w.shiftPhase !== undefined &&
+      ![
+        'working',
+        'finishing',
+        'parking',
+        'walking-to-bus',
+        'aboard',
+        'home',
+        'returning',
+      ].includes(w.shiftPhase)
+    )
+      fail('invalid shift phase');
+    if (
+      w.commuteOrder &&
+      !s.orders.some((o: any) => o.id === w.commuteOrder && o.commute?.workers?.includes(w.id))
+    )
+      fail('missing worker commute bus');
+    if (w.parkingEquipment && !s.equipment.some((e: any) => e.id === w.parkingEquipment))
+      fail('missing parking equipment');
     if (w.yieldTarget && !point(w.yieldTarget)) fail('invalid pedestrian yield destination');
   }
   for (const e of s.equipment) {
-    if (e.parking && (!point(e.parking) || !Number.isInteger(e.parking.x) || !Number.isInteger(e.parking.z) || !Number.isInteger(e.parking.rotation) || e.parking.rotation < 0 || e.parking.rotation > 3)) fail('invalid parking location');
-    if (e.parkingState !== undefined && !['waiting-operator','boarding','driving','aligning','parked'].includes(e.parkingState)) fail('invalid parking phase');
-    if (e.parkingOperator && !s.workers.some((w: any) => w.id === e.parkingOperator && w.role === 'operator')) fail('missing parking operator');
+    if (
+      e.parking &&
+      (!point(e.parking) ||
+        !Number.isInteger(e.parking.x) ||
+        !Number.isInteger(e.parking.z) ||
+        !Number.isInteger(e.parking.rotation) ||
+        e.parking.rotation < 0 ||
+        e.parking.rotation > 3)
+    )
+      fail('invalid parking location');
+    if (
+      e.parkingState !== undefined &&
+      !['waiting-operator', 'boarding', 'driving', 'aligning', 'parked'].includes(e.parkingState)
+    )
+      fail('invalid parking phase');
+    if (
+      e.parkingOperator &&
+      !s.workers.some((w: any) => w.id === e.parkingOperator && w.role === 'operator')
+    )
+      fail('missing parking operator');
     if (
       e.workRole !== undefined &&
       (typeof e.workRole !== 'string' || !Object.hasOwn(EQUIPMENT_ROLES, e.workRole))
@@ -177,13 +269,48 @@ export function validateState(value: any): asserts value is State {
       fail('invalid work order');
     if (
       j.status === 'doing' &&
-      (!s.workers.some((w: any) => w.id === j.worker) ||
-        !s.equipment.some((e: any) => e.id === j.equipment))
+      ((!s.workers.some((w: any) => w.id === j.worker) &&
+        !(
+          j.kind === 'slab' &&
+          !j.worker &&
+          s.workers.some(
+            (w: any) => w.id === j.operator && w.job === j.id && w.role === 'operator',
+          ) &&
+          ((!j.handling && ['Board equipment', 'Collect material'].includes(j.phase)) ||
+            (j.handling?.state === 'stored' &&
+              ['approach', 'rig'].includes(j.handling.phase) &&
+              j.handling.clock === 0))
+        )) ||
+        (!s.equipment.some((e: any) => e.id === j.equipment) &&
+          !(
+            j.kind === 'slab' &&
+            j.handling?.equipmentReleased === true &&
+            j.handling.phase === 'settle' &&
+            j.handling.state === 'placed'
+          )))
     )
       fail('active job has missing crew or equipment');
     if (j.handling) {
       const h = j.handling;
       const pose = (p: any) => point(p) && finite(p.y) && finite(p.yaw);
+      if (h.equipmentReleased !== undefined && typeof h.equipmentReleased !== 'boolean')
+        fail('invalid construction equipment release');
+      if (
+        h.equipmentReleased &&
+        !(
+          (h.phase === 'settle' && h.state === 'placed') ||
+          (h.phase === 'complete' && ['stored', 'installed'].includes(h.state))
+        )
+      )
+        fail('invalid construction equipment release phase');
+      if (
+        h.equipmentReleased &&
+        j.status === 'doing' &&
+        (j.equipment ||
+          j.operator ||
+          !s.workers.some((w: any) => w.id === j.worker && w.job === j.id))
+      )
+        fail('invalid independent slab finishing crew');
       if (
         j.kind !== 'slab' ||
         ![
@@ -334,8 +461,29 @@ export function validateState(value: any): asserts value is State {
     }
   }
   for (const o of s.orders) {
-    if (o.commute && (!['outbound','inbound'].includes(o.commute.direction) || o.mode !== 'road' || !Array.isArray(o.commute.workers) || o.commute.workers.length !== o.qty || o.qty > 12 || new Set(o.commute.workers).size !== o.qty || o.commute.workers.some((id: any) => !s.workers.some((w: any) => w.id === id)))) fail('invalid commute passengers');
-    if (o.commute?.boarding && (!point(o.commute.boarding.from) || !finite(o.commute.boarding.clock) || o.commute.boarding.clock < 0 || !o.commute.workers.includes(o.commute.boarding.worker))) fail('invalid bus boarding phase');
+    if (o.carrierDeparted !== undefined && typeof o.carrierDeparted !== 'boolean')
+      fail('invalid carrier departure');
+    if (o.carrierDeparted && (!['departing', 'done'].includes(o.status) || o.arrived !== o.qty))
+      fail('departed carrier still has an unreceived load');
+    if (
+      o.commute &&
+      (!['outbound', 'inbound'].includes(o.commute.direction) ||
+        o.mode !== 'road' ||
+        !Array.isArray(o.commute.workers) ||
+        o.commute.workers.length !== o.qty ||
+        o.qty > 12 ||
+        new Set(o.commute.workers).size !== o.qty ||
+        o.commute.workers.some((id: any) => !s.workers.some((w: any) => w.id === id)))
+    )
+      fail('invalid commute passengers');
+    if (
+      o.commute?.boarding &&
+      (!point(o.commute.boarding.from) ||
+        !finite(o.commute.boarding.clock) ||
+        o.commute.boarding.clock < 0 ||
+        !o.commute.workers.includes(o.commute.boarding.worker))
+    )
+      fail('invalid bus boarding phase');
     if (
       !(o.item in MATERIALS || o.item in ROLES || o.item in EQUIPMENT || o.item in SERVICES) ||
       !Number.isInteger(o.qty) ||

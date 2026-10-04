@@ -98,7 +98,12 @@ export function equipmentHasAssignedWork(s: State, e: Equipment): boolean {
     !s.jobGroups?.some((g) => g.preferredEquipment === e.id)
   )
     return false;
-  return s.jobs.some((j) => unfinished(j) && jobEquipmentAssignment(s, j).equipmentId === e.id);
+  return s.jobs.some(
+    (j) =>
+      unfinished(j) &&
+      !j.handling?.equipmentReleased &&
+      jobEquipmentAssignment(s, j).equipmentId === e.id,
+  );
 }
 export function equipmentReservedForJob(s: State, e: Equipment, j: Job): boolean {
   const required = jobEquipmentAssignment(s, j).equipmentId;

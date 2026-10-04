@@ -1,6 +1,6 @@
 # Starter Yard architecture
 
-Version 0.5.0 separates serializable simulation, physical delivery sequences, motion, rendering, and the Condensed interface. The simulation is deterministic for a given sequence of commands and time steps and runs without a browser.
+Version 0.8.0 separates serializable simulation, physical delivery sequences, motion, rendering, and the Condensed interface. The simulation is deterministic for a given sequence of commands and time steps and runs without a browser.
 
 ## Files
 
@@ -34,7 +34,7 @@ X is east, Z is south, and Y is elevation, in meters. Construction uses integer 
 
 The main track centerline is Z0. A 25 m turnout leads to the parallel siding at Z5, which continues 100 m to E125. The 8.4 m road is centered at Z−13: eastbound traffic uses Z−10.9, westbound traffic uses Z−15.1. Separate crossing lanes enter at E−10.1 and leave at E−5.9. Rail gauge is 1.435 m between inner head faces. The 0.072 m rail heads have centers at ±0.7535 m. Straight construction occupies two cells across the centerline, with compact 1.95 m sleepers and a 2 m ballast strip. Stored panels have a separate 5 × 3 m handling footprint.
 
-The fixed simulation step is 0.1 seconds. Each simulation second advances the calendar by 30 seconds: at 1×, one game hour takes two real minutes. Movement and work use simulation time; arrivals and wages use the calendar. Speed multiplies simulation steps within a bounded catch-up loop. Closed time is not replayed.
+The fixed simulation step is 0.1 seconds. Each simulation second advances the calendar by one second: at 1×, one game hour takes one real hour. Movement, work, arrivals, shifts, attendance hours, and wages use the same time scale. The top bar shows seconds. Existing saved dates and ledger entries remain intact; the new rate applies after resuming. Supplier lead time starts at three real minutes at 1×. Speed multiplies simulation steps within a bounded catch-up loop. Closed time is not replayed.
 
 ## Purchased equipment and workers
 
@@ -56,7 +56,7 @@ Road freight, crew buses, lowloaders, and utility vans have separate receiving p
 
 Material load size is limited by both mass and deck length: 6 m for the road platform and 16 m for the flatcar. Freight occupies one center lane for side unloading. Original lot positions remain fixed as quantities decrease, so the remaining cargo does not slide into new positions after every pickup. Each lot respects its catalog stack limit.
 
-Unloading requires a purchased available machine, a hired qualified operator, fuel, and reachable storage. Excavator lifting also reserves a builder or engineer as a rigger. Phases include boarding, approach, rigging, lift, backing clear, carrying, lowering, release, and backing away. The rigger approaches only after the machine parks and aligns, then clears the lifting area before pickup. Working reach adjusts continuously from the carrier dock to the storage dock, and cargo follows the final alignment turn before lowering. The operator remains seated after the assignment. No carrier forklift or excavator is created to bypass missing resources.
+Unloading requires a purchased available machine, a hired qualified operator, fuel, and reachable storage. Excavator lifting also reserves a builder or engineer as a rigger. Phases include boarding, approach, rigging, lift, backing clear, carrying, lowering, release, and backing away. The rigger starts walking while the operator boards and the machine approaches; rigging still waits for machine alignment and a clear lifting area. Working reach adjusts continuously from the carrier dock to the storage dock, and cargo follows the final alignment turn before lowering. The operator remains seated after the assignment. No carrier forklift or excavator is created to bypass missing resources.
 
 A material unit remains on the order until pickup. Pickup increments `arrived`, puts the quantity on the assigned machine, and records the carrier-to-machine transfer. Deposit records machine-to-stock movement. Reports count carried material separately from stored material. Acquisition cost is invoiced once at arrival; neither pickup nor stacking repeats that charge.
 
@@ -84,7 +84,7 @@ Run query builds a fresh in-memory SQLite snapshot; it does not expose mutable l
 
 ## Rendering
 
-The world is procedural 3D geometry viewed through a 45-degree perspective camera. Shared materials, static batches, and instanced terrain/track parts limit draw calls while retaining asset picking. Dynamic poses interpolate between fixed simulation states so display frames do not visibly jump at 10 Hz. Heading uses the shortest angular transition. Road motion accelerates, brakes toward stops and obstructions, and uses a lower speed while backing. Gear changes require a stationary pause.
+The world is procedural 3D geometry viewed through a 42-degree perspective camera. Shared materials, static batches, and instanced terrain/track parts limit draw calls while retaining asset picking. Dynamic poses interpolate between fixed simulation states so display frames do not visibly jump at 10 Hz. Heading uses the shortest angular transition. Road motion accelerates, brakes toward stops and obstructions, and uses a lower speed while backing. Gear changes require a stationary pause.
 
 The locomotive and flatcar are separate coupled models, each with two two-axle bogies. Bodies and bogies sample their own positions along the track. Their wheels contact the railhead at its actual height. Road wheels and track shoes animate from distance traveled. Worker boots have a ground-plane origin, walking retains a planted foot, and seated operators are visible inside cabs. Fork carriage and excavator hook geometry follow the active load. Camera-aware shadows and corrected bias address the earlier floating-foot appearance.
 
@@ -119,3 +119,13 @@ All register tables share natural/numeric sorting and optional column filters. A
 `surfaces.ts` caches deterministic local sRGB canvas textures and rough materials for earth, concrete, asphalt and ballast. `models.ts` builds industrial vehicles and people around the existing named animation/physics anchors. `world.ts` provides a true perspective camera, neutral environment reflections, daylight/shadow lighting, material batching, and finite decorative ground cover that clears installed/planned footprints. Ground cover uses rendering layer 1; solid objects use layer 0. Both are visible in the beauty pass.
 
 `contact-shading.ts` temporarily excludes scenery and disables repeated shadow updates for the depth/normal pass, restoring camera layers and shadow settings in `finally`. Color rendering remains full resolution with multisampling; contact shading uses a smaller buffer. All of these are presentation objects, separate from the serialized simulation.
+
+## Concurrent operations and terrain compaction (0.8)
+
+`ConstructionHandling.equipmentReleased` separates supported slab finishing from machine ownership. The finishing worker continues through the same slab state machine without depending on machine fuel or its new assignment. `sim.assign` can predispatch a slab pickup while the sole eligible builder is finishing another supported slab. Workerless tasks are restricted to approaching/awaiting rigging of stored material; import validation rejects a lift without crew. Consumed source references are cleared before release so old completion cannot decrement a new reservation.
+
+`Order.carrierDeparted` separates physical transport removal from continuing `unload` work. Transport stops affecting geometry, rendering, or berth reservations once offsite; its machine and operator remain bound to cargo until storage withdrawal finishes. The status reaches done after both branches finish. A yard permit may transfer to its departing physical blocker only when that blocker's immediate departure sweep is clear, preserving a single owner.
+
+`ground-wear.ts` records accepted traveled meters under machine track/wheel strips into optional `State.groundWear`, with bounded intensity and cell count. Old saves default to an empty map. Routing samples the actual track strips, compares surface cost alongside distance/turn cost, and replays swept poses before accepting a preferred corridor. `worn-paths.ts` displays the field on one blended ground texture, refreshed at most twice per real second, independently of static asset rebuilds. Pavement obscures old dirt wear. Ground compaction survives saving; the texture and scenery instances remain presentation only.
+
+Steering and translation target the same first nonzero waypoint. The previous steering lookahead skipped a short pending segment, causing repeated yaw corrections at corners. A deterministic short-corner regression verifies steady progress and a single 90-degree turn without heading reversals.

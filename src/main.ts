@@ -48,6 +48,13 @@ const badge = (text: string, tone = '') => `<span class="badge ${tone}">${esc(te
 const btn = (action: string, text: string, cls = '', extra = '') =>
   `<button data-action="${action}" class="${cls}" ${extra}>${text}</button>`;
 const SAVE = 'plant01-save-v1';
+const renderedMarkup = new WeakMap<HTMLElement, string>();
+function stableHTML(element: HTMLElement, html: string, force = false) {
+  if (force || renderedMarkup.get(element) !== html) {
+    element.innerHTML = html;
+    renderedMarkup.set(element, html);
+  }
+}
 let saved: State | undefined;
 let saveError = '';
 try {
@@ -227,16 +234,25 @@ function renderBuildbar() {
 function renderHint() {
   const el = $('#mode-hint');
   if (tool === 'parking') {
-    el.innerHTML = `<b>PARKING · ${esc(parkingEquipment)}</b> Click the bay center on the meter grid. R rotates the parked direction. <span>Esc cancel</span>`;
+    stableHTML(
+      el,
+      `<b>PARKING · ${esc(parkingEquipment)}</b> Click the bay center on the meter grid. R rotates the parked direction. <span>Esc cancel</span>`,
+    );
     return;
   }
   if (controlled) {
     const w = state.workers.find((w) => w.id === controlled);
-    el.innerHTML = `<b>DIRECT CONTROL · ${esc(w?.name)}</b> ${w?.job ? 'Working on ' + esc(w.job) + '. Finish or cancel that assignment to move freely.' : 'Click a clear cell to ' + (w?.vehicle ? 'drive' : 'walk') + '.'} Select equipment to board, or a plan to work. ${btn('release', 'Return to automatic')}`;
+    stableHTML(
+      el,
+      `<b>DIRECT CONTROL · ${esc(w?.name)}</b> ${w?.job ? 'Working on ' + esc(w.job) + '. Finish or cancel that assignment to move freely.' : 'Click a clear cell to ' + (w?.vehicle ? 'drive' : 'walk') + '.'} Select equipment to board, or a plan to work. ${btn('release', 'Return to automatic')}`,
+    );
   } else if (tool !== 'select') {
-    el.innerHTML = `<b>${tool === 'zone' ? 'STOCKYARD' : tool === 'recover' ? 'RECOVER' : esc(BUILDINGS[tool]?.name.toUpperCase())}</b> ${tool === 'recover' ? 'Click a structure, player-built rail, or paved cell to recover it.' : tool === 'slab' ? 'Drag an area to pave.' : tool === 'zone' ? 'Drag a storage area, or click for 12 × 12 m.' : tool === 'rail' ? 'Place 5 m panels. Centers snap to grid lines.' : 'Click to plan. Foundations are queued automatically.'} <span>R rotate · Esc cancel</span>`;
+    stableHTML(
+      el,
+      `<b>${tool === 'zone' ? 'STOCKYARD' : tool === 'recover' ? 'RECOVER' : esc(BUILDINGS[tool]?.name.toUpperCase())}</b> ${tool === 'recover' ? 'Click a structure, player-built rail, or paved cell to recover it.' : tool === 'slab' ? 'Drag an area to pave.' : tool === 'zone' ? 'Drag a storage area, or click for 12 × 12 m.' : tool === 'rail' ? 'Place 5 m panels. Centers snap to grid lines.' : 'Click to plan. Foundations are queued automatically.'} <span>R rotate · Esc cancel</span>`,
+    );
   } else {
-    el.innerHTML = '';
+    stableHTML(el, '');
   }
 }
 function updatePreview() {
@@ -632,6 +648,14 @@ function renderInspector(force = false) {
         ['Received', e.arrived],
         ['Status', badge(e.status)],
         ['Transport', e.mode],
+        [
+          'Carrier',
+          e.carrierDeparted || e.status === 'done'
+            ? 'Left the yard'
+            : e.status === 'departing'
+              ? 'Departing; site handling can continue'
+              : e.status,
+        ],
         ['Machine', esc(e.unload?.equipmentId || e.equipmentId || 'Awaiting assignment')],
         ['Operator', esc(e.unload?.operatorId || e.operatorId || 'Unassigned')],
         ['Rigger', esc(e.unload?.riggerId || 'None')],
@@ -657,9 +681,10 @@ function renderInspector(force = false) {
       ]) +
       '<p class="note">Extend the siding from its current end. The crew moves this same buffer after installing the next panel.</p>';
   }
-  panel.innerHTML = linkCells(
+  const markup = linkCells(
     `<div class="panel-head"><span>${esc(selection.id)}</span>${btn('deselect', '×', '', 'aria-label="Close inspector"')}</div><h2>${esc(title)}</h2>${body}`,
   );
+  stableHTML(panel, markup, force);
 }
 function reference(text: unknown) {
   const safe = esc(text);
@@ -1118,8 +1143,11 @@ function renderRecords(force = false) {
     body = `<div class="sql-layout"><div><div class="sql-examples">${SQL_EXAMPLES.map((e, i) => btn(`sql-example:${i}`, e.name, 'small')).join('')}</div><textarea id="sql" spellcheck="false" aria-label="SQL query">${esc(SQL_EXAMPLES[0].sql)}</textarea><div class="sql-run">${btn('sql-run', 'Run query', 'primary')}<span id="sql-status">Ready · snapshot created when you run</span></div><div id="sql-results"></div></div><aside><h3>Tables</h3><p>inventory<br>workers<br>equipment<br>jobs<br>job_groups<br>work_orders<br>orders<br>stacks<br>buildings<br>rails<br>zones<br>movements<br>costs<br>events</p><p class="note">Time is seconds since day 1 midnight. Positions use meters. Inventory counts exclude demo infrastructure supplied as opening assets.</p><p class="note">SELECT, WITH, and EXPLAIN are accepted. Run <code>SELECT * FROM jobs LIMIT 5</code> to inspect a table.</p></aside></div>`;
     actions = '';
   }
-  $('#records').innerHTML =
-    `<div class="records-head"><div><span class="eyebrow">SITE REGISTER / ${esc(state.name.toUpperCase())}</span><h1>${title}</h1><p>${subtitle}</p></div><div class="record-actions">${actions}</div></div>${tab !== 'reports' ? `<div class="search-row"><label>Filter <input id="search" type="search" placeholder="Type to filter records…" value="${esc(search)}"></label>${btn('column-filters', showColumnFilters ? 'Hide column filters' : 'Column filters', 'small')}<span>Live records · D${day(state.time)} ${clock(state.time)}</span></div>` : ''}${body}`;
+  stableHTML(
+    $('#records'),
+    `<div class="records-head"><div><span class="eyebrow">SITE REGISTER / ${esc(state.name.toUpperCase())}</span><h1>${title}</h1><p>${subtitle}</p></div><div class="record-actions">${actions}</div></div>${tab !== 'reports' ? `<div class="search-row"><label>Filter <input id="search" type="search" placeholder="Type to filter records…" value="${esc(search)}"></label>${btn('column-filters', showColumnFilters ? 'Hide column filters' : 'Column filters', 'small')}<span>Live records · D${day(state.time)} ${clock(state.time)}</span></div>` : ''}${body}`,
+    force,
+  );
 }
 function renderGuide() {
   const el = $('#guide');
@@ -1136,10 +1164,10 @@ function openModal(which: string) {
   const root = $('#modal-root');
   let content = '';
   if (which === 'start') {
-    content = `<div class="start-title"><span class="eyebrow">A PHYSICAL FACTORY SANDBOX</span><h1>Every piece<br>has a place.</h1><p>Start with an open yard and a rail connection.<br>Bring people and materials. Build what comes next.</p></div><div class="start-choices">${btn('new:starter', '<b>Start a new yard</b><span>Empty ground, with a starter supply order on its way.</span>', 'start-choice recommended')}${btn('new:empty', '<b>Start completely empty</b><span>Choose every worker, machine, and material yourself.</span>', 'start-choice')}${btn('new:demo', '<b>Explore Birch Junction</b><span>A small working base, stocked and ready to expand.</span>', 'start-choice')}</div><p class="note">No budget limit · construction and logistics · local saves · version 0.7</p>`;
+    content = `<div class="start-title"><span class="eyebrow">A PHYSICAL FACTORY SANDBOX</span><h1>Every piece<br>has a place.</h1><p>Start with an open yard and a rail connection.<br>Bring people and materials. Build what comes next.</p></div><div class="start-choices">${btn('new:starter', '<b>Start a new yard</b><span>Empty ground, with a starter supply order on its way.</span>', 'start-choice recommended')}${btn('new:empty', '<b>Start completely empty</b><span>Choose every worker, machine, and material yourself.</span>', 'start-choice')}${btn('new:demo', '<b>Explore Birch Junction</b><span>A small working base, stocked and ready to expand.</span>', 'start-choice')}</div><p class="note">No budget limit · construction and logistics · local saves · version 0.8</p>`;
   }
   if (which === 'menu') {
-    content = `<h1>${esc(state.name)}</h1><p class="subtitle">Starter Yard · version 0.7.0</p><div class="menu-grid">${btn('save', 'Save to browser', 'primary')}${btn('export-save', 'Export save file')}${btn('export-diagnostics', 'Export diagnostic history')}${btn('source-code', 'Source code · MIT')}${btn('import-save', 'Import save file')}${btn('restore-backup', 'Restore previous yard')}${btn('help', 'Controls and guide')}${btn('new-confirm', 'Start a new yard')}${btn('close-modal', 'Return to yard')}</div><p class="note">Autosaves every 20 seconds. Export a file for a portable backup. Your game stays on this computer.</p>`;
+    content = `<h1>${esc(state.name)}</h1><p class="subtitle">Starter Yard · version 0.8.0</p><div class="menu-grid">${btn('save', 'Save to browser', 'primary')}${btn('export-save', 'Export save file')}${btn('export-diagnostics', 'Export diagnostic history')}${btn('source-code', 'Source code · MIT')}${btn('import-save', 'Import save file')}${btn('restore-backup', 'Restore previous yard')}${btn('help', 'Controls and guide')}${btn('new-confirm', 'Start a new yard')}${btn('close-modal', 'Return to yard')}</div><p class="note">Autosaves every 20 seconds. Export a file for a portable backup. Your game stays on this computer.</p>`;
   }
   if (which === 'new-confirm') {
     content = `<h1>Start another yard</h1><p>Your current yard will be saved as a browser backup before the new yard is created.</p><div class="button-stack">${btn('new:starter', 'New yard + starter supplies', 'primary')}${btn('new:empty', 'Completely empty yard')}${btn('new:demo', 'Birch Junction example')}${btn('close-modal', 'Keep current yard')}</div>`;
@@ -1196,6 +1224,8 @@ function start(kind: string) {
     } catch {}
   }
   state = kind === 'demo' ? Sim.demoState() : Sim.createState();
+  accumulator = 0;
+  lastTime = performance.now();
   if (kind === 'starter') Sim.starterOrder(state);
   world.revision = -1;
   selection = undefined;
@@ -1784,6 +1814,9 @@ document.addEventListener('keydown', (e) => {
 });
 document.addEventListener('keyup', (e) => keys.delete(e.key.toLowerCase()));
 window.addEventListener('blur', () => keys.clear());
+document.addEventListener('visibilitychange', () => {
+  lastTime = performance.now();
+});
 window.addEventListener('beforeunload', () => persist(true));
 function uiTick() {
   renderHint();
@@ -1798,7 +1831,7 @@ function uiTick() {
       noticeTimer = window.setTimeout(() => (el.hidden = true), 10000);
     }
   }
-  $('#time').innerHTML = `<b>D${day(state.time)}</b> ${clock(state.time)}`;
+  $('#time').innerHTML = `<b>D${day(state.time)}</b> ${clock(state.time, true)}`;
   $('#site-name').textContent = state.name;
   $('#notice-count').textContent = String(state.notices.filter((n) => !n.seen).length);
   $('#work-summary').textContent =
@@ -1814,11 +1847,14 @@ function uiTick() {
   if (tab !== 'reports') renderRecords();
 }
 function frame(now: number) {
-  const realDt = Math.min((now - lastTime) / 1000, 0.1);
+  const wallDt = Math.max(0, (now - lastTime) / 1000);
+  const realDt = Math.min(wallDt, 0.1);
   lastTime = now;
   if (!modal || modal === 'shop' || modal === 'help' || modal === 'menu') {
     if (!state.paused) {
-      accumulator += realDt * state.speed;
+      // Keep a slow foreground frame on the same clock as movement. Camera
+      // panning is clamped separately; suspended/background time is not replayed.
+      accumulator += Math.min(wallDt, 1) * state.speed;
       let steps = 0;
       while (accumulator >= 0.1 && steps++ < 20) {
         world.capturePrevious(state);
@@ -1836,9 +1872,9 @@ function frame(now: number) {
     }
     if (follow && controlled) {
       const w = state.workers.find((w) => w.id === controlled);
-      if (w) world.followWorker(state, w.id, state.paused ? 1 : accumulator / 0.1);
+      if (w) world.followWorker(state, w.id, state.paused ? 1 : Math.min(1, accumulator / 0.1));
     }
-    world.update(state, realDt, state.paused ? 1 : accumulator / 0.1);
+    world.update(state, realDt, state.paused ? 1 : Math.min(1, accumulator / 0.1));
     const center = world.controls.target;
     const a = world.project({ x: center.x, z: center.z }),
       b = world.project({ x: center.x + 10, z: center.z });

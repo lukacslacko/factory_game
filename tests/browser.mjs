@@ -4,6 +4,7 @@ import { checkPhysicalRendering } from './physical-rendering.mjs';
 import { checkEquipmentRoles } from './equipment-roles.mjs';
 import { checkWorkAnimation } from './work-animation.mjs';
 import { checkOperationsUI } from './operations-ui.mjs';
+import { checkTimeAndWear } from './time-and-wear.mjs';
 import { createServer } from 'vite';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
@@ -143,6 +144,14 @@ async function ready() {
   // Operators remain seated between tasks. Exercise a real exit and reboarding,
   // rather than passing because this operator was already inside the machine.
   await page.evaluate((operator) => plant01.action('locate:worker:' + operator), operator);
+  assert.ok(
+    await page.evaluate(async (operator) => {
+      const button = document.querySelector(`[data-action="exit:${operator}"]`);
+      await new Promise((resolve) => setTimeout(resolve, 750));
+      return !!button && button === document.querySelector(`[data-action="exit:${operator}"]`);
+    }, operator),
+    'Paused inspector retains its buttons instead of replacing them each refresh',
+  );
   await page.locator(`[data-action="exit:${operator}"]`).click();
   await page.evaluate(() => {
     plant01.state.paused = false;
@@ -214,6 +223,7 @@ async function ready() {
   const equipmentRoles = await checkEquipmentRoles(page, base);
   const workAnimation = await checkWorkAnimation(page);
   const operations = await checkOperationsUI(page, base);
+  const timeAndWear = await checkTimeAndWear(page, base);
   const layouts = [];
   for (const width of [1440, 1024, 768]) {
     await page.setViewportSize({ width, height: 900 });
@@ -241,6 +251,7 @@ async function ready() {
         equipmentRoles,
         operations,
         workAnimation,
+        timeAndWear,
         checks: [
           'perspective depth and view-relative WASD after orbit',
           'floor grab-pan without click or worker commands',

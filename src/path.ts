@@ -36,27 +36,68 @@ export class Heap {
 const encode = (x: number, z: number) => (x + 64) * 192 + z + 64;
 const decode = (k: number) => ({ x: Math.floor(k / 192) - 64 + 0.5, z: (k % 192) - 64 + 0.5 });
 export function segmentClear(a: Point, b: Point, obstacles: Rect[], clearance = 0) {
-  return !obstacles.some((r) => {
+  const dx = b.x - a.x,
+    dz = b.z - a.z,
+    finiteDelta = Number.isFinite(dx) && Number.isFinite(dz);
+  for (const r of obstacles) {
+    const minX = r.x - clearance + 1e-7,
+      maxX = r.x + r.w + clearance - 1e-7,
+      minZ = r.z - clearance + 1e-7,
+      maxZ = r.z + r.d + clearance - 1e-7;
+    // Most checks are against distant walls. Reject their bounds before
+    // clipping, without normalizing extremely thin epsilon-inverted bounds.
+    if (
+      finiteDelta &&
+      ((minX <= maxX && ((a.x < minX && b.x < minX) || (a.x > maxX && b.x > maxX))) ||
+        (minZ <= maxZ && ((a.z < minZ && b.z < minZ) || (a.z > maxZ && b.z > maxZ))))
+    )
+      continue;
     let low = 0,
       high = 1;
-    const min = [r.x - clearance + 1e-7, r.z - clearance + 1e-7],
-      max = [r.x + r.w + clearance - 1e-7, r.z + r.d + clearance - 1e-7];
-    const from = [a.x, a.z],
-      delta = [b.x - a.x, b.z - a.z];
-    for (let i = 0; i < 2; i++) {
-      if (Math.abs(delta[i]) < 1e-9) {
-        if (from[i] < min[i] || from[i] > max[i]) return false;
-      } else {
-        let lo = (min[i] - from[i]) / delta[i],
-          hi = (max[i] - from[i]) / delta[i];
-        if (lo > hi) [lo, hi] = [hi, lo];
-        low = Math.max(low, lo);
-        high = Math.min(high, hi);
-        if (low > high) return false;
+    if (Math.abs(dx) < 1e-9) {
+      if (a.x < minX || a.x > maxX) continue;
+    } else {
+      let lo = (minX - a.x) / dx,
+        hi = (maxX - a.x) / dx;
+      if (lo > hi) {
+        const old = lo;
+        lo = hi;
+        hi = old;
       }
+      low = Math.max(low, lo);
+      high = Math.min(high, hi);
+      if (low > high) continue;
     }
-    return low <= high;
-  });
+    if (Math.abs(dz) < 1e-9) {
+      if (a.z < minZ || a.z > maxZ) continue;
+    } else {
+      let lo = (minZ - a.z) / dz,
+        hi = (maxZ - a.z) / dz;
+      if (lo > hi) {
+        const old = lo;
+        lo = hi;
+        hi = old;
+      }
+      low = Math.max(low, lo);
+      high = Math.min(high, hi);
+      if (low > high) continue;
+    }
+    if (low <= high) return false;
+  }
+  return true;
+}
+export type TravelCost = (point: Point, yaw: number) => number;
+export function segmentTravelCost(a: Point, b: Point, cost?: TravelCost) {
+  const length = dist(a, b);
+  if (!cost || length < 1e-7) return length;
+  const steps = Math.max(1, Math.ceil(length / 0.5));
+  const yaw = Math.atan2(b.z - a.z, b.x - a.x);
+  let total = 0;
+  for (let i = 0; i < steps; i++) {
+    const t = (i + 0.5) / steps;
+    total += Math.max(1, cost({ x: a.x + (b.x - a.x) * t, z: a.z + (b.z - a.z) * t }, yaw));
+  }
+  return (length * total) / steps;
 }
 function directAxisPath(start: Point, goals: Point[], obstacles: Rect[], clearance: number) {
   const yaw = (start as Point & { yaw?: number }).yaw;
@@ -99,8 +140,9 @@ function search(
   obstacles: Rect[],
   clearance: number,
   searchLimit = 145000,
+  travelCost?: TravelCost,
 ): Point[] | null {
-  if (clearance >= 1) {
+  if (clearance >= 1 && !travelCost) {
     const direct = directAxisPath(start, goals, obstacles, clearance);
     if (direct) return roundCorners(start, direct, obstacles, clearance);
   }
@@ -166,7 +208,10 @@ function search(
       const from = pk === startKey ? start : { x: p.x + 0.5, z: p.z + 0.5 };
       if (!segmentClear(from, { x: x + 0.5, z: z + 0.5 }, obstacles, clearance)) continue;
       const changed = p.direction !== 4 && p.direction !== direction;
-      const g = p.g + 1 + (changed ? (clearance >= 1 ? 3.5 : 0.03) : 0);
+      const g =
+        p.g +
+        (travelCost ? segmentTravelCost(from, { x: x + 0.5, z: z + 0.5 }, travelCost) : 1) +
+        (changed ? (clearance >= 1 ? 3.5 : 0.03) : 0);
       if (g >= (scores.get(k) ?? Infinity)) continue;
       scores.set(k, g);
       parents.set(k, pk);
@@ -209,8 +254,15 @@ export function roundCorners(start: Point, path: Point[], obstacles: Rect[], cle
   if (vertices.length > 1) out.push(vertices[vertices.length - 1]);
   return out;
 }
-export function route(start: Point, goal: Point, obstacles: Rect[], clearance = 0, searchLimit = 145000) {
-  const path = search(start, [goal], obstacles, clearance, searchLimit);
+export function route(
+  start: Point,
+  goal: Point,
+  obstacles: Rect[],
+  clearance = 0,
+  searchLimit = 145000,
+  travelCost?: TravelCost,
+) {
+  const path = search(start, [goal], obstacles, clearance, searchLimit, travelCost);
   if (!path) return null;
   // Grid search is the route skeleton; dock and ramp positions are exact meters.
   if (

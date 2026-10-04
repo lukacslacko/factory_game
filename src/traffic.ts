@@ -10,7 +10,8 @@ import {
   move,
   angleDelta,
 } from './motion';
-import { Heap, dist, segmentClear, route } from './path';
+import { Heap, dist, segmentClear, route, segmentTravelCost } from './path';
+import { surfaceTravelCost, FIXED_TRAVEL_SURFACES } from './ground-wear';
 export interface TrafficBox extends Point {
   yaw: number;
   length: number;
@@ -18,8 +19,14 @@ export interface TrafficBox extends Point {
   id?: string;
 }
 interface BoxGeometry {
-  yaw: number; length: number; width: number; margin: number;
-  c: number; n: number; halfLength: number; halfWidth: number;
+  yaw: number;
+  length: number;
+  width: number;
+  margin: number;
+  c: number;
+  n: number;
+  halfLength: number;
+  halfWidth: number;
 }
 // Route replay tests the same stationary boxes thousands of times. Keep one
 // geometry entry per live object, with dimensions/yaw/margin invalidation;
@@ -27,39 +34,70 @@ interface BoxGeometry {
 const boxGeometryCache = new WeakMap<TrafficBox, BoxGeometry>();
 function boxGeometry(b: TrafficBox, margin: number): BoxGeometry {
   let g = boxGeometryCache.get(b);
-  if (!g || g.yaw !== b.yaw || g.length !== b.length || g.width !== b.width || g.margin !== margin) {
-    const halfLength = b.length / 2 + margin, halfWidth = b.width / 2 + margin;
-    g = { yaw: b.yaw, length: b.length, width: b.width, margin,
-      c: Math.cos(b.yaw), n: Math.sin(b.yaw), halfLength, halfWidth };
+  if (
+    !g ||
+    g.yaw !== b.yaw ||
+    g.length !== b.length ||
+    g.width !== b.width ||
+    g.margin !== margin
+  ) {
+    const halfLength = b.length / 2 + margin,
+      halfWidth = b.width / 2 + margin;
+    g = {
+      yaw: b.yaw,
+      length: b.length,
+      width: b.width,
+      margin,
+      c: Math.cos(b.yaw),
+      n: Math.sin(b.yaw),
+      halfLength,
+      halfWidth,
+    };
     boxGeometryCache.set(b, g);
   }
   return g;
 }
 export function boxOverlap(a: TrafficBox, b: TrafficBox, margin = 0) {
-  const dx = a.x - b.x, dz = a.z - b.z;
-  const reach = Math.hypot(a.length / 2 + margin, a.width / 2 + margin) +
+  const dx = a.x - b.x,
+    dz = a.z - b.z;
+  const reach =
+    Math.hypot(a.length / 2 + margin, a.width / 2 + margin) +
     Math.hypot(b.length / 2 + margin, b.width / 2 + margin);
   // Most replay pairs are far apart. Reject them before looking up cached
   // trigonometry or allocating geometry for a short-lived moving pose.
   if (Math.abs(dx) > reach || Math.abs(dz) > reach) return false;
-  const ga = boxGeometry(a, margin), gb = boxGeometry(b, margin);
+  const ga = boxGeometry(a, margin),
+    gb = boxGeometry(b, margin);
   const dot = Math.abs(ga.c * gb.c + ga.n * gb.n),
     cross = Math.abs(ga.c * gb.n - ga.n * gb.c);
-  return Math.abs(dx * ga.c + dz * ga.n) < ga.halfLength + gb.halfLength * dot + gb.halfWidth * cross - 1e-7 &&
-    Math.abs(-dx * ga.n + dz * ga.c) < ga.halfWidth + gb.halfLength * cross + gb.halfWidth * dot - 1e-7 &&
-    Math.abs(dx * gb.c + dz * gb.n) < gb.halfLength + ga.halfLength * dot + ga.halfWidth * cross - 1e-7 &&
-    Math.abs(-dx * gb.n + dz * gb.c) < gb.halfWidth + ga.halfLength * cross + ga.halfWidth * dot - 1e-7;
+  return (
+    Math.abs(dx * ga.c + dz * ga.n) <
+      ga.halfLength + gb.halfLength * dot + gb.halfWidth * cross - 1e-7 &&
+    Math.abs(-dx * ga.n + dz * ga.c) <
+      ga.halfWidth + gb.halfLength * cross + gb.halfWidth * dot - 1e-7 &&
+    Math.abs(dx * gb.c + dz * gb.n) <
+      gb.halfLength + ga.halfLength * dot + ga.halfWidth * cross - 1e-7 &&
+    Math.abs(-dx * gb.n + dz * gb.c) <
+      gb.halfWidth + ga.halfLength * cross + ga.halfWidth * dot - 1e-7
+  );
 }
 /** Minimum SAT penetration of the inflated boxes; zero means clear. */
 export function boxPenetrationDepth(a: TrafficBox, b: TrafficBox, margin = 0) {
-  const ga = boxGeometry(a, margin), gb = boxGeometry(b, margin),
-    dx = a.x - b.x, dz = a.z - b.z,
-    dot = Math.abs(ga.c * gb.c + ga.n * gb.n), cross = Math.abs(ga.c * gb.n - ga.n * gb.c);
-  return Math.max(0, Math.min(
-    ga.halfLength + gb.halfLength * dot + gb.halfWidth * cross - Math.abs(dx * ga.c + dz * ga.n),
-    ga.halfWidth + gb.halfLength * cross + gb.halfWidth * dot - Math.abs(-dx * ga.n + dz * ga.c),
-    gb.halfLength + ga.halfLength * dot + ga.halfWidth * cross - Math.abs(dx * gb.c + dz * gb.n),
-    gb.halfWidth + ga.halfLength * cross + ga.halfWidth * dot - Math.abs(-dx * gb.n + dz * gb.c)));
+  const ga = boxGeometry(a, margin),
+    gb = boxGeometry(b, margin),
+    dx = a.x - b.x,
+    dz = a.z - b.z,
+    dot = Math.abs(ga.c * gb.c + ga.n * gb.n),
+    cross = Math.abs(ga.c * gb.n - ga.n * gb.c);
+  return Math.max(
+    0,
+    Math.min(
+      ga.halfLength + gb.halfLength * dot + gb.halfWidth * cross - Math.abs(dx * ga.c + dz * ga.n),
+      ga.halfWidth + gb.halfLength * cross + gb.halfWidth * dot - Math.abs(-dx * ga.n + dz * ga.c),
+      gb.halfLength + ga.halfLength * dot + ga.halfWidth * cross - Math.abs(dx * gb.c + dz * gb.n),
+      gb.halfWidth + ga.halfLength * cross + ga.halfWidth * dot - Math.abs(-dx * gb.n + dz * gb.c),
+    ),
+  );
 }
 export function personTouchesBox(p: Point, b: TrafficBox, radius = 0.34) {
   const dx = p.x - b.x,
@@ -112,9 +150,12 @@ export function equipmentBoxes(
         p = localPoint({ ...pose, yaw }, reach, 0);
       boxes.push({
         ...p,
-        yaw: e.cargo.yaw === undefined ? yaw : e.cargo.item === 'slab'
-          ? e.cargo.yaw + angleDelta(e.yaw ?? (e.heading * Math.PI) / 2, yaw)
-          : e.cargo.yaw,
+        yaw:
+          e.cargo.yaw === undefined
+            ? yaw
+            : e.cargo.item === 'slab'
+              ? e.cargo.yaw + angleDelta(e.yaw ?? (e.heading * Math.PI) / 2, yaw)
+              : e.cargo.yaw,
         length: e.cargo.yaw === undefined ? m.d : m.w,
         width: e.cargo.yaw === undefined ? m.w : m.d,
         id: e.id,
@@ -155,7 +196,7 @@ export function staticObstacleRects(s: State): (Rect & { id: string })[] {
     .map((t) => ({ x: t.x, z: t.z, w: t.w, d: t.d, id: t.id }));
   for (const b of s.buildings) {
     const c = { x: b.x + b.w / 2, z: b.z + b.d / 2 },
-      yaw = (b.rotation % 2) * Math.PI / 2;
+      yaw = ((b.rotation % 2) * Math.PI) / 2;
     if (b.kind === 'shed') {
       const w = b.rotation % 2 ? b.d : b.w,
         d = b.rotation % 2 ? b.w : b.d;
@@ -177,7 +218,10 @@ export function staticObstacleRects(s: State): (Rect & { id: string })[] {
   const active = s.jobs.find((j) => j.status === 'doing' && j.railWork?.buffer)?.railWork;
   const buffer = active?.buffer;
   if (!buffer?.carried) {
-    const yaw = buffer?.yaw ?? [...s.jobs].reverse().find((j) => j.railWork?.buffer)?.railWork?.buffer?.yaw ?? 0,
+    const yaw =
+        buffer?.yaw ??
+        [...s.jobs].reverse().find((j) => j.railWork?.buffer)?.railWork?.buffer?.yaw ??
+        0,
       p = localPoint({ ...(buffer || s.buffer), yaw }, 0.55, 0);
     out.push({ ...boxRect({ ...p, yaw, length: 1.75, width: 2.05 }), id: 'BUFFER-001' });
   }
@@ -187,7 +231,9 @@ export function staticObstacleRects(s: State): (Rect & { id: string })[] {
 }
 export function people(s: State) {
   const out: { id: string; x: number; z: number; worker?: Worker }[] = s.workers
-    .filter((w) => !w.vehicle && !['home', 'returning', 'aboard'].includes(w.shiftPhase || 'working'))
+    .filter(
+      (w) => !w.vehicle && !['home', 'returning', 'aboard'].includes(w.shiftPhase || 'working'),
+    )
     .map((w) => ({ ...w, worker: w }));
   for (const o of s.orders)
     if (o.contractor && o.contractor.phase !== 'seated')
@@ -197,7 +243,13 @@ export function people(s: State) {
 export function roadMoveBlocked(s: State, o: Order, pose: Point & { yaw: number }): string {
   const next = carrierBoxes(o, pose);
   for (const other of s.orders) {
-    if (other.id === o.id || other.status === 'ordered' || other.status === 'done') continue;
+    if (
+      other.id === o.id ||
+      other.status === 'ordered' ||
+      other.status === 'done' ||
+      other.carrierDeparted
+    )
+      continue;
     if (next.some((a) => carrierBoxes(other).some((b) => boxOverlap(a, b, 0.15)))) return other.id;
   }
   for (const e of s.equipment) {
@@ -212,7 +264,8 @@ export function equipmentMoveBlocked(
   e: Equipment,
   pose: Point & { yaw?: number },
 ): string {
-  const boxes = equipmentBoxes(e, pose), prior = equipmentBoxes(e);
+  const boxes = equipmentBoxes(e, pose),
+    prior = equipmentBoxes(e);
   const blocks = (a: TrafficBox, b: TrafficBox, part: number, margin = 0.06) => {
     if (!boxOverlap(a, b, margin)) return false;
     const next = boxPenetrationDepth(a, b, margin),
@@ -223,31 +276,37 @@ export function equipmentMoveBlocked(
     return old <= 1e-7 || next > old + 1e-7;
   };
   for (const r of staticObstacleRects(s)) {
-    if (blocks(boxes[0],
-      { x: r.x + r.w / 2, z: r.z + r.d / 2, yaw: 0, length: r.w, width: r.d }, 0))
+    if (
+      blocks(boxes[0], { x: r.x + r.w / 2, z: r.z + r.d / 2, yaw: 0, length: r.w, width: r.d }, 0)
+    )
       return r.id;
   }
   for (const p of people(s)) {
     if (p.worker?.transition?.equipmentId === e.id) continue;
-    if (boxes.some((b, i) => {
-      const next = personOverlapDepth(p, b, 0.42), old = personOverlapDepth(p, prior[i], 0.42);
-      return next > 1e-7 && (old <= 1e-7 || next > old + 1e-7);
-    })) return p.id;
+    if (
+      boxes.some((b, i) => {
+        const next = personOverlapDepth(p, b, 0.42),
+          old = personOverlapDepth(p, prior[i], 0.42);
+        return next > 1e-7 && (old <= 1e-7 || next > old + 1e-7);
+      })
+    )
+      return p.id;
   }
   // Swept poses protect track corners and forks while turning as well as while translating.
   for (const other of s.equipment) {
     if (other.id === e.id || other.transportOrder) continue;
-    if (boxes.some((a, i) => equipmentBoxes(other).some((b) => blocks(a, b, i))))
-      return other.id;
+    if (boxes.some((a, i) => equipmentBoxes(other).some((b) => blocks(a, b, i)))) return other.id;
   }
   for (const o of s.orders) {
-    if (o.status === 'ordered' || o.status === 'done' || e.transportOrder === o.id) continue;
-    // Raised tools legitimately reach over a freight deck; chassis must always remain clear.
     if (
-      equipmentBoxes(e, pose, false).some((a) =>
-        carrierBoxes(o).some((b) => blocks(a, b, 0)),
-      )
+      o.status === 'ordered' ||
+      o.status === 'done' ||
+      o.carrierDeparted ||
+      e.transportOrder === o.id
     )
+      continue;
+    // Raised tools legitimately reach over a freight deck; chassis must always remain clear.
+    if (equipmentBoxes(e, pose, false).some((a) => carrierBoxes(o).some((b) => blocks(a, b, 0))))
       return o.id;
   }
   return '';
@@ -283,7 +342,7 @@ export function workerMoveBlocked(s: State, w: Point & { id?: string }, pose: Po
     if (equipmentBoxes(e).some(blocks)) return e.id;
   }
   for (const o of s.orders) {
-    if (o.status === 'ordered' || o.status === 'done') continue;
+    if (o.status === 'ordered' || o.status === 'done' || o.carrierDeparted) continue;
     if (carrierBoxes(o).some(blocks)) return o.id;
   }
   return '';
@@ -325,7 +384,13 @@ export function machineRoute(
     .filter((q) => q.id !== e.id && !q.transportOrder)
     .flatMap((q) => equipmentBoxes(q));
   const carriers = s.orders
-    .filter((q) => q.status !== 'ordered' && q.status !== 'done' && q.id !== e.transportOrder)
+    .filter(
+      (q) =>
+        q.status !== 'ordered' &&
+        q.status !== 'done' &&
+        !q.carrierDeparted &&
+        q.id !== e.transportOrder,
+    )
     .flatMap((q) => carrierBoxes(q));
   const pedestrians = people(s).filter(
     (p) =>
@@ -352,7 +417,8 @@ export function machineRoute(
         (a, i) =>
           machines.some((b) => replayBlocked(a, b, i)) ||
           pedestrians.some((w) => {
-            const next = personOverlapDepth(w, a, 0.42), old = personOverlapDepth(w, initialBoxes[i], 0.42);
+            const next = personOverlapDepth(w, a, 0.42),
+              old = personOverlapDepth(w, initialBoxes[i], 0.42);
             return next > 1e-7 && (old <= 1e-7 || next > old + 1e-7);
           }),
       ) &&
@@ -398,45 +464,82 @@ export function machineRoute(
     return p.path.length ? null : p;
   };
   if (dist(e, goal) < 0.01) return [];
+  const surfaceCost = (p: Point, yaw: number) => {
+    const strip = e.kind === 'excavator' ? 0.94 : 0.68;
+    return (
+      surfaceTravelCost(s, p) * 0.2 +
+      [-strip, strip].reduce(
+        (total, side) =>
+          total +
+          surfaceTravelCost(s, { x: p.x - Math.sin(yaw) * side, z: p.z + Math.cos(yaw) * side }) *
+            0.4,
+        0,
+      )
+    );
+  };
   const routeCost = (from: Equipment, path: Point[]) => {
-    let at: Point = from, yaw = (from.yaw ?? 0) + (from.reverse ? Math.PI : 0), cost = 0;
+    let at: Point = from,
+      yaw = (from.yaw ?? 0) + (from.reverse ? Math.PI : 0),
+      cost = 0;
     for (const p of path) {
       const direction = Math.atan2(p.z - at.z, p.x - at.x);
-      cost += dist(at, p) + Math.abs(angleDelta(yaw, direction)) * 2.5;
+      cost += segmentTravelCost(at, p, surfaceCost) + Math.abs(angleDelta(yaw, direction)) * 2.5;
       yaw = direction;
       at = p;
     }
     return cost;
   };
   const connect = (from: Equipment) => {
-    let best: Point[] | null = null, cost = Infinity;
+    let best: Point[] | null = null,
+      cost = Infinity;
+    const seen = new Set<string>();
     for (const bend of [
       { x: goal.x, z: from.z },
       { x: from.x, z: goal.z },
     ]) {
-      let p = from, valid = true;
+      let p = from,
+        valid = true;
       const path = [bend, goal].filter((q, i, a) => dist(i ? a[i - 1] : from, q) > 0.01);
+      const signature = path.map((q) => `${q.x},${q.z}`).join(';');
+      if (seen.has(signature)) continue;
+      seen.add(signature);
       for (const q of path) {
         const next = advance(p, q);
-        if (!next) { valid = false; break; }
+        if (!next) {
+          valid = false;
+          break;
+        }
         p = next;
       }
       const value = routeCost(from, path);
-      if (valid && value < cost) { best = path; cost = value; }
+      if (valid && value < cost) {
+        best = path;
+        cost = value;
+      }
     }
     return best;
   };
   // Search nodes are a feasibility scaffold. Collapse stair-step fragments
   // only after replaying their exact swept machine poses, so a detour does
   // not turn left and right at every 1.25 m node or cut a post with its rear.
-  const simplify = (path: Point[]) => {
+  const simplify = (path: Point[], preserveSurface = false) => {
     const out: Point[] = [];
-    let at = { ...e }, index = 0;
+    let at = { ...e },
+      index = 0;
     while (index < path.length) {
-      let selected = index, next: Equipment | null = null;
+      let selected = index,
+        next: Equipment | null = null;
       for (let i = path.length - 1; i >= index; i--) {
+        if (
+          preserveSurface &&
+          routeCost(at, [path[i]]) > routeCost(at, path.slice(index, i + 1)) + 0.02
+        )
+          continue;
         next = advance(at, path[i]);
-        if (next) { selected = i; break; }
+        if (next) {
+          selected = i;
+          break;
+        }
       }
       if (!next) return path;
       out.push(path[selected]);
@@ -446,11 +549,10 @@ export function machineRoute(
     return out;
   };
   const direct = connect(e);
-  if (direct) return direct;
   // A coarse low-turn corridor is usually enough for long yard detours.
   // Replay its steering before accepting it; hybrid pose search remains the
   // fallback for close clearances and escapes beside an angled carrier.
-  const corridor = (from: Equipment): Point[] | null => {
+  const corridor = (from: Equipment, preferSurface = false): Point[] | null => {
     const rects = [
       ...staticObstacles,
       ...machines.map((b) => boxRect(b, 0.08)),
@@ -458,20 +560,63 @@ export function machineRoute(
       ...pedestrians.map((p) => ({ x: p.x - 0.42, z: p.z - 0.42, w: 0.84, d: 0.84 })),
     ];
     for (const clearance of e.kind === 'excavator' ? [1.4, 2.35] : [1.1, 1.94]) {
-      const coarse = route(from, goal, rects, clearance, 6500);
+      const coarse = route(
+        from,
+        goal,
+        rects,
+        clearance,
+        6500,
+        preferSurface ? surfaceCost : undefined,
+      );
       if (!coarse) continue;
-      let at = from, valid = true;
+      let at = from,
+        valid = true;
       for (const q of coarse) {
         const next = advance(at, q);
-        if (!next) { valid = false; break; }
+        if (!next) {
+          valid = false;
+          break;
+        }
         at = next;
       }
       if (valid) return coarse;
     }
     return null;
   };
-  const coarse = corridor(e);
-  if (coarse) return simplify(coarse);
+  // Short loading approaches keep their deliberate simple geometry. On longer
+  // journeys compare nearby established lanes, without searching the whole
+  // yard for remote pavement or compromising any swept-footprint checks.
+  const pad = Math.min(10, dist(e, goal) * 0.25);
+  const nearby = (k: string) => {
+    const [x, z] = k.split(',').map(Number);
+    return (
+      x >= Math.min(e.x, goal.x) - pad &&
+      x <= Math.max(e.x, goal.x) + pad &&
+      z >= Math.min(e.z, goal.z) - pad &&
+      z <= Math.max(e.z, goal.z) + pad
+    );
+  };
+  const preferSurface =
+    dist(e, goal) > 8 &&
+    (Object.keys(s.paving).some(nearby) ||
+      Object.entries(s.groundWear ?? {}).some(([k, v]) => v > 0.08 && nearby(k)) ||
+      FIXED_TRAVEL_SURFACES.some(
+        (r) =>
+          r.x < Math.max(e.x, goal.x) + pad &&
+          r.x + r.w > Math.min(e.x, goal.x) - pad &&
+          r.z < Math.max(e.z, goal.z) + pad &&
+          r.z + r.d > Math.min(e.z, goal.z) - pad,
+      ));
+  if (direct) {
+    if (preferSurface && routeCost(e, direct) > dist(e, goal) * 1.03) {
+      const preferred = corridor(e, true);
+      if (preferred && routeCost(e, preferred) + 0.1 < routeCost(e, direct))
+        return simplify(preferred, true);
+    }
+    return direct;
+  }
+  const coarse = corridor(e, preferSurface) || (preferSurface ? corridor(e) : null);
+  if (coarse) return simplify(coarse, preferSurface);
   // A machine stopped halfway through a turn may not have room to rotate to
   // any grid heading. Move along its current wheel/track axis first, creating
   // turning clearance without sweeping its rear corner into the obstruction.
@@ -504,7 +649,11 @@ export function machineRoute(
   heap.push({ x: 0, z: 0, g: 0, f: dist(e, goal), direction: bin(e.yaw ?? 0) });
   score.set(start, 0);
   poses.set(start, { ...e });
-  for (let loops = 0; heap.a.length && loops < searchLimit && steeringSteps <= steeringBudget; loops++) {
+  for (
+    let loops = 0;
+    heap.a.length && loops < searchLimit && steeringSteps <= steeringBudget;
+    loops++
+  ) {
     const node = heap.pop(),
       k = `${node.x},${node.z},${node.direction}`,
       at = poses.get(k)!;
@@ -531,7 +680,10 @@ export function machineRoute(
         to = { x: e.x + x * step, z: e.z + z * step };
       if (to.x < -48 || to.x > 230 || to.z < -30 || to.z > 115) continue;
       const yaw = Math.atan2(dz, dx) + (e.reverse ? Math.PI : 0);
-      const g = node.g + step * Math.hypot(dx, dz) + Math.abs(angleDelta(at.yaw ?? 0, yaw)) * 2.5;
+      const g =
+        node.g +
+        segmentTravelCost(at, to, surfaceCost) +
+        Math.abs(angleDelta(at.yaw ?? 0, yaw)) * 2.5;
       const next = advance(at, to);
       if (!next) continue;
       const nk = key(x, z, next.yaw ?? 0);

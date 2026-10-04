@@ -99,6 +99,7 @@ export class DiagnosticRecorder {
           railPhase: j.railWork?.phase,
           panel: j.railWork?.panel.state,
           cargoState: j.handling?.state,
+          equipmentReleased: j.handling?.equipmentReleased,
         },
         wallTime,
       );
@@ -109,6 +110,7 @@ export class DiagnosticRecorder {
         {
           status: o.status,
           arrived: o.arrived,
+          carrierDeparted: o.carrierDeparted,
           note: o.note,
           equipment: o.unload?.equipmentId,
           operator: o.unload?.operatorId,
@@ -163,7 +165,7 @@ export class DiagnosticRecorder {
         equipment: s.equipment.map(motion),
         workers: s.workers.map(motion),
         carriers: s.orders
-          .filter((o) => !['ordered', 'done'].includes(o.status))
+          .filter((o) => !['ordered', 'done'].includes(o.status) && !o.carrierDeparted)
           .map((o) => ({
             id: o.id,
             item: o.item,
@@ -180,7 +182,7 @@ export class DiagnosticRecorder {
     return copy({
       format: 'plant01-diagnostics',
       version: 1,
-      gameVersion: '0.7.0',
+      gameVersion: '0.8.0',
       started: this.started,
       entries: this.entries,
       checkpoints: this.checkpoints,

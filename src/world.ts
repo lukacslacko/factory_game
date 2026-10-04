@@ -6,6 +6,7 @@ import { ContactShadingPass } from './contact-shading';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { surfaceMaterial } from './surfaces';
+import { WornPaths } from './worn-paths';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import type {
   State,
@@ -218,6 +219,7 @@ export class World {
   frame = 0;
   lights: THREE.PointLight[] = [];
   landscape = new THREE.Group();
+  private wornPaths = new WornPaths();
   private previous = new Map<string, RenderPose>();
   private previousDeliveries = new Map<string, DeliveryPose>();
   private previousRailWork = new Map<string, RailWorkRenderState>();
@@ -407,6 +409,7 @@ export class World {
     ground.position.y = 0;
     ground.receiveShadow = true;
     this.scene.add(ground);
+    this.scene.add(this.wornPaths.mesh);
     this.grid = new THREE.GridHelper(300, 300, 0x9a998e, 0x9a998e);
     this.grid.position.set(70, 0.009, 50);
     (this.grid.material as THREE.Material).transparent = true;
@@ -726,6 +729,7 @@ export class World {
     });
     grassMaterial.userData.owned = true;
     const grass = new THREE.InstancedMesh(geo, grassMaterial, 14000);
+    grass.name = 'ground-grass';
     const rock = new THREE.InstancedMesh(
       new THREE.IcosahedronGeometry(1, 1),
       material(0xa79d88),
@@ -762,6 +766,7 @@ export class World {
       )
         return true;
       if (s.paving[`${Math.floor(x)},${Math.floor(z)}`]) return true;
+      if ((s.groundWear?.[`${Math.floor(x)},${Math.floor(z)}`] || 0) > 0.16) return true;
       return occupied.some(
         (r) => x > r.x - 0.5 && x < r.x + r.w + 0.5 && z > r.z - 0.5 && z < r.z + r.d + 0.5,
       );
@@ -1090,6 +1095,24 @@ export class World {
     this.batchStatic();
   }
   update(s: State, dt: number, alpha = 1) {
+    if (this.wornPaths.update(s) && Object.keys(s.groundWear || {}).length) {
+      const grass = this.landscape.getObjectByName('ground-grass') as
+        THREE.InstancedMesh | undefined;
+      if (grass) {
+        const matrix = new THREE.Matrix4();
+        let changed = false;
+        for (let i = 0; i < grass.count; i++) {
+          grass.getMatrixAt(i, matrix);
+          const [x, y, z] = [matrix.elements[12], matrix.elements[13], matrix.elements[14]];
+          if (y >= 0 && (s.groundWear?.[`${Math.floor(x)},${Math.floor(z)}`] || 0) > 0.16) {
+            matrix.elements[13] = -2;
+            grass.setMatrixAt(i, matrix);
+            changed = true;
+          }
+        }
+        if (changed) grass.instanceMatrix.needsUpdate = true;
+      }
+    }
     if (this.state !== s) {
       for (const g of this.models.values()) {
         g.removeFromParent();
@@ -1653,7 +1676,7 @@ export class World {
       }
     }
     for (const o of s.orders) {
-      if (o.status === 'ordered' || o.status === 'done') continue;
+      if (o.status === 'ordered' || o.status === 'done' || o.carrierDeparted) continue;
       const selection: Selection = { type: 'order', id: o.id },
         kind = deliveryKind(o),
         previous = this.previousDeliveries.get(o.id);

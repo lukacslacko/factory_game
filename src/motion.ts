@@ -31,7 +31,10 @@ export function move(
     p.velocity = 0;
     return;
   }
-  const next = p.path.find((q) => Math.hypot(q.x - p.x, q.z - p.z) > 0.15) || p.path[0];
+  // Steer toward the same leg that translation will follow. Looking past a
+  // short first leg turns toward the following corner, then movement turns
+  // back again every other tick until the tiny leg is finally consumed.
+  const next = p.path.find((q) => Math.hypot(q.x - p.x, q.z - p.z) > 1e-7) || p.path[0];
   const targetYaw = Math.atan2(next.z - p.z, next.x - p.x) + (p.reverse ? Math.PI : 0);
   const angle = Math.abs(angleDelta(p.yaw, targetYaw));
   if (vehicle && angle > 0.38) {

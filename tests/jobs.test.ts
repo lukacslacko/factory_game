@@ -124,8 +124,15 @@ test('urgent assignment retains current carried job, then safely hands the machi
     () => s.jobs.find((j) => j.id === urgent.id)!.status === 'done',
     1800,
     () => {
-      if (excavator.job === urgent.id)
-        assert.equal(s.jobs.find((j) => j.id === first.id)!.status, 'done');
+      if (excavator.job === urgent.id) {
+        const prior = s.jobs.find((j) => j.id === first.id)!;
+        assert.ok(
+          prior.status === 'done' ||
+            (prior.handling?.equipmentReleased && prior.handling.state === 'placed'),
+          'handover requires a supported slab and safely withdrawn machine',
+        );
+        assert.equal(prior.equipment, undefined);
+      }
     },
   );
   assert.equal(excavator.cargo, undefined);

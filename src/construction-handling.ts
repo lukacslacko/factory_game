@@ -59,6 +59,13 @@ function groundObstacles(s: State, api: RailWorkAPI) {
 
 /** Select a cardinal dock with room to turn before reaching into the load. */
 function dock(s: State, e: Equipment, target: Point, reach: number, api: RailWorkAPI, insert = 0) {
+  // Match machineRoute's planning policy: stationary automatic pedestrians
+  // can walk clear. Manual workers, transitions, and existing walks still
+  // constrain the preview; actual movement always checks every person.
+  const preview = {
+    ...s,
+    workers: s.workers.filter((w) => w.duty !== 'auto' || w.path.length || w.transition),
+  };
   const candidates = [0, Math.PI / 2, Math.PI, -Math.PI / 2]
     .map((a) => ({
       point: offset(target, a, reach),
@@ -81,8 +88,8 @@ function dock(s: State, e: Equipment, target: Point, reach: number, api: RailWor
     )
       continue;
     if (
-      equipmentMoveBlocked(s, probe, { ...c.point, yaw: c.yaw }) ||
-      equipmentMoveBlocked(s, probe, { ...c.clear, yaw: c.yaw })
+      equipmentMoveBlocked(preview, probe, { ...c.point, yaw: c.yaw }) ||
+      equipmentMoveBlocked(preview, probe, { ...c.clear, yaw: c.yaw })
     )
       continue;
     const lanes = constructionStorageClearance(s);
@@ -292,7 +299,52 @@ function begin(s: State, j: Job, e: Equipment, api: RailWorkAPI) {
   const worker = s.workers.find((w) => w.id === j.worker);
   if (worker && !worker.yieldingTo) worker.path = [];
   phase(s, j, h.phase);
+  clearPlannedDestination(s, j, e, api);
   return true;
+}
+/** Prepare the destination in parallel with the pickup approach. Relocation
+ * is a real walk, with no automatic return into the reserved handling area. */
+function clearPlannedDestination(s: State, j: Job, e: Equipment, api: RailWorkAPI) {
+  const h = j.handling!,
+    target = center(j);
+  const angle = facing(h.destinationDock, target);
+  const future = {
+    ...e,
+    reach: e.kind === 'forklift' ? 3 : 4,
+    cargo: { item: 'slab' as const, qty: 1 },
+  };
+  const boxes = [h.destinationDock, h.destinationClear].flatMap((p) =>
+    equipmentBoxes(future, { ...p, yaw: angle }),
+  );
+  for (const w of s.workers) {
+    if (
+      w.duty !== 'auto' ||
+      w.vehicle ||
+      w.transition ||
+      w.path.length ||
+      w.deliveryOrder ||
+      w.transportOrder ||
+      (w.job && w.job !== j.id)
+    )
+      continue;
+    if (!boxes.some((b) => personTouchesBox(w, b, 0.7))) continue;
+    const candidates = [5, 7, 9]
+      .flatMap((radius) =>
+        Array.from({ length: 8 }, (_, i) => offset(target, (i * Math.PI) / 4, radius)),
+      )
+      .filter((p) => boxes.every((b) => !personTouchesBox(p, b, 0.8)))
+      .sort((a, b) => dist(w, a) - dist(w, b));
+    for (const p of candidates) {
+      const path = walkRoute(s, w, p, groundObstacles(s, api));
+      if (!path?.length) continue;
+      w.path = path;
+      w.yieldTarget = undefined;
+      w.yieldingTo = undefined;
+      w.status = 'Clearing planned slab handling area';
+      api.event(s, 'Work', w.id, `Walking clear of ${j.id}'s planned loading and withdrawal area.`);
+      break;
+    }
+  }
 }
 function safeWorker(s: State, j: Job, e: Equipment, w: Worker, api: RailWorkAPI, target?: Point) {
   if (w.transition) return false;
@@ -345,7 +397,14 @@ function clearTurn(s: State, j: Job, e: Equipment, w: Worker, angle: number, api
     }
   return false;
 }
-function parkIdleBlocker(s: State, e: Equipment, blocker: string, target: Point, api: RailWorkAPI) {
+function parkIdleBlocker(
+  s: State,
+  e: Equipment,
+  blocker: string,
+  target: Point,
+  api: RailWorkAPI,
+  destination?: Point,
+) {
   const other = s.equipment.find((q) => q.id === blocker);
   if (
     !other ||
@@ -367,6 +426,8 @@ function parkIdleBlocker(s: State, e: Equipment, blocker: string, target: Point,
   const sweep = Array.from({ length: 17 }, (_, i) =>
     equipmentBoxes(e, { ...e, yaw: from + (change * i) / 16 }),
   ).flat();
+  if (destination)
+    sweep.push(...equipmentBoxes(e, { ...destination, yaw: facing(destination, target) }));
   const away = facing(e, other);
   for (const distance of [5, 8, 11])
     for (const a of [away, away + Math.PI / 2, away - Math.PI / 2, away + Math.PI]) {
@@ -394,7 +455,7 @@ function at(
   s: State,
   j: Job,
   e: Equipment,
-  w: Worker,
+  w: Worker | undefined,
   p: Point,
   target: Point,
   dt: number,
@@ -411,11 +472,24 @@ function at(
     if (path) {
       e.path = path;
       e.reverse = reverse;
-    } else j.reason = 'Clear the slab handling approach';
+    } else {
+      // A dock can be blocked by an unladen machine whose previous job just
+      // released it. With no route yet, the normal movement yield loop cannot
+      // start. Ask only an eligible idle, seated automatic operator to drive
+      // clear of the planned dock through the same checked routing API.
+      const dockBoxes = equipmentBoxes(e, { ...p, yaw: facing(p, target) });
+      for (const other of s.equipment) {
+        if (other.id === e.id) continue;
+        if (!dockBoxes.some((a) => equipmentBoxes(other).some((b) => boxOverlap(a, b, 0.35))))
+          continue;
+        parkIdleBlocker(s, e, other.id, target, api, p);
+      }
+      j.reason = 'Clear the slab handling approach';
+    }
     return false;
   }
   const angle = facing(e, target);
-  if (!clearTurn(s, j, e, w, angle, api)) {
+  if (w && !clearTurn(s, j, e, w, angle, api)) {
     j.reason = 'Waiting for worker to clear the turn';
     return false;
   }
@@ -435,9 +509,18 @@ function at(
   j.reason = '';
   return aligned;
 }
-function walkToSlab(s: State, j: Job, e: Equipment, w: Worker, p: Point, api: RailWorkAPI) {
+function walkToSlab(
+  s: State,
+  j: Job,
+  e: Equipment | undefined,
+  w: Worker,
+  p: Point,
+  api: RailWorkAPI,
+) {
   if (w.path.length || w.transition) return false;
-  const boxes = equipmentBoxes(e);
+  const boxes = e
+    ? equipmentBoxes(e)
+    : s.equipment.filter((e) => !e.transportOrder).flatMap((e) => equipmentBoxes(e));
   const candidates = [1.15, 1.5, 1.9].flatMap((r) =>
     Array.from({ length: 8 }, (_, i) => offset(p, (i * Math.PI) / 4, r)),
   );
@@ -486,19 +569,102 @@ function tools(s: State, e: Equipment, h: ConstructionHandling) {
   e.reach = h.toolReach;
 }
 
+function releaseMachine(
+  s: State,
+  j: Job,
+  e: Equipment | undefined,
+  op: Worker | undefined,
+  api: RailWorkAPI,
+) {
+  const machine = j.equipment,
+    operator = j.operator;
+  if (e?.job === j.id) {
+    e.job = undefined;
+    e.path = [];
+    e.work = 0;
+    e.reverse = false;
+  }
+  if (op?.job === j.id) {
+    op.job = undefined;
+    op.path = [];
+    op.status = op.vehicle ? 'Available in cab' : 'Available';
+  }
+  j.equipment = undefined;
+  j.operator = undefined;
+  // Pickup already consumed this reservation; do not release a later job's
+  // reservation against the same source stack when finishing completes.
+  j.stack = undefined;
+  j.handling!.equipmentReleased = true;
+  s.revision++;
+  api.event(
+    s,
+    'Work',
+    j.id,
+    `${machine || 'Machine'} and ${operator || 'operator'} released after safe withdrawal; ${j.worker} finishes the placed slab independently.`,
+  );
+}
+function settle(s: State, j: Job, w: Worker, dt: number, api: RailWorkAPI) {
+  const h = j.handling!,
+    target = center(j);
+  if (!walkToSlab(s, j, undefined, w, target, api)) return true;
+  if (!turn(w, facing(w, target), dt, 2)) return true;
+  w.status = j.cancel
+    ? 'Releasing canceled slab in place'
+    : 'Removing setting runners and leveling slab';
+  h.clock += dt;
+  if (j.cancel) h.pose.y += Math.max(-dt * 0.04, Math.min(dt * 0.04, 0.08 - h.pose.y));
+  const done = j.cancel
+    ? h.clock >= 3 && Math.abs(h.pose.y - 0.08) < 0.0001
+    : animate(h, { ...target, y: -0.015, yaw: h.pose.yaw }, 3);
+  if (done) {
+    const stack = s.stacks.find((t) => t.id === h.placedStack)!;
+    if (j.cancel) {
+      stack.reserved = 0;
+      h.state = 'stored';
+      api.release(s, j);
+      j.status = 'canceled';
+      j.phase = 'Canceled; slab stored at site';
+      j.reason = '';
+      s.revision++;
+    } else {
+      stack.qty = 0;
+      stack.reserved = 0;
+      s.paving[`${j.x},${j.z}`] = j.id;
+      h.state = 'installed';
+      j.delivered = true;
+      api.movement(s, 'slab', 1, stack.id, j.id, 'Installed');
+      api.complete(s, j);
+    }
+    h.phase = 'complete';
+    return true;
+  }
+
+  return true;
+}
+
 export function tickConstructionHandling(s: State, j: Job, dt: number, api: RailWorkAPI) {
   if (j.kind !== 'slab') return false;
   const e = s.equipment.find((e) => e.id === j.equipment),
     w = s.workers.find((w) => w.id === j.worker),
     op = s.workers.find((w) => w.id === j.operator);
-  if (!e || !w || !op || op.vehicle !== e.id) return false;
+  if (j.handling?.phase === 'settle') {
+    if (!w) {
+      j.reason = 'The placed slab needs its assigned finishing worker';
+      return true;
+    }
+    // Older saves retained the machine through settlement. Its withdrawal is
+    // already complete; detach only its matching assignment, never new work.
+    if (!j.handling.equipmentReleased) releaseMachine(s, j, e, op, api);
+    return settle(s, j, w, dt, api);
+  }
+  if (!e || !op || op.vehicle !== e.id) return false;
   if (!j.handling) {
     const active = begin(s, j, e, api);
     if (!j.handling) return active;
   }
   const h = j.handling!;
   syncConstructionLoad(s, j);
-  if (w.yieldingTo === e.id) {
+  if (w?.yieldingTo === e.id) {
     w.yieldTarget = undefined;
     w.yieldingTo = undefined;
   }
@@ -511,6 +677,10 @@ export function tickConstructionHandling(s: State, j: Job, dt: number, api: Rail
     e.reach = h.toolReach;
     if (at(s, j, e, w, h.sourceApproach, h.source, dt, api)) phase(s, j, 'rig');
   } else if (h.phase === 'rig') {
+    if (!w) {
+      j.reason = 'Waiting for the finishing worker before preparing the next slab';
+      return true;
+    }
     const stack = s.stacks.find((t) => t.id === h.sourceId);
     if (!stack || stack.qty < 1 || stack.reserved < 1) {
       j.reason = 'Reserved slab unavailable';
@@ -547,6 +717,9 @@ export function tickConstructionHandling(s: State, j: Job, dt: number, api: Rail
         phase(s, j, 'engage');
       } else pickup(s, j, e, api);
     }
+  } else if (!w) {
+    j.reason = 'Waiting for the construction worker';
+    return true;
   } else if (h.phase === 'engage') {
     if (at(s, j, e, w, h.sourceDock, h.source, dt, api) && safeWorker(s, j, e, w, api, h.source))
       pickup(s, j, e, api);
@@ -559,7 +732,15 @@ export function tickConstructionHandling(s: State, j: Job, dt: number, api: Rail
       return true;
     }
     if (dist(e, h.sourceClear) > 0.05) {
-      e.path = machineRoute(s, { ...e, reverse: true }, h.sourceClear, groundObstacles(s, api), 200, true) || [];
+      e.path =
+        machineRoute(
+          s,
+          { ...e, reverse: true },
+          h.sourceClear,
+          groundObstacles(s, api),
+          200,
+          true,
+        ) || [];
       e.reverse = true;
       if (!e.path.length) j.reason = 'Clear the slab withdrawal aisle';
     } else {
@@ -622,50 +803,32 @@ export function tickConstructionHandling(s: State, j: Job, dt: number, api: Rail
       return true;
     }
     if (dist(e, h.destinationClear) > 0.05) {
-      e.path = machineRoute(s, { ...e, reverse: true }, h.destinationClear, groundObstacles(s, api), 200, true) || [];
+      e.path =
+        machineRoute(
+          s,
+          { ...e, reverse: true },
+          h.destinationClear,
+          groundObstacles(s, api),
+          200,
+          true,
+        ) || [];
       e.reverse = true;
       if (!e.path.length) j.reason = 'Clear the machine withdrawal area';
     } else {
       e.reverse = false;
+      // Stow hydraulics/forks smoothly after the chassis has backed clear.
+      // The finishing worker will continue alone once the machine is ready
+      // to leave; no return-to-stock movement waits for leveling afterward.
+      const stow = e.kind === 'excavator' ? 2 : 0.12,
+        retract = e.kind === 'excavator' ? 2.1 : 3;
+      h.toolLift += Math.max(-dt * 0.8, Math.min(dt * 0.8, stow - h.toolLift));
+      h.toolReach += Math.max(-dt, Math.min(dt, retract - h.toolReach));
+      e.lift = h.toolLift - (e.kind === 'excavator' ? 0.82 : 0);
+      e.reach = h.toolReach;
+      if (Math.abs(h.toolLift - stow) > 0.001 || Math.abs(h.toolReach - retract) > 0.001)
+        return true;
       phase(s, j, 'settle');
-    }
-  } else if (h.phase === 'settle') {
-    e.work = 0;
-    const stow = e.kind === 'excavator' ? 2 : 0.12;
-    h.toolLift += Math.max(-dt * 0.8, Math.min(dt * 0.8, stow - h.toolLift));
-    const retract = e.kind === 'excavator' ? 2.1 : 3;
-    h.toolReach += Math.max(-dt, Math.min(dt, retract - h.toolReach));
-    e.reach = h.toolReach;
-    if (!walkToSlab(s, j, e, w, target, api)) return true;
-    if (!turn(w, facing(w, target), dt, 2)) return true;
-    w.status = j.cancel
-      ? 'Releasing canceled slab in place'
-      : 'Removing setting runners and leveling slab';
-    h.clock += dt;
-    if (j.cancel) h.pose.y += Math.max(-dt * 0.04, Math.min(dt * 0.04, 0.08 - h.pose.y));
-    const done = j.cancel
-      ? h.clock >= 3 && Math.abs(h.pose.y - 0.08) < 0.0001
-      : animate(h, { ...target, y: -0.015, yaw: h.pose.yaw }, 3);
-    if (done) {
-      const stack = s.stacks.find((t) => t.id === h.placedStack)!;
-      if (j.cancel) {
-        stack.reserved = 0;
-        h.state = 'stored';
-        api.release(s, j);
-        j.status = 'canceled';
-        j.phase = 'Canceled; slab stored at site';
-        j.reason = '';
-        s.revision++;
-      } else {
-        stack.qty = 0;
-        stack.reserved = 0;
-        s.paving[`${j.x},${j.z}`] = j.id;
-        h.state = 'installed';
-        j.delivered = true;
-        api.movement(s, 'slab', 1, stack.id, j.id, 'Installed');
-        api.complete(s, j);
-      }
-      h.phase = 'complete';
+      releaseMachine(s, j, e, op, api);
       return true;
     }
   }

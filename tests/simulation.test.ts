@@ -387,7 +387,7 @@ test('a completely empty start has no assigned stockyard; delivery waits for pla
   assert.deepEqual(s.buildings, []);
   seedHandlingResources(s);
   S.purchase(s, 'slab', 6);
-  advance(s, 150);
+  tickUntil(s, () => s.orders[0].note === 'No stockyard — designate a storage area', 600);
   assert.equal(S.totals(s, 'slab').stored, 0);
   assert.equal(s.orders[0].note, 'No stockyard — designate a storage area');
   S.addZone(s, { x: 24, z: 26, w: 12, d: 12 });

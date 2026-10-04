@@ -232,7 +232,7 @@
         ><a href="#limits">Version boundaries</a>
       </nav>
       <article>
-        <small>PLAYER GUIDE · VERSION 0.7.0 · OCTOBER 4, 2026</small>
+        <small>PLAYER GUIDE · VERSION 0.8.0 · OCTOBER 4, 2026</small>
         <h1>Build the starter yard</h1>
         <p class="lead">
           Bring people, equipment, and materials to an open industrial site. Give every piece a
@@ -402,7 +402,8 @@
           inspector. Overnight shifts are supported. At shift end, workers finish current work, park
           equipment, exit, and walk to a charter bus. They return for their next shift by bus. Each
           charter costs $180 and is recorded in the ledger. Existing workers default to Always on.
-          The game clock advances 30 seconds per simulation second.
+          At 1×, the clock and physical operations run in real time. 3× and 10× accelerate both;
+          wages and shift hours use the same clock.
         </p>
         <h2 id="stock">Materials and deliveries</h2>
         <p>
@@ -442,13 +443,26 @@
           Stored material is removed only when an assigned machine picks it up. Remove an empty
           stockyard designation from Materials when you want to build in that area.
         </p>
+        <p>
+          The rigger walks toward unloading while the operator boards and approaches. An empty
+          carrier can leave once its final parcel is lifted clear, while your machine still carries
+          it to storage. The inspector shows when the carrier has left; the order finishes after the
+          site placement is also complete.
+        </p>
+        <p>
+          Repeated equipment travel visibly compacts dirt. Routes prefer concrete or permanent
+          hardstanding, then established dirt paths, then ordinary dirt when distance and turning
+          costs are comparable. Marks persist in saves and stay below installed paving.
+        </p>
         <h3>Paving a cell</h3>
         <p>
           The machine faces the slab stack and aligns its forks or sling with the actual top slab.
           It lifts, backs clear, carries the slab, then faces the planned cell before lowering it.
           Temporary runners support the slab while the machine withdraws; the builder removes them
-          and sets the slab level. Keep room for the loading face, turns, and withdrawal. If access
-          is blocked, work waits. Saving during a lift preserves the load and its position.
+          and sets the slab level. Once safely withdrawn, the machine can approach the next stack
+          while the builder finishes this slab; it waits for a worker before the next lift. Keep
+          room for the loading face, turns, and withdrawal. If access is blocked, work waits. Saving
+          during a lift preserves the load and its position.
         </p>
         <h2 id="recover">Recover and change the layout</h2>
         <p>
@@ -682,8 +696,8 @@
         <p>
           This first version is a construction sandbox with a 232 × 98 m structure area and straight
           buildable rail. Chemical production is intentionally absent. New switches, train driving
-          and shunting, individual utility networks, weather, seasons, wear, repairs, kitchens, and
-          emergency services remain future work.
+          and shunting, individual utility networks, weather, seasons, machinery and component wear,
+          repairs, kitchens, and emergency services remain future work.
         </p>
         <p>
           Automatic jobs include lifting and fastening time, but individual boom joints and bolts
@@ -700,7 +714,7 @@
           design vision recorded in the project documents.
         </p>
         <div class="footer">
-          Plant 01 · Starter Yard 0.7.0 · Built locally with Three.js and sql.js · See the included
+          Plant 01 · Starter Yard 0.8.0 · Built locally with Three.js and sql.js · See the included
           README, architecture notes, and test record for technical details.
         </div>
       </article>

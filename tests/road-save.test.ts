@@ -80,7 +80,9 @@ test('freight saves resume backing, the gear-change stop, and forward road exit 
     if (phase && !phases.has(phase)) {
       phases.add(phase);
       s = reload(s);
-      assert.equal(S.totals(s, 'slab').stored, 8);
+      const total = S.totals(s, 'slab');
+      assert.equal(total.delivered, 8);
+      assert.equal(total.delivered, total.stored + total.cargo + total.installed);
       assert.equal(invoiceCount(s, id), 1);
     }
   }

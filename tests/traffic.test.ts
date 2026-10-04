@@ -518,6 +518,9 @@ test('an arriving truck yields to a worker at the rail crossing and resumes when
   pedestrian.duty = 'rest';
   S.purchase(s, 'slab', 1);
   const order = s.orders[0];
+  // Observe the actual approach, independently of the purchase lead time.
+  // The game clock now advances in real seconds at1x.
+  tickUntil(s, () => order.status === 'approaching', 300);
   let yielded = false;
   for (let t = 0; t < 75; t += 0.1) {
     S.tick(s, 0.1);
@@ -544,4 +547,52 @@ test('an arriving truck yields to a worker at the rail crossing and resumes when
         assert.ok(!intersects(carrier(order), footprint(pedestrian, 0.44, 0.44)));
     },
   );
+});
+
+test('a worker trapped beside a stock row walks around a loaded machine turn instead of blocking it forever', () => {
+  const s = S.createState();
+  const e = seedHandlingResources(s, 'excavator');
+  const op = s.workers.find((w) => w.role === 'operator')!;
+  const builder = s.workers.find((w) => w.role === 'builder')!;
+  Object.assign(e, {
+    x: 37.5,
+    z: 44.1,
+    yaw: Math.PI / 2,
+    heading: 1,
+    reach: 4,
+    lift: 0.45,
+    cargo: { item: 'slab', qty: 1 },
+    operator: op.id,
+  });
+  Object.assign(op, { x: e.x, z: e.z, vehicle: e.id, path: [] });
+  Object.assign(builder, { x: 38.8435, z: 48.1565, path: [] });
+  // Opening supported stock and one suspended slab reproduce the cramped
+  // loading-side geometry. This test exercises public driving and real walking.
+  for (let x = 29; x < 47; x++)
+    s.stacks.push({
+      id: `STK-ROW-${x}`,
+      source: 'opening',
+      item: 'slab',
+      qty: 6,
+      reserved: 0,
+      x,
+      z: 49,
+      w: 1,
+      d: 1,
+    });
+  assert.equal(S.moveWorker(s, op.id, { x: 63.5, z: 44.1 }), '');
+  const before = { x: builder.x, z: builder.z };
+  let walked = false;
+  tickUntil(
+    s,
+    () => !e.path.length,
+    120,
+    () => {
+      if (Math.hypot(builder.x - before.x, builder.z - before.z) > 1) walked = true;
+      assert.ok(outsideMachine(e, builder), 'worker never crosses the chassis');
+    },
+  );
+  assert.ok(walked, 'worker physically escaped the stock-side turn');
+  assert.ok(Math.hypot(e.x - 63.5, e.z - 44.1) < 0.05);
+  assert.equal(e.cargo?.qty, 1);
 });

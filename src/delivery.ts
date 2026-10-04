@@ -104,7 +104,7 @@ export function shipmentLots(o: Order) {
 }
 export function carrierRects(s: State): Rect[] {
   return s.orders
-    .filter((o) => o.status !== 'ordered' && o.status !== 'done')
+    .filter((o) => o.status !== 'ordered' && o.status !== 'done' && !o.carrierDeparted)
     .flatMap((o) => carrierBoxes(o).map((b) => boxRect(b)));
 }
 const equipmentRect = (e: Equipment): Rect => ({ x: e.x - 1.9, z: e.z - 1.25, w: 3.8, d: 2.5 });
@@ -456,7 +456,14 @@ function startUnloading(s: State, o: Order, api: DeliveryAPI, preferred?: string
   w.path = workerPath;
   if (rigger) {
     rigger.deliveryOrder = o.id;
-    rigger.status = 'Waiting for machine to park';
+    rigger.path = riggerPath || [];
+    rigger.status = 'Walking to rig lift';
+    api.event(
+      s,
+      'Dispatch',
+      rigger.id,
+      `Walking to assist ${e.id} with ${o.id} while its operator approaches.`,
+    );
   }
   o.note = `${w.name} preparing ${e.id} to unload`;
   s.revision++;
@@ -604,6 +611,15 @@ function unloadTick(s: State, o: Order, dt: number, api: DeliveryAPI) {
     e.reverse = true;
     e.path = [{ x: e.x, z: e.z + withdrawal }];
     set('clear');
+    if (o.arrived >= o.qty && o.status === 'unloading') {
+      finish(s, o, api);
+      api.event(
+        s,
+        'Transport',
+        o.id,
+        'Last parcel lifted clear; carrier released while site placement continues.',
+      );
+    }
   } else if (t.phase === 'clear') {
     cargoFollow(t, e, t.sourceY + 0.42);
     e.lift = t.cargo!.y;
@@ -708,7 +724,13 @@ function unloadTick(s: State, o: Order, dt: number, api: DeliveryAPI) {
     o.note = 'Withdrawing forks / lifting tackle';
     if (e.path.length) return;
     release(s, o, api);
-    if (o.arrived >= o.qty) finish(s, o, api);
+    if (o.arrived >= o.qty) {
+      if (o.status === 'unloading') finish(s, o, api);
+      else if (o.carrierDeparted) {
+        o.status = 'done';
+        o.note = 'Delivery complete; all freight placed in storage';
+      }
+    }
   }
 }
 function purchasedMachine(s: State, o: Order, api: DeliveryAPI) {
@@ -1127,6 +1149,29 @@ function roadBlocked(s: State, o: Order, pose: Point & { yaw: number }, api: Del
   const blocked = roadMoveBlocked(s, o, pose);
   if (blocked) {
     clearCarrierPedestrian(s, o, blocked, pose, api);
+    // A parked departing carrier can block this owner's exit while being held
+    // by the owner's corridor permit. Let that carrier clear first, using its
+    // actual immediate swept geometry rather than bypassing either collision.
+    const departingBlocker = s.orders.find(
+      (q) =>
+        q.id === blocked && q.mode === 'road' && q.status === 'departing' && !q.carrierDeparted,
+    );
+    if (o.drive?.yardPermit && departingBlocker?.drive) {
+      const next = sampleRoad(
+        departingBlocker,
+        Math.min(roadExitLength(departingBlocker), departingBlocker.drive.distance + 0.5),
+      );
+      if (!roadMoveBlocked(s, departingBlocker, next)) {
+        o.drive.yardPermit = undefined;
+        departingBlocker.drive.yardPermit = true;
+        api.event(
+          s,
+          'Traffic',
+          o.id,
+          `Yielded yard maneuver permit to departing blocker ${departingBlocker.id}.`,
+        );
+      }
+    }
     return blocked;
   }
   if (o.mode === 'road' && deliveryKind(o) !== 'bus' && o.drive) {
@@ -1168,14 +1213,21 @@ function roadBlocked(s: State, o: Order, pose: Point & { yaw: number }, api: Del
   // opposing vehicles meeting and deadlocking halfway across the tracks.
   if (boxes.some((b) => boxOverlap(b, crossingArea)))
     for (const other of s.orders) {
-      if (other.id === o.id || other.status === 'ordered' || other.status === 'done') continue;
+      if (
+        other.id === o.id ||
+        other.status === 'ordered' ||
+        other.status === 'done' ||
+        other.carrierDeparted
+      )
+        continue;
       if (deliveryKind(o) === 'bus' && other.mode === 'rail') continue;
       if (carrierBoxes(other).some((b) => boxOverlap(b, crossingArea))) return other.id;
     }
   return '';
 }
 export function migrateRoadDrive(s: State, o: Order) {
-  if (o.mode !== 'road' || o.status === 'ordered' || o.status === 'done') return;
+  if (o.mode !== 'road' || o.status === 'ordered' || o.status === 'done' || o.carrierDeparted)
+    return;
   o.drive ??= { distance: roadLength(o), velocity: 0, yaw: berth(o).yaw, travel: 0 };
   if (o.drive.roadVersion === ROAD_ROUTE_VERSION) return;
   const old = { ...o.vehicle, yaw: o.drive.yaw ?? berth(o).yaw },
@@ -1247,7 +1299,9 @@ export function migrateRoadDrive(s: State, o: Order) {
   }
 }
 export function tickDelivery(s: State, o: Order, dt: number, api: DeliveryAPI) {
-  if (o.status === 'done') return;
+  // Site placement retains its machine/operator after the empty carrier leaves.
+  if (o.unload && (o.status === 'departing' || o.status === 'done')) unloadTick(s, o, dt, api);
+  if (o.status === 'done' || o.carrierDeparted) return;
   const kind = deliveryKind(o);
   if (o.status !== 'ordered') {
     o.drive ??= {
@@ -1274,6 +1328,7 @@ export function tickDelivery(s: State, o: Order, dt: number, api: DeliveryAPI) {
         q.id !== o.id &&
         q.status !== 'ordered' &&
         q.status !== 'done' &&
+        !q.carrierDeparted &&
         deliveryKind(q) === kind &&
         (q.status !== 'departing' ||
           (q.mode === 'rail' ? true : (q.drive?.distance || 0) < roadLength(q) + 14)),
@@ -1381,9 +1436,13 @@ export function tickDelivery(s: State, o: Order, dt: number, api: DeliveryAPI) {
       return;
     }
     if (departing) {
-      o.status = 'done';
+      o.carrierDeparted = true;
+      o.status = o.unload ? 'departing' : 'done';
       d.yardPermit = undefined;
-      o.note = 'Delivery complete';
+      o.note = o.unload
+        ? 'Carrier departed; site placement still in progress'
+        : 'Delivery complete';
+      s.revision++;
       return;
     }
     o.status = 'unloading';

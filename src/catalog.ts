@@ -202,9 +202,10 @@ export const money = (n: number) =>
     currency: 'USD',
     maximumFractionDigits: 0,
   }).format(n);
-export const clock = (t: number) => {
+export const clock = (t: number, seconds = false) => {
   const m = Math.floor(t / 60);
-  return `${String(Math.floor(m / 60) % 24).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
+  const hhmm = `${String(Math.floor(m / 60) % 24).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
+  return seconds ? `${hhmm}:${String(Math.floor(t) % 60).padStart(2, '0')}` : hhmm;
 };
 export const day = (t: number) => Math.floor(t / 86400) + 1;
 export const label = (key: string) =>

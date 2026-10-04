@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import * as S from '../src/sim.ts';
-import { sampleRoad, roadLength } from '../src/motion.ts';
+import { sampleRoad, roadLength, roadExitLength } from '../src/motion.ts';
 import { carrierBoxes, personTouchesBox } from '../src/traffic.ts';
 import { seedHandlingResources, tickUntil, advance } from './support/yard.ts';
 import { dist } from '../src/path.ts';
@@ -11,9 +11,12 @@ function fixture() {
   S.addZone(s, { x: 24, z: 26, w: 12, d: 12 });
   seedHandlingResources(s);
   const [id] = S.purchase(s, 'slab', 8);
-  tickUntil(s, () => s.orders.find((o) => o.id === id)?.status === 'departing');
+  tickUntil(s, () => {
+    const o = s.orders.find((o) => o.id === id);
+    return o?.status === 'departing' && !o.unload;
+  });
   const o = s.orders.find((o) => o.id === id)!,
-    p = sampleRoad(o, roadLength(o) + 12);
+    p = sampleRoad(o, o.drive!.distance + 12);
   const w = {
     ...s.workers[0],
     id: S.id(s, 'worker'),
@@ -81,7 +84,26 @@ test('a manual worker blocks a departing truck until the player walks them clear
   assert.ok(dist(w, initial) < 1e-8);
   assert.equal(w.yieldingTo, undefined);
   checkSafety(s, wid);
-  assert.equal(S.moveWorker(s, wid, { x: w.x, z: w.z + 5 }), '');
+  const targets = [
+    { x: w.x, z: w.z + 5 },
+    { x: w.x, z: w.z - 5 },
+    { x: w.x + 5, z: w.z },
+    { x: w.x - 5, z: w.z },
+    { x: w.x, z: w.z + 8 },
+    { x: w.x, z: w.z - 8 },
+    { x: w.x + 8, z: w.z },
+    { x: w.x - 8, z: w.z },
+  ];
+  const truck = s.orders.find((o) => o.id === id)!;
+  assert.ok(
+    targets.some((p) => {
+      for (let at = truck.drive!.distance; at < roadExitLength(truck); at += 0.5)
+        if (carrierBoxes(truck, sampleRoad(truck, at)).some((b) => personTouchesBox(p, b, 0.8)))
+          return false;
+      return S.moveWorker(s, wid, p) === '';
+    }),
+    'The player can choose a clear walking cell outside the remaining truck route',
+  );
   tickUntil(
     s,
     () => s.orders.find((o) => o.id === id)?.status === 'done',

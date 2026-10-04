@@ -124,3 +124,41 @@ test('shortest yaw remains stable after many complete turns in either direction'
     assert(Math.abs(mixAngle(a, 0.4, 0.5) - (a + 0.075)) < 1e-10);
   }
 });
+
+test('an excavator finishes a short approach leg before steering into the next corner', () => {
+  const e = {
+    x: 0,
+    z: 0,
+    yaw: 0,
+    velocity: 0,
+    path: [
+      { x: 0.14, z: 0 },
+      { x: 0.14, z: 4 },
+    ],
+  };
+  let priorSign = 0,
+    reversals = 0,
+    turning = 0,
+    ticks = 0;
+  while (e.path.length && ticks++ < 200) {
+    const before = { x: e.x, z: e.z, yaw: e.yaw };
+    move(e, 0.1, 0.84, true);
+    const delta = angleDelta(before.yaw, e.yaw),
+      sign = Math.abs(delta) > 1e-6 ? Math.sign(delta) : 0;
+    turning += Math.abs(delta);
+    if (sign && priorSign && sign !== priorSign) reversals++;
+    if (sign) priorSign = sign;
+    if (e.x < 0.14 - 1e-7) {
+      assert.ok(
+        Math.abs(e.yaw) < 1e-7,
+        'Finish the eastbound leg without steering north prematurely',
+      );
+      assert.ok(e.x > before.x, 'An aligned, unobstructed short leg must keep making progress');
+    }
+    assert.ok(Math.abs(delta) <= 0.11 + 1e-7, 'Turning remains bounded by the real machine rate');
+  }
+  assert.equal(e.path.length, 0);
+  assert.equal(reversals, 0, 'One corner must not cause alternating heading corrections');
+  assert.ok(turning <= Math.PI / 2 + 1e-7);
+  assert.ok(ticks < 100, 'Do not trade flutter for a no-progress pause');
+});

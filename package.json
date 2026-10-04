@@ -1,13 +1,13 @@
 {
   "name": "plant-01-starter-yard",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "private": true,
   "type": "module",
   "scripts": {
     "dev": "vite --host 127.0.0.1 --port 4173",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview --host 127.0.0.1 --port 4173",
-    "test": "node --import tsx --test tests/*.test.ts",
+    "test": "node --max-old-space-size=384 --import tsx --test --test-concurrency=1 tests/*.test.ts",
     "check": "npm run test && npm run build",
     "start": "node server.mjs",
     "test:browser": "node tests/browser.mjs",

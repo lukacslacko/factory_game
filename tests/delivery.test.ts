@@ -5,6 +5,7 @@ import { EQUIPMENT, MATERIALS } from '../src/catalog.ts';
 import { carrierRects, shipmentLots } from '../src/delivery.ts';
 import { localPoint } from '../src/motion.ts';
 import { overlap } from '../src/path.ts';
+import { equipmentBoxes, personTouchesBox } from '../src/traffic.ts';
 import type { State, Item } from '../src/types.ts';
 import { seedHandlingResources, tickUntil, advance } from './support/yard.ts';
 
@@ -114,6 +115,7 @@ test('a site machine without an available operator cannot unload freight', () =>
   const machine = seedHandlingResources(s);
   s.workers[0].duty = 'rest';
   S.purchase(s, 'slab', 4);
+  tickUntil(s, () => s.orders[0].status === 'unloading');
   advance(s, 180);
   assert.equal(S.totals(s, 'slab').stored, 0);
   assert.equal(machine.cargo, undefined);
@@ -523,11 +525,10 @@ test('an excavator keeps its tracks outside a truck while reaching over the bed 
     () => {
       const task = s.orders[0].unload;
       if (!task) return;
-      if (task.phase === 'approach' && Math.abs(Math.cos((e.yaw || 0) + Math.PI / 2) - 1) > 0.001)
-        assert.notEqual(
-          rigger.status,
-          'Walking to rig lift',
-          'Keep the rigger clear while the excavator is still turning',
+      if (task.phase === 'approach')
+        assert.ok(
+          !equipmentBoxes(e).some((b) => personTouchesBox(rigger, b, 0.25)),
+          'Early dispatched rigger stays outside the moving excavator',
         );
       if (task.phase === 'rig' && previousPhase === 'approach') {
         assert.ok(Math.abs(Math.cos((e.yaw || 0) + Math.PI / 2) - 1) < 0.001);

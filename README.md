@@ -6,7 +6,7 @@ The world uses a true perspective 3D camera, with a meter grid, dimensional stoc
 
 ## Play
 
-The private game Site is **https://plant-01-starter-yard.lukacslacko.chatgpt.site**. This package documents version **0.7.0**; deployment status is recorded in `docs/publishing.md`. Sign in with the account that owns the Site. Local and hosted browser saves are separate; use Export save / Import save to transfer a yard.
+The private game Site is **https://plant-01-starter-yard.lukacslacko.chatgpt.site**. This package documents version **0.8.0**; deployment status is recorded in `docs/publishing.md`. Sign in with the account that owns the Site. Local and hosted browser saves are separate; use Export save / Import save to transfer a yard.
 
 On this Mac, double-click **Start Plant 01.command**. It starts the included local server and opens the game at **http://127.0.0.1:4173/**. Keep its Terminal window open while playing; Control-C stops the server.
 
@@ -20,7 +20,7 @@ node server.mjs
 
 Choose **Start a new yard** for bare ground and an incoming starter order, **Start completely empty** to buy everything yourself, or **Explore Birch Junction** for a stocked example. There is no budget limit.
 
-An additional save, **examples/willow-siding.json**, contains a complete small base built through 145 construction jobs and two physical refueling jobs, with its full material, fuel, and cost history. Import it from the game menu to inspect or continue it.
+An additional save, **examples/willow-siding.json**, contains a complete small base built through 145 construction jobs and physical refueling jobs, with its full material, fuel, and cost history. Import it from the game menu to inspect or continue it.
 
 Open **manual.html** through the local server for the illustrated player guide, or use **?** inside the game. Source and technical notes are in `docs/architecture.md`; validation is recorded in `docs/testing.md`. The original vision, design journal, and selected A/B reference images are preserved in `docs/design/`.
 
@@ -60,7 +60,7 @@ Click any displayed asset or work ID to open its inspector. Assigned workers, op
 
 Select a machine, then **Choose bay in yard**, and click the center of a clear parking space. R changes the cardinal direction. Its inspector also accepts whole-meter coordinates. Bays can be inside the open part of a shed if the entire machine and approach fit between its posts and back wall. An available operator really boards and parks the machine when it is idle; blocked routes and missing operators appear in its status. Clear a bay to stop automatic parking there.
 
-Use **Workers → Shift** for Always on, 07:00–17:00, 08:00–16:00, or 22:00–06:00. A worker inspector accepts custom hours, including quarter-hour increments. Schedules use the displayed yard clock, which advances 30 game seconds per simulation second. A shift ending stops new assignments; current physical work finishes before departure. The actual charter bus waits for its passengers; workers arrive for the next shift by bus rather than appearing at work. Always on is the default for existing and newly hired workers. The yard does not advance while closed.
+Use **Workers → Shift** for Always on, 07:00–17:00, 08:00–16:00, or 22:00–06:00. A worker inspector accepts custom hours, including quarter-hour increments. Schedules use the displayed yard clock, which advances one second per simulation second (1× is real time; 3× and 10× scale both movement and the clock). A shift ending stops new assignments; current physical work finishes before departure. The actual charter bus waits for its passengers; workers arrive for the next shift by bus rather than appearing at work. Always on is the default for existing and newly hired workers. The yard does not advance while closed.
 
 ## Diagnostic recordings
 
@@ -147,3 +147,11 @@ The complete source, tests, design grounding, accepted visual references, guide,
 ## Visual direction
 
 Version 0.7 moves the playable world toward the accepted final C concepts, approximately 80% detailed A and 20% matte miniature B. It uses a closer, axis-facing perspective camera, neutral daylight and metal reflections, restrained contact shading, textured earth/concrete/asphalt/ballast, small leaf clusters, and more detailed machinery, people, and containers. Placed objects keep their physical grid footprints; the rail gauge and working load anchors are unchanged. Condensed records keep their dense text layout. The screenshots are actual gameplay, not concept renders.
+
+## Version 0.8 operations update
+
+Machines can prefetch the next slab while a worker levels the last one, including a one-builder crew. Receiving riggers walk ahead; empty carriers leave while site placement continues. These operations retain real crew, cargo, and clearance requirements through save/load.
+
+1× is real time for both motion and the calendar, with seconds in the top bar. 3× and 10× scale both. Existing dates and financial records are preserved. A reproduced short-corner steering mismatch was corrected; if another flutter occurs, attach the JSON from Activity → Export diagnostic history for review.
+
+Repeated actual equipment travel creates persistent worn dirt paths. Comparable routes prefer hardstanding, then established dirt, then ordinary dirt. Wear is bounded; machinery damage and weather remain future work.
