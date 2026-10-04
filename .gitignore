@@ -1,0 +1,12 @@
+node_modules/
+dist/
+test-results/
+.DS_Store
+.openai/
+work/
+*.log
+*.zip
+.env
+.env.*
+plant01-diagnostics*.json
+plant01-day*.json

@@ -1,0 +1,709 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Plant 01 — Player Guide</title>
+    <link rel="icon" href="/favicon.svg" />
+    <style>
+      :root {
+        font:
+          15px/1.65 Arial,
+          sans-serif;
+        color: #344a3c;
+        background: #efefe4;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+      }
+      header {
+        background: #294b39;
+        color: #f5f0d9;
+        padding: 27px max(24px, calc((100vw - 1060px) / 2));
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+      }
+      header b {
+        font-size: 19px;
+        letter-spacing: 3px;
+      }
+      header a {
+        color: #f2ecd1;
+        border: 1px solid #8b9e7c;
+        padding: 5px 15px;
+        border-radius: 3px;
+        text-decoration: none;
+      }
+      main {
+        max-width: 1120px;
+        margin: auto;
+        padding: 40px 30px 80px;
+        display: grid;
+        grid-template-columns: 190px 1fr;
+        gap: 45px;
+      }
+      nav {
+        position: sticky;
+        top: 25px;
+        align-self: start;
+        display: flex;
+        flex-direction: column;
+        font-size: 12px;
+        gap: 9px;
+      }
+      a {
+        color: #416a44;
+      }
+      nav a {
+        text-decoration: none;
+        border-bottom: 1px solid #ced7c1;
+        padding: 6px 0;
+      }
+      h1 {
+        font:
+          38px/1.2 Georgia,
+          serif;
+        margin: 0 0 15px;
+        color: #35583d;
+      }
+      h2 {
+        font-size: 21px;
+        font-weight: 400;
+        color: #35593c;
+        margin: 44px 0 13px;
+        scroll-margin-top: 20px;
+      }
+      h3 {
+        font-size: 14px;
+        color: #536e45;
+        margin: 22px 0 9px;
+      }
+      p {
+        margin: 0 0 15px;
+      }
+      small,
+      .caption {
+        font-size: 12px;
+        color: #81916d;
+      }
+      .lead {
+        font-size: 18px;
+        color: #71845d;
+        margin-bottom: 24px;
+      }
+      .shot {
+        width: 100%;
+        height: auto;
+        display: block;
+        border: 1px solid #bdcbb0;
+        border-radius: 3px;
+      }
+      .caption {
+        margin: 7px 0 22px;
+      }
+      .callout {
+        background: #e1e8d4;
+        border-left: 3px solid #819965;
+        padding: 14px 18px;
+        margin: 18px 0;
+      }
+      .callout p:last-child {
+        margin: 0;
+      }
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 13px;
+        margin: 16px 0;
+        background: #f5f7eb;
+      }
+      th,
+      td {
+        text-align: left;
+        border-bottom: 1px solid #d2dcc4;
+        padding: 8px 11px;
+        vertical-align: top;
+      }
+      th {
+        background: #e0e8d1;
+        font-size: 11px;
+        color: #688057;
+      }
+      code,
+      kbd {
+        font:
+          12px Menlo,
+          Consolas,
+          monospace;
+        background: #e1e7d5;
+        padding: 2px 5px;
+        border-radius: 2px;
+      }
+      ol,
+      ul {
+        padding-left: 22px;
+      }
+      li {
+        margin-bottom: 10px;
+      }
+      .steps li {
+        padding-left: 6px;
+        margin-bottom: 18px;
+      }
+      .columns {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 22px;
+      }
+      .footer {
+        margin-top: 40px;
+        border-top: 1px solid #c6d2b6;
+        padding-top: 14px;
+        font-size: 12px;
+        color: #879875;
+      }
+      @media (max-width: 800px) {
+        main {
+          grid-template-columns: 1fr;
+          padding: 25px 20px;
+          gap: 22px;
+        }
+        nav {
+          position: static;
+          flex-direction: row;
+          flex-wrap: wrap;
+          gap: 12px;
+        }
+        nav a {
+          padding: 0;
+          border: 0;
+        }
+        h1 {
+          font-size: 32px;
+        }
+        .columns {
+          grid-template-columns: 1fr;
+        }
+        header {
+          padding: 20px;
+        }
+      }
+      @media print {
+        header,
+        nav {
+          display: none;
+        }
+        main {
+          display: block;
+          padding: 0;
+        }
+        .shot {
+          max-height: 350px;
+          object-fit: contain;
+        }
+        body {
+          background: white;
+        }
+        h2 {
+          break-after: avoid;
+        }
+        table {
+          break-inside: avoid;
+        }
+        a {
+          color: inherit;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <header><b>PLANT 01</b><a href="/">Return to the yard →</a></header>
+    <main>
+      <nav aria-label="Guide contents">
+        <a href="#start">Start a yard</a><a href="#build">Your first base</a
+        ><a href="#control">Direct control</a><a href="#stock">Materials and deliveries</a
+        ><a href="#roles">Vehicle work roles</a><a href="#recover">Recovery and changes</a
+        ><a href="#fuel">Fuel and utilities</a><a href="#records">Records and SQL</a
+        ><a href="#save">Saves and backups</a><a href="#controls">Controls</a
+        ><a href="#limits">Version boundaries</a>
+      </nav>
+      <article>
+        <small>PLAYER GUIDE · VERSION 0.6.0 · OCTOBER 4, 2026</small>
+        <h1>Build the starter yard</h1>
+        <p class="lead">
+          Bring people, equipment, and materials to an open industrial site. Give every piece a
+          place, then watch the work happen.
+        </p>
+        <img
+          class="shot"
+          src="yard-preview.png"
+          alt="Actual playable 3D yard with containers, a shed, excavator, forklift, track and physical stock"
+        />
+        <p class="caption">The playable game. The camera can pan, orbit, and zoom.</p>
+        <h2 id="start">Start a yard</h2>
+        <p>
+          Double-click <b>Start Plant 01.command</b> on this Mac. The included server opens the game
+          in your browser. Keep its Terminal window open; Control-C stops the server. Normal play
+          works offline.
+        </p>
+        <table>
+          <tr>
+            <th>Starting option</th>
+            <th>What you receive</th>
+          </tr>
+          <tr>
+            <td>Start a new yard</td>
+            <td>Bare ground, the public road and railway, and an incoming starter order.</td>
+          </tr>
+          <tr>
+            <td>Start completely empty</td>
+            <td>
+              The same ground and transport access. Choose every worker, machine, and material
+              yourself.
+            </td>
+          </tr>
+          <tr>
+            <td>Explore Birch Junction</td>
+            <td>
+              An example base with opening assets, workers, machines, physical stock, and utility
+              connections.
+            </td>
+          </tr>
+        </table>
+        <p>
+          The starter order hires two builders and one operator, buys an excavator, and orders 96
+          concrete slabs, six rail panels, an office, a sanitary container, a shed kit, three
+          lights, and a 200 L diesel drum. Deliveries still have to arrive and unload.
+        </p>
+        <div class="callout">
+          <p>
+            <b>No budget limit.</b> The game records costs, commitments, wages, and material
+            movements. Money does not prevent construction. People, machines, access, material, and
+            time do.
+          </p>
+        </div>
+        <h2 id="build">Your first base</h2>
+        <ol class="steps">
+          <li>
+            <b>Designate storage.</b> Empty starts have no assigned stockyard. Choose Stockyard and
+            drag an area, for example E24–51, S26–50. Keep a clear loading face and travel aisles.
+            Slab stacks can fill neighboring cells; they do not require a gap around each stack.
+          </li>
+          <li>
+            <b>Order the essentials.</b> Use Purchase if you started empty. Construction needs a
+            builder or engineer, an operator, a machine with enough lifting capacity, and the
+            specified material. The excavator can lift every starter kit; the forklift cannot lift
+            an office or stores kit. Workers are named Worker #1, Worker #2, and so on.
+          </li>
+          <li>
+            <b>Deploy the delivered machine.</b> A hired operator walks to its lowloader, goes up
+            the lowered ramps, boards, and drives the machine onto the site. It is the same
+            purchased asset throughout. Freight waits until a suitable machine and operator are
+            available. Excavator unloading also needs a builder or engineer to rig the load.
+          </li>
+          <li>
+            <b>Plan an office.</b> Choose Office and click clear ground outside the dashed stockyard
+            boundary. E4, S32 is a useful starting position. Its 6 × 3 m foundation adds 18 paving
+            jobs, followed by installation.
+          </li>
+          <li>
+            <b>Pave a working area.</b> Choose Pave and drag a rectangle. Every square meter
+            consumes one delivered slab and a real hauling cycle. Plans remain outlines until the
+            work is done.
+          </li>
+          <li>
+            <b>Build welfare and shelter.</b> Place the WC/showers and an equipment shed.
+            Foundations are planned automatically. Order water service for the sanitary container.
+            The open shed allows equipment to be parked underneath.
+          </li>
+          <li>
+            <b>Extend the track.</b> Choose Rail end. Start at the existing buffer, E125, S5. Each
+            placed panel is 5 m long. Leave space beside it: the excavator stages the panel, moves
+            the released buffer aside, lays and joins the track, then replaces and fastens the same
+            buffer as the connected extension advances.
+          </li>
+        </ol>
+        <p>
+          Use <b>Buy missing</b> to order the material needed by your waiting plans. It subtracts
+          usable stock and outstanding deliveries, so clicking it again does not duplicate the
+          order. Choose 3× or 10× to watch longer jobs more quickly.
+        </p>
+        <p>
+          If a plan waits, select it or open <b>Work</b>. The blocking reason identifies the missing
+          material, worker, operator, lifting capacity, fuel, foundation, or access route. Leave
+          about <b>3 m of clear aisle</b> for equipment. A planned structure can be canceled before
+          work; delivered material remains yours.
+        </p>
+        <h2 id="control">Direct worker and equipment control</h2>
+        <p>
+          Select a worker in the world or locate them from the Workers register. Click
+          <b>Take direct control</b>, then click a clear ground cell to walk there. A qualified
+          operator can board a free machine: select the machine and click
+          <b>Board with selected operator</b>. The operator walks over and gets in. Click clear
+          ground to drive.
+        </p>
+        <p>
+          Select a waiting material or equipment delivery and choose
+          <b>Unload with controlled operator</b>
+          to assign the operator you control. For a machine still on a lowloader, this assigns its
+          deployment. An automatic operator in another idle vehicle climbs down and walks over.
+        </p>
+        <p>
+          Select a waiting construction job and choose <b>Work with controlled worker</b> to
+          prioritize that assignment. The other required crew members assist, using the same
+          handling sequence as automatic jobs. Finish or cancel an assignment before manually moving
+          its worker.
+        </p>
+        <p>
+          <b>Return to automatic</b> releases control. It does not reset the person's position,
+          machine fuel, or cargo. The Workers inspector also offers a rest duty that prevents new
+          automatic assignments. On-site wages continue while resting.
+        </p>
+        <h2 id="roles">Assign vehicles to work</h2>
+        <p>
+          Open <b>Equipment</b> and change each vehicle's <b>Automatic work</b> selector. The same
+          setting is available when you select a vehicle in the yard. To receive supplies while
+          paving, set your forklift to <b>Receiving only</b> and your excavator to
+          <b>Paving only</b>, with an operator for each machine.
+        </p>
+        <p>
+          <b>All work</b> returns a machine to shared assignments. Other choices are
+          <b>Building only</b>, <b>Rail work only</b> for an excavator, <b>Recovery only</b>, and
+          <b>Hold new work</b>. Paving includes the foundations beneath buildings; Building only
+          covers installing the structure once its foundation is ready.
+        </p>
+        <p>
+          A role change lets the current job or unloading batch finish safely first. The selector
+          shows when that switch is pending. Direct driving, deployment, and refueling remain
+          available. Job assignments respect the role even when you choose their operator manually.
+          Roles are saved with the yard; older saves default to All work.
+        </p>
+        <h3>Work orders and urgent assignments</h3>
+        <p>
+          The Work register opens with active orders. Expand an office build to see its foundation
+          and assembly, then expand the foundation to see individual slabs. Assign equipment to a
+          whole order or any child task. Children inherit their nearest parent's assignment. An
+          urgent assignment finishes the current load safely, then takes priority; it overrides
+          automatic roles while retaining lift limits, staffing, fuel, and route requirements.
+        </p>
+        <h3>Parking and worker shifts</h3>
+        <p>
+          Select equipment and choose <b>Choose bay in yard</b>, then click a clear bay center. R
+          rotates its direction; the inspector also accepts grid coordinates. An available operator
+          boards and drives idle equipment to its bay. Shed posts and back walls remain solid; leave
+          a clear approach.
+        </p>
+        <p>
+          Use <b>Workers → Shift</b> for preset hours or enter custom start/end hours in a worker
+          inspector. Overnight shifts are supported. At shift end, workers finish current work, park
+          equipment, exit, and walk to a charter bus. They return for their next shift by bus. Each
+          charter costs $180 and is recorded in the ledger. Existing workers default to Always on.
+          The game clock advances 30 seconds per simulation second.
+        </p>
+        <h2 id="stock">Materials and deliveries</h2>
+        <p>
+          Stockyards exist only after you designate them, or in the supplied example yard. Their
+          dashed outlines and labels are planning annotations, not installed signs or paint. They
+          create no warehouse inventory or invisible capacity. Every stack has a footprint, a
+          quantity, a source, and a maximum height. Up to 12 slabs occupy a 1 × 1 m stack, about 2.2
+          m high including handling spacers. Partial stacks are topped up before another cell is
+          used, and adjacent usable cells can be filled. Rail panels retain their full 5 m length.
+          Containers and kits occupy their own physical space.
+        </p>
+        <p>
+          Choose truck or rail for materials in Purchase. Each order is split into loads that fit
+          the carrier's weight limit and available deck length. Loads occupy a single center lane
+          for side unloading. People, purchased equipment, and utility crews currently arrive by
+          road. The delivery charge pays for transport; it does not supply a free unloading machine.
+        </p>
+        <p>
+          Road vehicles keep right. Buses stop at the curb and continue forward after everyone has
+          stepped off. Freight and utility trucks back clear inside the yard, stop to change gear,
+          then depart forward on the public road. Empty lowloaders use the western turning loop.
+          Carriers take turns through the connecting yard maneuver; a parked delivery releases that
+          right-of-way so its workers or handling equipment can arrive. Keep the receiving apron,
+          exit aisle, and turning area clear.
+        </p>
+        <p>
+          Your own machine approaches the carrier, lifts a batch, backs clear, carries it to
+          storage, lowers it, and withdraws. The operator stays in the cab. A 2.5 t forklift carries
+          at most eight 280 kg slabs at once, so filling a 12-slab stack takes more than one lift. A
+          partial or carried batch remains recorded through saving and loading.
+        </p>
+        <p>
+          A waiting delivery shows whether it needs an operator, a suitable machine, fuel, a rigger,
+          storage capacity, or access. A free cell behind an unreachable loading face cannot be used
+          until access exists. For more room, use <b>Stockyard</b> and drag another clear area;
+          click once to designate a 12 × 12 m area. Leave access between storage and construction.
+          Stored material is removed only when an assigned machine picks it up. Remove an empty
+          stockyard designation from Materials when you want to build in that area.
+        </p>
+        <h3>Paving a cell</h3>
+        <p>
+          The machine faces the slab stack and aligns its forks or sling with the actual top slab.
+          It lifts, backs clear, carries the slab, then faces the planned cell before lowering it.
+          Temporary runners support the slab while the machine withdraws; the builder removes them
+          and sets the slab level. Keep room for the loading face, turns, and withdrawal. If access
+          is blocked, work waits. Saving during a lift preserves the load and its position.
+        </p>
+        <h2 id="recover">Recover and change the layout</h2>
+        <p>
+          Choose <b>Recover</b> and click an installed building, player-built rail, or paved cell.
+          Crew dismantle or lift it, carry the recovered material, and place it back in physical
+          storage. Space is required for the return. Prefab containers retain their asset IDs when
+          installed elsewhere.
+        </p>
+        <p>
+          Straight track occupies two 1 m grid rows, one on each side of its gridline centerline,
+          with 1,435 mm between the inner rail faces. Compact sleepers and ballast fit that
+          footprint. Storage slots remain 5 × 3 m including handling clearance. Track plans
+          automatically queue recovery for existing paving under their footprint. Recover a
+          structure above paving before trying to lift that paving. The supplied public track and
+          turnout are protected.
+        </p>
+        <p>
+          Rail laying starts by placing the delivered panel on temporary supports beside the
+          extension. The builder releases the old buffer clamps; the excavator lifts the buffer
+          aside, then retrieves and lowers the panel. After the joints are fastened, the machine
+          brings that same buffer to the new end and the builder secures it. Leave room beside the
+          track for the panel, buffer, and machine. Their positions and assignments survive a save
+          during any stage of the operation.
+        </p>
+        <p>
+          Canceling a job before pickup releases its reservation. If a load has already been picked
+          up, the machine deposits it at the planned site as a real stock item. Canceling work never
+          makes its material vanish. Rail work first puts down suspended loads and secures the
+          buffer; a panel already joined to the track remains installed. An imported older forklift
+          rail job will stage its carried panel for an excavator and park clear. Existing installed
+          track remains in place. The Work register explains when an excavator is needed to
+          continue.
+        </p>
+        <h2 id="fuel">Fuel, lights, and utility services</h2>
+        <p>
+          Owned machines arrive with full tanks. Movement and lifting consume diesel. Low fuel
+          produces a persistent notice. From Equipment, choose <b>Refuel</b>. A worker collects
+          diesel from a delivered drum in a 20 L service can, walks to the stopped machine, and
+          fills it. Repeated trips continue until the tank is full or the drum is empty.
+        </p>
+        <p>
+          A machine that runs dry during a job can be refueled and resume with its cargo intact.
+          Fuel in a worker's can survives saving and loading. Stopping a refueling job after
+          collection finishes the current can first. Empty drums remain in storage.
+        </p>
+        <p>
+          Purchase an electrical connection for lights and a water/sewer connection for the sanitary
+          container. A utility crew arrives, works, and commissions the connection. This version
+          represents the service at site level; individual pipe and cable installation is reserved
+          for a later version. The day/night cycle changes the light, and connected yard lamps
+          illuminate at night.
+        </p>
+        <h2 id="records">Dense records and SQL</h2>
+        <img
+          class="shot"
+          src="records-preview.png"
+          alt="Condensed material register showing delivered, stored, reserved, installed and incoming quantities"
+        />
+        <p class="caption">Records are live, searchable, and linked back to the world.</p>
+        <table>
+          <tr>
+            <th>Register</th>
+            <th>Use it to</th>
+          </tr>
+          <tr>
+            <td>Materials</td>
+            <td>
+              Reconcile delivered, stored, reserved, carried, installed, and incoming quantities;
+              find each physical stack.
+            </td>
+          </tr>
+          <tr>
+            <td>Workers</td>
+            <td>
+              Inspect roles, duties, current action, assignments, on-site hours, and hourly rates.
+            </td>
+          </tr>
+          <tr>
+            <td>Equipment</td>
+            <td>
+              Check fuel, consumption, operator, cargo, assignments, and the structures/utility
+              register.
+            </td>
+          </tr>
+          <tr>
+            <td>Deliveries</td>
+            <td>
+              See order status, quantities received, transport mode, ETA, assigned equipment and
+              operator, handling phase, blocking reason, and purchase totals.
+            </td>
+          </tr>
+          <tr>
+            <td>Work</td>
+            <td>
+              Filter waiting, active, complete, or canceled jobs; inspect precise blocking reasons.
+            </td>
+          </tr>
+          <tr>
+            <td>Activity</td>
+            <td>Follow the event log and every recorded material transfer.</td>
+          </tr>
+          <tr>
+            <td>Costs</td>
+            <td>
+              Compare recorded actuals and unreceived commitments; export the cost ledger as CSV.
+            </td>
+          </tr>
+          <tr>
+            <td>SQL</td>
+            <td>
+              Run SELECT, WITH, or EXPLAIN against a fresh SQLite snapshot, using the included
+              examples or your own query.
+            </td>
+          </tr>
+        </table>
+        <p>
+          The snapshot includes <code>inventory</code>, <code>workers</code>,
+          <code>equipment</code>, <code>jobs</code>, <code>orders</code>, <code>stacks</code>,
+          <code>buildings</code>, <code>movements</code>, <code>costs</code>, and
+          <code>events</code>. Queries cannot change the live simulation. Times are calendar
+          seconds, coordinates are meters, fuel is liters, and cost values are USD. Catalog prices
+          are provisional gameplay values.
+        </p>
+        <p>
+          Open <b>Inbox</b> to manage notices in <b>To do</b>, <b>Doing</b>, and <b>Done</b>.
+          Closing a popup only hides it; it does not complete or erase the notice. Locate links jump
+          to the associated person, object, order, or job.
+        </p>
+        <h3>Sorting, links, and diagnostics</h3>
+        <p>
+          Click any table header to sort. Use <b>Column filters</b> for individual columns or the
+          general search for the register. Work retains its parent/child organization when sorted.
+          Displayed asset and job IDs are clickable, including assigned workers, equipment, stock,
+          and parent orders. Historical references show their retained material and cost trail.
+        </p>
+        <p>
+          The local rolling recorder captures actor positions, routes, blockers, cargo, commands,
+          and work phases. When something looks wrong, use
+          <b>Activity → Export diagnostic history</b> or the game menu. The export includes the
+          current yard and up to four recent checkpoints. Recording stays on this device until
+          exported; up to 18,000 records or 6 MB of entries are kept. If Activity reports Memory
+          only, export before closing. Diagnostic exports are separate from ordinary save files.
+        </p>
+        <h2 id="save">Saves and backups</h2>
+        <p>
+          The game autosaves in this browser every 20 seconds. Use the menu or Ctrl/Cmd+S to save
+          immediately. <b>Export save</b> downloads a portable JSON file.
+          <b>Import save</b> validates it before replacing the current yard and resumes paused.
+        </p>
+        <p>
+          Starting another yard retains the old one as a browser backup.
+          <b>Restore previous yard</b> swaps the current and previous yards. Browser storage is
+          specific to the browser and the local URL, including the port. Export a file to transfer
+          to another browser or keep a durable backup. The game does not advance while closed.
+        </p>
+        <p>
+          Version 4 saves preserve traffic waiting, yard right-of-way, gear changes, and the current
+          deployment, unloading, or rail construction phase. Version 3 imports preserve materials
+          and assignments. Moving road carriers map to their new arrival or departure route, and
+          parked carriers move to the updated berth. This happens immediately, even while paused.
+          Equipment and passengers still on the carrier move with it; machine IDs, ramp progress,
+          and invoices are preserved.
+        </p>
+        <p>
+          Version 1/2 imports also preserve existing stock and accounting and give workers
+          sequential names. Active older deliveries resume at a receiving point and wait for your
+          own unloading resources. Any batch in the old carrier animation returns to its carrier
+          instead of creating duplicate stock.
+        </p>
+        <h2 id="controls">Controls at a glance</h2>
+        <table>
+          <tr>
+            <th>Control</th>
+            <th>Action</th>
+          </tr>
+          <tr>
+            <td>Left click</td>
+            <td>Select, place, walk, or drive according to the current tool/control mode.</td>
+          </tr>
+          <tr>
+            <td>Left drag</td>
+            <td>
+              With Inspect: grab empty ground to pan. With Pave or Stockyard: draw a rectangle.
+              Short clicks still select, walk, or drive.
+            </td>
+          </tr>
+          <tr>
+            <td>Middle drag / W A S D</td>
+            <td>Pan relative to the current view. W moves forward, A left, S backward, D right.</td>
+          </tr>
+          <tr>
+            <td>Right drag / mouse wheel</td>
+            <td>Orbit / zoom.</td>
+          </tr>
+          <tr>
+            <td>R / Esc</td>
+            <td>Rotate a placement / leave the current tool or close a panel.</td>
+          </tr>
+          <tr>
+            <td>Space / 1 2 3</td>
+            <td>Pause or resume / set 1×, 3×, or 10× speed.</td>
+          </tr>
+          <tr>
+            <td>G / H / F</td>
+            <td>Grid / yard camera / follow controlled worker.</td>
+          </tr>
+          <tr>
+            <td>B / Ctrl or Cmd + S</td>
+            <td>Purchase / save.</td>
+          </tr>
+        </table>
+        <p>
+          Traffic delays appear in the delivery note or equipment inspector. Keep the receiving
+          apron and western turning area clear. Automatic workers step aside when needed, and an
+          idle machine can move aside if its operator is seated and on automatic duty. Manually
+          controlled or unoccupied machines wait for you to move them. Buses leave forward; trucks
+          back clear of their berth before departing forward. Rail work can be saved during a lift.
+          Canceling it secures the buffer and puts down any suspended load before releasing the
+          crew.
+        </p>
+        <img
+          class="shot"
+          src="railwork-preview.png"
+          alt="The excavator lowers a real rail panel while the original buffer waits beside the track."
+        />
+        <p class="caption">
+          Actual rail construction: the panel is being lowered, with the original buffer resting
+          beside the track. Both remain physical assets throughout the operation.
+        </p>
+        <h2 id="limits">What comes after this version</h2>
+        <p>
+          This first version is a construction sandbox with a 232 × 98 m structure area and straight
+          buildable rail. Chemical production is intentionally absent. New switches, train driving
+          and shunting, individual utility networks, weather, seasons, wear, repairs, kitchens, and
+          emergency services remain future work.
+        </p>
+        <p>
+          Automatic jobs include lifting and fastening time, but individual boom joints and bolts
+          are not manual controls. Buildings, stock, and carrier bounding rectangles affect routes.
+          Road vehicles keep right and yield, with fixed arrival and departure routes. Machines
+          check people and other vehicles while moving and turning. Steering and collision shapes
+          are simplified; arbitrary road networks, rigid-body physics, and individual chain
+          attachment are not yet simulated. Unloading uses your purchased machine and hired crew.
+          Utility crews follow a simplified site-service sequence. Empty-container returns and
+          canceling submitted supplier orders are not yet supported.
+        </p>
+        <p>
+          These boundaries keep the first playable yard coherent. They do not replace the larger
+          design vision recorded in the project documents.
+        </p>
+        <div class="footer">
+          Plant 01 · Starter Yard 0.6.0 · Built locally with Three.js and sql.js · See the included
+          README, architecture notes, and test record for technical details.
+        </div>
+      </article>
+    </main>
+  </body>
+</html>

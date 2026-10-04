@@ -1,0 +1,468 @@
+import type { State } from './types';
+import { EQUIPMENT_ROLES } from './equipment-roles';
+import { MATERIALS, EQUIPMENT, ROLES, SERVICES } from './catalog';
+const fail = (message: string): never => {
+  throw new Error(`Invalid save: ${message}.`);
+};
+const finite = (v: unknown) => typeof v === 'number' && Number.isFinite(v);
+const point = (p: any) =>
+  p && finite(p.x) && finite(p.z) && Math.abs(p.x) < 10000 && Math.abs(p.z) < 10000;
+const motion = (p: any) =>
+  (p.trafficGoal === undefined || point(p.trafficGoal)) &&
+  (p.trafficReverse === undefined || typeof p.trafficReverse === 'boolean') &&
+  ['yaw', 'velocity', 'travel', 'y', 'pitch', 'lift', 'reach', 'trafficWait', 'trafficRetry'].every(
+    (k) => p[k] === undefined || finite(p[k]),
+  );
+const path = (p: any) => Array.isArray(p) && p.length < 50000 && p.every(point);
+export function validateState(value: any): asserts value is State {
+  const s = value;
+  if (!s || ![1, 2, 3, 4].includes(s.version)) fail('unsupported format or version');
+  if (
+    !finite(s.time) ||
+    !finite(s.elapsed) ||
+    !Number.isInteger(s.next) ||
+    s.next < 1 ||
+    !finite(s.wageClock)
+  )
+    fail('invalid simulation clock');
+  if (![1, 3, 10].includes(s.speed) || typeof s.paused !== 'boolean' || typeof s.name !== 'string')
+    fail('invalid site settings');
+  const lists = [
+    'workers',
+    'equipment',
+    'stacks',
+    'buildings',
+    'rails',
+    'zones',
+    'jobs',
+    'orders',
+    'events',
+    'costs',
+    'movements',
+    'notices',
+  ];
+  const ids = new Set<string>();
+  for (const list of lists) {
+    if (!Array.isArray(s[list]) || s[list].length > 150000) fail(`missing or oversized ${list}`);
+    for (const e of s[list]) {
+      if (!e || typeof e.id !== 'string' || !e.id || ids.has(e.id))
+        fail(`invalid or repeated ID in ${list}`);
+      ids.add(e.id);
+    }
+  }
+  if (s.jobGroups !== undefined) {
+    if (!Array.isArray(s.jobGroups) || s.jobGroups.length > 150000) fail('invalid work-order groups');
+    for (const g of s.jobGroups) {
+      if (!g || typeof g.id !== 'string' || !g.id || ids.has(g.id) || !point(g) || !finite(g.w) || !finite(g.d) || g.w <= 0 || g.d <= 0 || typeof g.label !== 'string' || !finite(g.created)) fail('invalid work-order group');
+      ids.add(g.id);
+    }
+  }
+  const groups = new Map<string, any>((s.jobGroups || []).map((g:any) => [g.id,g]));
+  for (const work of [...(s.jobGroups || []), ...s.jobs]) {
+    if (work.equipmentPriority !== undefined && (!Number.isInteger(work.equipmentPriority) || work.equipmentPriority < 0)) fail('invalid work-order assignment priority');
+    if (work.preferredEquipment !== undefined && (typeof work.preferredEquipment !== 'string' || !s.equipment.some((e:any)=>e.id===work.preferredEquipment))) fail('invalid work-order equipment assignment');
+    if (work.parentId !== undefined && (typeof work.parentId !== 'string' || !groups.has(work.parentId))) fail('invalid work-order parent');
+    const seen = new Set<string>([work.id]);
+    let parent = work.parentId;
+    while (parent) {
+      if (seen.has(parent)) fail('cyclic work-order hierarchy');
+      seen.add(parent); parent = groups.get(parent)?.parentId;
+    }
+  }
+  if (
+    !point(s.buffer) ||
+    !s.utilities ||
+    typeof s.utilities.power !== 'boolean' ||
+    typeof s.utilities.water !== 'boolean'
+  )
+    fail('invalid infrastructure');
+  if (!s.paving || typeof s.paving !== 'object' || Array.isArray(s.paving)) fail('invalid paving');
+  for (const [k, v] of Object.entries(s.paving))
+    if (!/^-?\d+,-?\d+$/.test(k) || typeof v !== 'string') fail('invalid paving cell');
+  for (const w of s.workers) {
+    if (
+      !point(w) ||
+      !motion(w) ||
+      !path(w.path) ||
+      !(w.role in ROLES) ||
+      !['auto', 'manual', 'rest'].includes(w.duty) ||
+      typeof w.status !== 'string' ||
+      typeof w.name !== 'string' ||
+      !finite(w.hours) ||
+      !finite(w.wage) ||
+      !finite(w.heading)
+    )
+      fail('invalid worker');
+    if (w.schedule && (!finite(w.schedule.start) || !finite(w.schedule.end) || w.schedule.start < 0 || w.schedule.start >= 24 || w.schedule.end < 0 || w.schedule.end >= 24 || w.schedule.start === w.schedule.end)) fail('invalid worker schedule');
+    if (w.shiftPhase !== undefined && !['working','finishing','parking','walking-to-bus','aboard','home','returning'].includes(w.shiftPhase)) fail('invalid shift phase');
+    if (w.commuteOrder && !s.orders.some((o: any) => o.id === w.commuteOrder && o.commute?.workers?.includes(w.id))) fail('missing worker commute bus');
+    if (w.parkingEquipment && !s.equipment.some((e: any) => e.id === w.parkingEquipment)) fail('missing parking equipment');
+    if (w.yieldTarget && !point(w.yieldTarget)) fail('invalid pedestrian yield destination');
+  }
+  for (const e of s.equipment) {
+    if (e.parking && (!point(e.parking) || !Number.isInteger(e.parking.x) || !Number.isInteger(e.parking.z) || !Number.isInteger(e.parking.rotation) || e.parking.rotation < 0 || e.parking.rotation > 3)) fail('invalid parking location');
+    if (e.parkingState !== undefined && !['waiting-operator','boarding','driving','aligning','parked'].includes(e.parkingState)) fail('invalid parking phase');
+    if (e.parkingOperator && !s.workers.some((w: any) => w.id === e.parkingOperator && w.role === 'operator')) fail('missing parking operator');
+    if (
+      e.workRole !== undefined &&
+      (typeof e.workRole !== 'string' || !Object.hasOwn(EQUIPMENT_ROLES, e.workRole))
+    )
+      fail('invalid equipment work role');
+    if (
+      !point(e) ||
+      !motion(e) ||
+      !path(e.path) ||
+      !(e.kind in EQUIPMENT) ||
+      !finite(e.fuel) ||
+      !finite(e.tank) ||
+      !finite(e.used) ||
+      !finite(e.heading) ||
+      !finite(e.work) ||
+      e.fuel < 0 ||
+      e.fuel > e.tank ||
+      e.tank <= 0
+    )
+      fail('invalid equipment');
+    if (
+      e.cargo &&
+      (!(e.cargo.item in MATERIALS) ||
+        !Number.isInteger(e.cargo.qty) ||
+        e.cargo.qty < 1 ||
+        (e.cargo.yaw !== undefined && !finite(e.cargo.yaw)))
+    )
+      fail('invalid equipment cargo');
+  }
+  for (const t of s.stacks) {
+    if (
+      !point(t) ||
+      !(t.item in MATERIALS) ||
+      !Number.isInteger(t.qty) ||
+      t.qty < 0 ||
+      t.qty > MATERIALS[t.item as keyof typeof MATERIALS].max ||
+      !Number.isInteger(t.reserved) ||
+      t.reserved < 0 ||
+      t.reserved > t.qty ||
+      !finite(t.w) ||
+      !finite(t.d) ||
+      t.w <= 0 ||
+      t.d <= 0
+    )
+      fail('invalid physical stock');
+    if (
+      t.baseHeight !== undefined &&
+      (!finite(t.baseHeight) || t.baseHeight < 0 || t.baseHeight > 1)
+    )
+      fail('invalid stock support height');
+    if (t.item === 'diesel' && (!finite(t.liters) || t.liters < 0 || t.liters > 200))
+      fail('invalid diesel contents');
+  }
+  for (const b of [...s.buildings, ...s.zones, ...s.jobs])
+    if (!point(b) || !finite(b.w) || !finite(b.d) || b.w <= 0 || b.d <= 0)
+      fail('invalid footprint');
+  for (const r of s.rails)
+    if (!point(r) || ![0, 1].includes(r.rotation) || r.length !== 5) fail('invalid track panel');
+  for (const j of s.jobs) {
+    if (
+      j.legacyRailHandoff !== undefined &&
+      (j.kind !== 'rail' || !['carried', 'staged', 'installed'].includes(j.legacyRailHandoff))
+    )
+      fail('invalid legacy rail handoff');
+    if (
+      !['todo', 'doing', 'done', 'canceled'].includes(j.status) ||
+      typeof j.phase !== 'string' ||
+      typeof j.reason !== 'string' ||
+      !finite(j.elapsed) ||
+      !finite(j.progress)
+    )
+      fail('invalid work order');
+    if (
+      j.status === 'doing' &&
+      (!s.workers.some((w: any) => w.id === j.worker) ||
+        !s.equipment.some((e: any) => e.id === j.equipment))
+    )
+      fail('active job has missing crew or equipment');
+    if (j.handling) {
+      const h = j.handling;
+      const pose = (p: any) => point(p) && finite(p.y) && finite(p.yaw);
+      if (
+        j.kind !== 'slab' ||
+        ![
+          'approach',
+          'rig',
+          'engage',
+          'lift',
+          'clear',
+          'carry',
+          'lower',
+          'withdraw',
+          'settle',
+          'complete',
+        ].includes(h.phase) ||
+        !['stored', 'carried', 'placed', 'installed'].includes(h.state) ||
+        !finite(h.clock) ||
+        h.clock < 0 ||
+        !pose(h.pose) ||
+        !pose(h.source) ||
+        (h.from && !pose(h.from)) ||
+        ![
+          h.sourceDock,
+          h.sourceApproach,
+          h.sourceClear,
+          h.destinationDock,
+          h.destinationClear,
+        ].every(point) ||
+        ![h.reach, h.yawOffset, h.toolLift, h.toolReach].every(finite) ||
+        h.reach < 0 ||
+        h.reach > 8
+      )
+        fail('invalid construction slab handling');
+      if (j.status === 'doing') {
+        const e = s.equipment.find((e: any) => e.id === j.equipment);
+        if (h.state === 'carried' && (e?.cargo?.item !== 'slab' || e.cargo.qty !== 1))
+          fail('missing carried construction slab');
+        if (
+          h.state === 'placed' &&
+          !s.stacks.some(
+            (t: any) =>
+              t.id === h.placedStack && t.item === 'slab' && t.qty === 1 && t.reserved === 1,
+          )
+        )
+          fail('missing placed construction slab');
+        if (
+          h.state === 'stored' &&
+          !s.stacks.some(
+            (t: any) => t.id === h.sourceId && t.item === 'slab' && t.qty > 0 && t.reserved > 0,
+          )
+        )
+          fail('missing reserved construction slab');
+      }
+    }
+    if (j.railWork) {
+      const r = j.railWork;
+      const phases = [
+        'source-approach',
+        'source-rig',
+        'source-lift',
+        'source-clear',
+        'stage-travel',
+        'stage-align',
+        'stage-lower',
+        'legacy-fork-withdraw',
+        'unbolt-buffer',
+        'buffer-rig',
+        'buffer-lift',
+        'buffer-carry-aside',
+        'buffer-lower-aside',
+        'panel-approach',
+        'panel-rig',
+        'panel-lift',
+        'panel-carry',
+        'panel-align',
+        'panel-lower',
+        'join-panel',
+        'buffer-retrieve',
+        'buffer-rig-return',
+        'buffer-lift-return',
+        'buffer-carry-end',
+        'buffer-align-end',
+        'buffer-lower-end',
+        'fasten-buffer',
+        'cancel-panel-lift',
+        'cancel-panel-return',
+        'cancel-panel-align',
+        'cancel-panel-lower',
+        'complete',
+      ];
+      const pose = (p: any) => point(p) && finite(p.y) && finite(p.yaw);
+      if (r.legacyForkYaw !== undefined && !finite(r.legacyForkYaw))
+        fail('invalid imported panel orientation');
+      if (
+        j.kind !== 'rail' ||
+        !phases.includes(r.phase) ||
+        !finite(r.clock) ||
+        r.clock < 0 ||
+        !finite(r.axisYaw) ||
+        ![r.start, r.end, r.side, r.stage, r.stageDock, r.railDock, r.bufferAside].every(point) ||
+        !finite(r.stage.w) ||
+        !finite(r.stage.d) ||
+        r.stage.w <= 0 ||
+        r.stage.d <= 0 ||
+        !pose(r.panel) ||
+        !['stored', 'carried', 'staged', 'placed', 'installed'].includes(r.panel.state)
+      )
+        fail('invalid rail work sequence');
+      if (r.from && !pose(r.from)) fail('invalid rail lifting origin');
+      if (r.lifting !== undefined && !['panel', 'buffer'].includes(r.lifting))
+        fail('invalid rail lifting attachment');
+      if (
+        r.buffer &&
+        (!pose(r.buffer) ||
+          r.buffer.id !== 'BUFFER-001' ||
+          typeof r.buffer.secured !== 'boolean' ||
+          typeof r.buffer.carried !== 'boolean')
+      )
+        fail('invalid physical buffer pose');
+      if (
+        r.source &&
+        (!pose(r.source.pose) ||
+          ![r.source.dock, r.source.clear, r.source.workerPoint].every(point) ||
+          typeof r.source.stackId !== 'string')
+      )
+        fail('invalid rail source pickup');
+      if (j.status === 'doing') {
+        if (
+          ['stored', 'staged'].includes(r.panel.state) &&
+          !s.stacks.some(
+            (t: any) =>
+              t.id === (r.panel.state === 'stored' ? r.source?.stackId : r.panel.stackId) &&
+              t.item === 'rail' &&
+              t.qty > 0 &&
+              t.reserved > 0,
+          )
+        )
+          fail('reserved rail panel is missing');
+        if (
+          ['carried', 'placed'].includes(r.panel.state) &&
+          !s.equipment.some(
+            (e: any) => e.id === j.equipment && e.cargo?.item === 'rail' && e.cargo.qty === 1,
+          )
+        )
+          fail('suspended rail panel is missing');
+        if (r.panel.state === 'installed' && !s.rails.some((t: any) => t.id === r.panel.railId))
+          fail('installed rail panel is missing');
+      }
+    }
+  }
+  for (const o of s.orders) {
+    if (o.commute && (!['outbound','inbound'].includes(o.commute.direction) || o.mode !== 'road' || !Array.isArray(o.commute.workers) || o.commute.workers.length !== o.qty || o.qty > 12 || new Set(o.commute.workers).size !== o.qty || o.commute.workers.some((id: any) => !s.workers.some((w: any) => w.id === id)))) fail('invalid commute passengers');
+    if (o.commute?.boarding && (!point(o.commute.boarding.from) || !finite(o.commute.boarding.clock) || o.commute.boarding.clock < 0 || !o.commute.workers.includes(o.commute.boarding.worker))) fail('invalid bus boarding phase');
+    if (
+      !(o.item in MATERIALS || o.item in ROLES || o.item in EQUIPMENT || o.item in SERVICES) ||
+      !Number.isInteger(o.qty) ||
+      o.qty < 1 ||
+      !Number.isInteger(o.arrived) ||
+      o.arrived < 0 ||
+      o.arrived > o.qty ||
+      !finite(o.eta) ||
+      !finite(o.total) ||
+      !point(o.vehicle) ||
+      !point(o.handler) ||
+      !['ordered', 'approaching', 'unloading', 'departing', 'done'].includes(o.status) ||
+      !['road', 'rail'].includes(o.mode)
+    )
+      fail('invalid delivery');
+    if (
+      o.notifiedBlocks &&
+      (!Array.isArray(o.notifiedBlocks) ||
+        o.notifiedBlocks.length > 20 ||
+        o.notifiedBlocks.some((k: any) => typeof k !== 'string'))
+    )
+      fail('invalid delivery notices');
+    if (o.handlerPath && !path(o.handlerPath)) fail('invalid unloading route');
+    if (o.drive && (!motion(o.drive) || !finite(o.drive.distance) || o.drive.distance < 0))
+      fail('invalid carrier motion');
+    if (
+      o.drive &&
+      o.drive.gearPause !== undefined &&
+      (!finite(o.drive.gearPause) || o.drive.gearPause < 0)
+    )
+      fail('invalid gear change pause');
+    if (o.drive?.roadVersion !== undefined && !Number.isInteger(o.drive.roadVersion))
+      fail('invalid road route version');
+    if (o.drive?.yardPermit !== undefined && typeof o.drive.yardPermit !== 'boolean')
+      fail('invalid yard maneuver permit');
+    if (o.ramp !== undefined && (!finite(o.ramp) || o.ramp < 0 || o.ramp > 1))
+      fail('invalid loading ramp');
+    if (o.deploymentClock !== undefined && (!finite(o.deploymentClock) || o.deploymentClock < 0))
+      fail('invalid deployment clock');
+    if (
+      o.deployment &&
+      !['waiting', 'walk', 'climb', 'board', 'offload', 'park', 'complete'].includes(o.deployment)
+    )
+      fail('invalid deployment phase');
+    if (o.equipmentId && !s.equipment.some((e: any) => e.id === o.equipmentId))
+      fail('delivery machine is missing');
+    if (o.operatorId && !s.workers.some((w: any) => w.id === o.operatorId && w.role === 'operator'))
+      fail('delivery operator is missing');
+    if (
+      o.contractor &&
+      (!point(o.contractor) ||
+        !motion(o.contractor) ||
+        !path(o.contractor.path) ||
+        !finite(o.contractor.clock))
+    )
+      fail('invalid utility crew');
+    if (o.unload) {
+      const t = o.unload;
+      if (
+        !s.equipment.some((e: any) => e.id === t.equipmentId) ||
+        !s.workers.some((w: any) => w.id === t.operatorId && w.role === 'operator') ||
+        (t.riggerId && !s.workers.some((w: any) => w.id === t.riggerId))
+      )
+        fail('unloading task has missing machine or crew');
+      if (
+        !(o.item in MATERIALS) ||
+        !Number.isInteger(t.qty) ||
+        t.qty < 1 ||
+        t.qty > MATERIALS[o.item as keyof typeof MATERIALS].max ||
+        !finite(t.clock) ||
+        t.clock < 0
+      )
+        fail('invalid unloading quantity or clock');
+      if (
+        ![
+          'boarding',
+          'approach',
+          'rig',
+          'lift',
+          'clear',
+          'carry',
+          'lower',
+          'release',
+          'back-away',
+        ].includes(t.phase)
+      )
+        fail('invalid unloading phase');
+      if (
+        ![t.source, t.pickup, t.destination, t.drop].every(point) ||
+        !finite(t.destination.w) ||
+        !finite(t.destination.d) ||
+        t.destination.w <= 0 ||
+        t.destination.d <= 0 ||
+        ![t.sourceY, t.sourceYaw, t.dropYaw, t.destinationY].every(finite)
+      )
+        fail('invalid unloading positions');
+      if (t.cargo && (!point(t.cargo) || !finite(t.cargo.y) || !finite(t.cargo.yaw)))
+        fail('invalid lifted cargo pose');
+      if (t.mergeId && !s.stacks.some((q: any) => q.id === t.mergeId && q.item === o.item))
+        fail('unloading destination stack is missing');
+    }
+  }
+  if (s.version >= 3) {
+    for (const w of s.workers) {
+      if (w.vehicle && !s.equipment.some((e: any) => e.id === w.vehicle))
+        fail('worker vehicle is missing');
+      if (
+        w.transition &&
+        (!['enter', 'exit'].includes(w.transition.kind) ||
+          !finite(w.transition.clock) ||
+          !point(w.transition.from) ||
+          !point(w.transition.to) ||
+          !finite(w.transition.from.y) ||
+          !finite(w.transition.to.y) ||
+          !s.equipment.some((e: any) => e.id === w.transition.equipmentId))
+      )
+        fail('invalid boarding transition');
+    }
+    for (const e of [...s.workers, ...s.equipment]) {
+      if (e.deliveryOrder && !s.orders.some((o: any) => o.id === e.deliveryOrder))
+        fail('assigned delivery is missing');
+      if (e.transportOrder && !s.orders.some((o: any) => o.id === e.transportOrder))
+        fail('transport carrier is missing');
+    }
+  }
+  for (const c of s.costs) if (!finite(c.amount) || !finite(c.time)) fail('invalid cost entry');
+  for (const m of s.movements)
+    if (!(m.item in MATERIALS) || !finite(m.qty) || !finite(m.time))
+      fail('invalid material movement');
+}

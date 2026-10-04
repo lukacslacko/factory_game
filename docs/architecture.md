@@ -1,0 +1,115 @@
+# Starter Yard architecture
+
+Version 0.5.0 separates serializable simulation, physical delivery sequences, motion, rendering, and the Condensed interface. The simulation is deterministic for a given sequence of commands and time steps and runs without a browser.
+
+## Files
+
+| File                                                                        | Responsibility                                                                                           |
+| --------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
+| `src/types.ts`                                                              | Serializable entities, assignments, cargo, motion, and save versions                                     |
+| `src/equipment-roles.ts`                                                    | Shared machine work roles, activity mapping, and assignment eligibility                                  |
+| `src/catalog.ts`                                                            | Dimensions, mass, capacity, prices, roles, footprints, and gauge                                         |
+| `src/sim.ts`                                                                | Procurement, storage, planning, construction, recovery, fuel, accounting, and migration                  |
+| `src/delivery.ts`                                                           | Carrier movement, equipment deployment, crew arrivals, owned-machine unloading, and storage reservations |
+| `src/boarding.ts`                                                           | Worker transitions when entering or leaving a machine                                                    |
+| `src/motion.ts`                                                             | Acceleration, continuous heading, turn rate, road paths, and arc-length track poses                      |
+| `src/traffic.ts`                                                            | Compound vehicle footprints, pedestrian clearance, swept motion guards, and local walking detours        |
+| `src/legacy-rail.ts`                                                        | Safe handoff of imported forklift rail jobs to excavator crews                                           |
+| `src/construction-handling.ts`                                              | Slab approach, aligned pickup, continuous transport, supported setdown, and tool withdrawal              |
+| `src/railwork.ts`                                                           | Serializable panel staging, buffer handling, fastening, and safe cancellation                            |
+| `src/path.ts`                                                               | Grid routing, approach searches, and checked corner rounding                                             |
+| `src/validate.ts`                                                           | Import validation before replacing live state                                                            |
+| `src/models.ts`, `src/mesh.ts`                                              | Procedural workers, machinery, road vehicles, rolling stock, and shared geometry helpers                 |
+| `src/world.ts`                                                              | Three.js scene, pose interpolation, shadows, camera, picking, grid, and previews                         |
+| `src/main.ts`                                                               | Commands, dense registers, input, fixed-step loop, and browser persistence                               |
+| `src/reports.ts`                                                            | SQLite reporting snapshots and CSV formatting                                                            |
+| `src/styles.css`                                                            | Condensed desktop interface and narrower viewport layouts                                                |
+| `server.mjs`                                                                | Dependency-free production server bound to loopback                                                      |
+| `tests/*.test.ts`                                                           | Simulation, delivery, and motion regressions                                                             |
+| `tests/browser.mjs`, `tests/navigation.mjs`, `tests/physical-rendering.mjs` | Browser interaction, navigation, and rendered-geometry checks                                            |
+
+## Coordinates and time
+
+X is east, Z is south, and Y is elevation, in meters. Construction uses integer cell boundaries. Route waypoints start from the meter grid; vehicle paths may include rounded corners. Continuous yaw represents motion between the cardinal headings used for planning and parked orientation. Geometry faces local +X; the renderer converts world yaw to Three.js rotation.
+
+The main track centerline is Z0. A 25 m turnout leads to the parallel siding at Z5, which continues 100 m to E125. The 8.4 m road is centered at Z−13: eastbound traffic uses Z−10.9, westbound traffic uses Z−15.1. Separate crossing lanes enter at E−10.1 and leave at E−5.9. Rail gauge is 1.435 m between inner head faces. The 0.072 m rail heads have centers at ±0.7535 m. Straight construction occupies two cells across the centerline, with compact 1.95 m sleepers and a 2 m ballast strip. Stored panels have a separate 5 × 3 m handling footprint.
+
+The fixed simulation step is 0.1 seconds. Each simulation second advances the calendar by 30 seconds: at 1×, one game hour takes two real minutes. Movement and work use simulation time; arrivals and wages use the calendar. Speed multiplies simulation steps within a bounded catch-up loop. Closed time is not replayed.
+
+## Purchased equipment and workers
+
+A purchased machine becomes one persistent equipment entity when its lowloader enters the scene. Its `transportOrder` binds it to that carrier; it cannot perform site work while still on the bed. Deployment progresses through waiting, operator approach, ramp access, boarding, reversing off the bed, parking, and completion. The worker and machine positions follow the ramp surface. The machine retains its ID, tank, and operator throughout; no replacement asset is spawned on the ground.
+
+Workers arrive on a bus, step down, and walk to the site. Their display names are Worker #1, Worker #2, and so on. Entity IDs remain separate stable references. A worker can occupy only one machine. Switching from an idle machine includes climbing down and walking to the next one. Delivery and construction assignments reserve the required people and equipment so another job cannot borrow them midway through a lift.
+
+Available automatic operators can deploy equipment and unload freight. A delivery can instead be assigned to the manually controlled operator through the same state machine. Deployment and unloading use hired site workers; the carrier's driver is not a free site operator.
+
+## Equipment work roles
+
+`src/equipment-roles.ts` defines the shared role labels, job activity mapping, and eligibility predicate. `Equipment.workRole` is optional for version 4 save compatibility; missing roles mean `all`. Receiving, paving, building installation, rail laying, and recovery each have a dedicated role, plus all-work and hold-new-work settings. Both the construction allocator and material-delivery allocator apply the same gate. Qualification, occupancy, capacity, fuel, and access checks remain in force. Refueling and initial machine deployment bypass this gate, as does direct driving.
+
+Changing a role records an equipment event and wakes allocation retries. It does not revoke the current job, unloading batch, crew, cargo, or reservations. The next assignment uses the new role. The register and inspector share the selector and pending-work message. The SQL snapshot always exposes `workRole`, including the legacy `all` default.
+
+## Delivery and material flow
+
+Road freight, crew buses, lowloaders, and utility vans have separate receiving points. A material truck waiting for a machine therefore does not prevent that machine or its operator from arriving. Oriented carrier footprints, people, equipment, stock, and buildings constrain each short movement. A persisted maneuver permit also covers the yard junction: approaching and departing carriers take turns there, while parked deliveries release it so their resources can arrive. Lowloaders stop at E−10.1, S38, leaving space for the utility van’s full backing envelope. The crew bus stops west of the gate and continues east. Freight and utility trucks back into an exit aisle, pause to change gear, and depart forward westbound. Lowloaders turn forward through a western maneuvering loop. Arrival and departure share a monotonic route distance, but wheel travel changes sign in reverse. Road surface height and pitch follow the raised crossing. Trains reverse along the supplied rail route.
+
+Material load size is limited by both mass and deck length: 6 m for the road platform and 16 m for the flatcar. Freight occupies one center lane for side unloading. Original lot positions remain fixed as quantities decrease, so the remaining cargo does not slide into new positions after every pickup. Each lot respects its catalog stack limit.
+
+Unloading requires a purchased available machine, a hired qualified operator, fuel, and reachable storage. Excavator lifting also reserves a builder or engineer as a rigger. Phases include boarding, approach, rigging, lift, backing clear, carrying, lowering, release, and backing away. The rigger approaches only after the machine parks and aligns, then clears the lifting area before pickup. Working reach adjusts continuously from the carrier dock to the storage dock, and cargo follows the final alignment turn before lowering. The operator remains seated after the assignment. No carrier forklift or excavator is created to bypass missing resources.
+
+A material unit remains on the order until pickup. Pickup increments `arrived`, puts the quantity on the assigned machine, and records the carrier-to-machine transfer. Deposit records machine-to-stock movement. Reports count carried material separately from stored material. Acquisition cost is invoiced once at arrival; neither pickup nor stacking repeats that charge.
+
+## Physical storage and work access
+
+A stock location has a rectangle, item, quantity, reservations, source, and stable ID. Storage designation creates no abstract capacity. Slabs use neighboring 1 × 1 m cells, up to 12 per stack, approximately 2.2 m high including handling spacers. Incoming loads first try to top up reachable partial stacks, including reservations from other deliveries and recovery jobs, then use available grid cells. Machine mass capacity limits each batch independently: a 2.5 t forklift can lift eight 280 kg slabs, even though a storage stack can hold 12.
+
+The allocator no longer reserves a large empty margin around every stack. It fills from the far side while testing a reachable loading face. Dense packing and machine access are different constraints: a geometrically vacant cell can still be inaccessible behind other stock. Empty ordinary stock records stop occupying space; empty drums retain their footprint.
+
+Construction reserves one stock unit, crew, and equipment. Pickup moves the unit to machine cargo; installation removes that cargo and creates the slab, track, or structure. Canceling before pickup releases reservations. Canceling after pickup deposits the carried unit as physical stock at the destination. Recovery reserves an accessible return position after checking the loaded machine approach, skips buried partial stacks, and preserves prefab identity. A loaded return can choose another reachable destination if its original storage position becomes inaccessible. Adjacent rail extensions wait for their predecessor and relocation of the same buffer; paving beneath planned track is recovered first. Rail work reserves an excavator and builder. The panel is rigged on its source stack, lifted, backed clear, and carried to a reserved temporary stack beside the extension. Workers release the old buffer clamps, the excavator lifts the buffer aside, then retrieves and places the panel. Fastening creates the installed rail. The buffer is retrieved, lowered onto the new rail end, and secured. Panel state distinguishes stored, carried, staged, placed, and installed ownership; rendered poses survive save/reload. Canceling finishes a safe placement and secures the buffer, retaining a panel whose joints have already been completed. Rail panels use a 0.36 m vertical storage pitch so complete rail heads and sleepers do not intersect.
+
+Slab paving uses a dedicated serializable handling sequence. The machine selects a reachable cardinal loading face, turns toward the top slab, and positions its forks or sling before the source reservation transfers into cargo. It lifts, backs clear, travels, turns toward the destination cell, and lowers the same visible slab onto temporary runners. A real reserved one-slab stack represents this setdown while the machine withdraws. The builder then removes the supports and levels the slab; only then does it become installed paving. World-space load and tool poses interpolate between simulation steps, including changes in height and heading. Canceling a loaded job leaves physical stock at the site after withdrawal. Fuel interruptions, saving, and legacy in-transit slabs preserve the current load and ownership. Active source and destination approaches reserve their machine, tool, and eventual carried-slab envelopes until withdrawal; new deliveries and recovery top-ups cannot fill those lanes. Dock selection also respects loads already reserved by incoming deliveries. Path prediction uses the same handling speed limit as actual movement.
+
+Vehicle routing first considers exact straight/L-shaped paths. A* retains approach heading and penalizes turns, avoiding the former staircase among equal-length routes. Segment tests catch obstacles between grid centers; rounded corners are retained only with clear segments. Runtime compound-footprint checks cover machine bodies, tools, cargo, people, and carriers through translation and turning. A separate pedestrian detour search samples oriented footprints, so a safe person beside a rotated truck can walk out instead of becoming trapped in its conservative bounding rectangle. Idle automatic workers step clear when asked by an approaching machine. An idle occupied machine may park aside only with its automatic operator seated; it preserves an interrupted travel destination across a yield and save/reload. Manual/resting people and unoccupied machines are respected as obstructions. Vehicle steering and collision geometry remain simplified rather than rigid-body physics.
+
+Fuel has physical locations: drum, carried service can, and machine tank. Consumption and refueling transfers are tracked separately. A 20 L service can survives save/resume. Refueling can interrupt a construction job and return its worker afterward. Empty drums are not automatically returned to suppliers.
+
+## Records and accounting
+
+Stable IDs connect entities, events, material transfers, invoices, and notices. Purchases create commitments; arrival creates one invoice. On-site wages accrue every 15 calendar minutes, including manual and resting duty. USD prices are provisional gameplay values. There is no budget limit.
+
+Notification workflow is independent of popup visibility. Closing a popup does not erase its To do / Doing / Done record. Delivery inspectors expose the current phase, assigned operator and machine, and reason for waiting. Job inspectors expose their actual simulation state.
+
+Run query builds a fresh in-memory SQLite snapshot; it does not expose mutable live state. Tables include inventory, workers, equipment, jobs, orders, stacks, buildings, movements, costs, and events. Times are calendar seconds, coordinates are meters, fuel is liters, and amounts are USD. The `movements` table exposes source and destination. SELECT, WITH, and EXPLAIN results are limited to 2,000 displayed rows.
+
+## Rendering
+
+The world is procedural 3D geometry viewed through a 45-degree perspective camera. Shared materials, static batches, and instanced terrain/track parts limit draw calls while retaining asset picking. Dynamic poses interpolate between fixed simulation states so display frames do not visibly jump at 10 Hz. Heading uses the shortest angular transition. Road motion accelerates, brakes toward stops and obstructions, and uses a lower speed while backing. Gear changes require a stationary pause.
+
+The locomotive and flatcar are separate coupled models, each with two two-axle bogies. Bodies and bogies sample their own positions along the track. Their wheels contact the railhead at its actual height. Road wheels and track shoes animate from distance traveled. Worker boots have a ground-plane origin, walking retains a planted foot, and seated operators are visible inside cabs. Fork carriage and excavator hook geometry follow the active load. Camera-aware shadows and corrected bias address the earlier floating-foot appearance.
+
+WASD follows the horizontal camera vectors. Left drag in Inspect captures a ground anchor after a six-pixel threshold; release cannot also command movement. Pave and Stockyard keep drag for planning. Right drag orbits, the wheel zooms, and manual navigation disables worker follow.
+
+## Saves and migration
+
+Version 4 stores motion, transitions, traffic state, deployment, unloading phases, rail work poses, cargo, reservations, worker paths, notices, and ledgers together. Import validates the file before state replacement. Browser local storage holds the current yard and one previous-yard backup; exported JSON transfers between browsers or origins. Normal play uses no backend or telemetry.
+
+Version 1 migration first narrows four-cell rail envelopes to two cells while preserving centerlines and job destinations. A pristine old empty yard loses its automatic stockyard designation; used yards retain theirs.
+
+Version 2-to-3 migration renumbers workers and initializes motion. Existing stock, installed assets, and accounting remain intact. Active old carriers resume at their appropriate receiving point; old temporary handler paths, reservations, and carried-animation quantities are cleared. That unaccepted material remains part of the carrier's remaining load and now waits for owned equipment and hired workers. This migration deliberately relocates active older carriers to a berth rather than trying to continue the removed contractor animation.
+
+Version 3-to-4 import preserves stock, jobs, and assignments. During load, `migrateRoadDrive` maps moving road carriers to the nearest compatible point on their new arrival/departure route and parked carriers to the updated berth. Migration completes before the first rendered frame, including while paused. A transported machine follows its deck pose; ramp progress and support height are retained during deployment, and a stepping passenger retains the position relative to the bus. Equipment identities and invoices are unchanged. The route version marker prevents repeating this transformation on later loads. Old active rail laying resumes through the new physical workflow. If a version 3 forklift owned the job, an uncollected panel is released for reassignment. A carried panel stays on its forklift until it is lowered onto temporary dunnage; the forklift parks clear before an excavator continues from that same staged panel. An already installed panel retains its ID and only the remaining buffer work is reassigned. These handoffs are serialized and do not request or create a replacement panel. Stacks can retain a support base height so setdown and subsequent pickup share the same physical elevation. Version 4 reload preserves yard maneuver permits, gear-change pauses, and the actual current rail phase and pose.
+
+## Next extensions
+
+Deepen shared physical operations before adding a parallel production abstraction: vehicle traffic and cargo sweep envelopes, detailed rigging, track topology and shunting, shifts and commutes, installed utility networks, then the first fictional chemical process. Weather, maintenance, consumables, and seasonal work should use the same assets, jobs, movements, and accounting. These remain the original vision's requirements, not claims about this release.
+
+## Version 0.6: work orders and diagnostics
+
+`jobs.ts` keeps optional groups above real leaf jobs. Inheritance walks parent links; leaf jobs retain their own physical state machines and accounting. Newer explicit equipment assignments have priority after current work finishes, and reserve machines from unrelated automatic work and freight. Tree sorting compares siblings and retains complete descendant blocks. Validation rejects broken/cyclic parent links and invalid equipment assignments; version 4 remains the portable save schema with optional added fields.
+
+`workforce.ts` uses the displayed game clock for daily/overnight schedules. Availability gates new work; shift end retains current cargo and finishing operations. Parking is an actual operator/boarding/navigation sequence. Commute orders reuse road bus movement and passenger boarding, with the same worker identities and separate charter costs. Offsite workers are hidden in the world and excluded from new jobs and on-site labor. Legacy schedules default to Always on.
+
+`diagnostics.ts` observes simulation state without mutating it. Transition fingerprints avoid repeated phase messages; motion samples use a 0.2 simulation-second cadence while moving, with a real-time 500 ms idle cadence. The rolling entry ring is bounded by count and serialized size, with four recent full checkpoints and current state in each export. IndexedDB is separate from the ordinary localStorage saves. Commands, actor destinations, blockers, load state, and material movements support offline review in `tools/review-recording.mjs`. This is a diagnostic trace with checkpoints, not a claim of deterministic command replay.
+
+All register tables share natural/numeric sorting and optional column filters. Asset IDs are linked from visible text nodes only; controls and their attributes are left intact. Live refresh preserves focused form elements. Work sorting retains hierarchy; large registers paginate after filtering/sorting.
