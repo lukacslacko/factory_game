@@ -10,6 +10,16 @@ Parking uses a grid coordinate at the machine center and one of four cardinal di
 
 Worker schedules use the displayed clock. Hours can cross midnight. Always on is the default for new and existing workers. Shift end gates new assignments, while a current operation safely completes. Workers then park their equipment, exit the cab, walk to the bus, and board. Their same identities return for their next shift. Each charter bus uses the road and passenger transitions, and its $180 charge is recorded. The bus can wait for a delayed passenger rather than leaving them behind. The game does not progress while closed.
 
+## Batch procurement
+
+In **Purchase**, set a row quantity and click **Add** to collect items in the order batch. Workers of different roles can share one bus; material types can share one freight load. Change **Material transport** to preview road or rail loads, then use **Place batch order**. **Hire** and **Order** remain immediate single-row purchases. Clearing or removing draft lines creates no order or cost.
+
+The preview shows cargo weight, planned carrier count by type, and total committed cost. Unit and line weights update with the selected quantity. Weights use kg and metric tons (t). Workers use seats rather than cargo mass; service rows do not claim a material weight. Road freight is limited to 12 t and a 6 m deck, rail freight to 48 t and a 16 m deck, and buses to 12 passengers. Deck packing accounts for each material's physical stack limit, so more carriers can be required before the weight limit. Equipment and services retain dedicated road vehicles.
+
+Each packed load has an independent order, transport charge, arrival, and invoice. A mixed delivery inspector lists every line and its received count; the cargo does not collapse into the first item type. Unloading retains actual site equipment, operators, riggers, stack capacity, and access checks. Save/reload preserves each line's progress, including a load already being handled. Single-item orders from older saves retain their contents.
+
+SQL `orders.mass_kg` reports the carrier's full ordered mass. `order_lines` exposes `order_id`, `line`, `item`, `qty`, `arrived`, and `mass_kg` for analysis; `mass_kg` is the full ordered line mass, not its remaining cargo mass. An example is `SELECT order_id, item, qty, arrived, mass_kg FROM order_lines ORDER BY order_id, line`.
+
 ## Diagnostic bundles
 
 The recorder is passive and separate from the simulation save. It retains changed job/delivery states, events, material movements, UI commands, and actor positions every 0.2 simulation seconds while moving. Each actor sample includes direction, velocity, path/destination, blocker, assignment, cargo, and equipment working reach. Up to 18,000 entries or 6 MB of entry text are retained, with four recent full checkpoints. Export includes the current yard; rolled-off entry count is explicit. Local IndexedDB is written with normal autosaves. It is never automatically uploaded.

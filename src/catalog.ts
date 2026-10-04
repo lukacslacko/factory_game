@@ -143,10 +143,11 @@ export const BUILDINGS: Record<
 };
 export const EQUIPMENT: Record<
   EquipmentKind,
-  { name: string; price: number; capacity: number; tank: number; description: string }
+  { name: string; price: number; mass: number; capacity: number; tank: number; description: string }
 > = {
   excavator: {
     name: 'EX-6 tracked excavator',
+    mass: 8500,
     price: 64000,
     capacity: 6000,
     tank: 80,
@@ -154,6 +155,7 @@ export const EQUIPMENT: Record<
   },
   forklift: {
     name: 'FL-25 rough-terrain forklift',
+    mass: 4500,
     price: 28500,
     capacity: 2500,
     tank: 45,

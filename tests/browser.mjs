@@ -4,6 +4,7 @@ import { checkPhysicalRendering } from './physical-rendering.mjs';
 import { checkEquipmentRoles } from './equipment-roles.mjs';
 import { checkWorkAnimation } from './work-animation.mjs';
 import { checkOperationsUI } from './operations-ui.mjs';
+import { checkBatchProcurement } from './batch-procurement.mjs';
 import { checkTimeAndWear } from './time-and-wear.mjs';
 import { createServer } from 'vite';
 import { fileURLToPath } from 'node:url';
@@ -224,6 +225,7 @@ async function ready() {
   const workAnimation = await checkWorkAnimation(page);
   const operations = await checkOperationsUI(page, base);
   const timeAndWear = await checkTimeAndWear(page, base);
+  const batchProcurement = await checkBatchProcurement(page, base);
   const layouts = [];
   for (const width of [1440, 1024, 768]) {
     await page.setViewportSize({ width, height: 900 });
@@ -252,6 +254,7 @@ async function ready() {
         operations,
         workAnimation,
         timeAndWear,
+        batchProcurement,
         checks: [
           'perspective depth and view-relative WASD after orbit',
           'floor grab-pan without click or worker commands',

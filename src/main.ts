@@ -1,5 +1,6 @@
 import './styles.css';
 import { World } from './world';
+import { orderLines, orderDescription, orderMass } from './procurement';
 import * as Sim from './sim';
 import { EQUIPMENT_ROLES, equipmentRole, equipmentAllows, jobActivity } from './equipment-roles';
 import {
@@ -103,6 +104,44 @@ let showColumnFilters = false;
 const expandedWork = new Set<string>();
 let parkingEquipment: string | undefined;
 const keys = new Set<string>();
+const purchaseCart = new Map<string, number>();
+let purchaseTransport: 'road' | 'rail' = 'road';
+const massLabel = (kg: number) =>
+  kg >= 1000
+    ? `${(kg / 1000).toLocaleString('en-US', { maximumFractionDigits: 2 })} t`
+    : `${kg.toLocaleString('en-US')} kg`;
+const catalogEntry = (item: string): any =>
+  MATERIALS[item as Item] ||
+  (EQUIPMENT as any)[item] ||
+  (ROLES as any)[item] ||
+  (SERVICES as any)[item];
+function itemMass(item: string) {
+  return catalogEntry(item)?.mass || 0;
+}
+function renderCart() {
+  const el = document.querySelector<HTMLElement>('#purchase-cart');
+  if (!el) return;
+  const lines = [...purchaseCart].map(([item, qty]) => ({ item, qty }));
+  let summary = 'Add catalog rows to combine supplies on one delivery, or workers on one bus.';
+  let valid = lines.length > 0;
+  try {
+    if (lines.length) {
+      const loads = Sim.planPurchaseBatch(lines, purchaseTransport);
+      const materials = loads.filter((l) => l.manifest[0].item in MATERIALS);
+      const buses = loads.filter((l) => l.manifest[0].item in ROLES);
+      const dedicated = loads.length - materials.length - buses.length;
+      const weight = lines.reduce((n, l) => n + itemMass(l.item) * l.qty, 0);
+      const total =
+        lines.reduce((n, l) => n + catalogEntry(l.item).price * l.qty, 0) +
+        loads.reduce((n, l) => n + (l.mode === 'rail' ? 240 : 90), 0);
+      summary = `${weight ? massLabel(weight) + ' cargo · ' : ''}${[materials.length ? `${materials.length} ${purchaseTransport === 'rail' ? 'train' : 'truck'} load${materials.length === 1 ? '' : 's'}` : '', buses.length ? `${buses.length} crew bus${buses.length === 1 ? '' : 'es'}` : '', dedicated ? `${dedicated} dedicated deliver${dedicated === 1 ? 'y' : 'ies'}` : ''].filter(Boolean).join(' · ')} · ${money(total)}`;
+    }
+  } catch (error) {
+    summary = (error as Error).message;
+    valid = false;
+  }
+  el.innerHTML = `<div class="cart-head"><b>Order batch</b><span id="batch-summary" aria-live="polite">${esc(summary)}</span></div>${lines.length ? `<div class="cart-lines">${lines.map((l) => `<div><span>${esc(label(l.item))}</span><b>${l.qty}</b><span>${itemMass(l.item) ? massLabel(itemMass(l.item) * l.qty) : l.item in ROLES ? 'Passengers' : 'Service'}</span>${btn('cart-remove:' + l.item, '×', 'small', 'aria-label="Remove ' + esc(label(l.item)) + ' from batch"')}</div>`).join('')}</div>` : ''}<div class="cart-footer"><small>12 t truck / 48 t train · 12 seats per bus. Deck space can require another load before its weight limit.</small>${btn('cart-clear', 'Clear', 'small')}${btn('purchase-batch', 'Place batch order', 'primary', valid ? '' : 'disabled')}</div>`;
+}
 $('#app').innerHTML =
   `<header><button class="brand" data-action="menu"><span class="brand-mark">P<span>01</span></span><span>PLANT <b>01</b><small>STARTER YARD</small></span></button><nav id="tabs"></nav><div class="top-stats"><span id="time"></span><div class="time-controls">${btn('pause', 'Ⅱ', '', 'title="Pause / resume · Space"')} ${btn('speed:1', '1×', 'active')}${btn('speed:3', '3×')}${btn('speed:10', '10×')}</div>${btn('notices', 'Inbox <span id="notice-count">0</span>', 'inbox')}${btn('menu', '☰', 'menu-button', 'aria-label="Game menu"')}</div></header>
  <main><section id="site"><canvas id="world" tabindex="0" aria-label="3D construction yard"></canvas><div class="site-title"><span class="eyebrow">FIELD OPERATIONS</span><strong id="site-name"></strong><span>1 m grid · standard gauge · diesel traction</span></div><div class="map-actions">${btn('home', '⌂ Yard')}${btn('rail-end', '↗ Rail end')}${btn('overview', '▱ Overview')}${btn('grid', 'Grid', 'active')}${btn('help', '?', '', 'aria-label="Controls and help"')}</div><div id="guide"></div><aside id="inspector" hidden></aside><div id="mode-hint"></div><div id="buildbar"></div><div id="scale-bar"><i></i><span>10 m</span></div><div id="site-status"><span id="coords"></span><span id="work-summary"></span><span>Drag empty ground: pan · WASD: view-relative · Right drag: orbit · Scroll: zoom</span></div><div id="delivery-toast" hidden></div></section><section id="records" hidden></section></main><div id="toast" role="status" hidden></div><div id="modal-root"></div><input id="import-file" type="file" accept="application/json,.json" hidden><div id="error-banner" role="alert" hidden></div>`;
@@ -643,9 +682,14 @@ function renderInspector(force = false) {
   if (selection.type === 'order') {
     body =
       details([
-        ['Material / service', esc(label(e.item))],
+        ['Material / service', esc(orderDescription(e))],
         ['Ordered', e.qty],
         ['Received', e.arrived],
+        ['Cargo weight', orderMass(e) ? massLabel(orderMass(e)) : 'Passengers / service'],
+        ...orderLines(e).map((l): [string, unknown] => [
+          label(l.item),
+          `${l.arrived} / ${l.qty} received${itemMass(l.item) ? ' · ' + massLabel(itemMass(l.item) * l.qty) : ''}`,
+        ]),
         ['Status', badge(e.status)],
         ['Transport', e.mode],
         [
@@ -977,6 +1021,7 @@ function renderRecords(force = false) {
         'Item / service',
         'Qty',
         'Received',
+        'Weight',
         'Mode',
         'ETA / arrival',
         'Status',
@@ -990,9 +1035,10 @@ function renderRecords(force = false) {
         .reverse()
         .map((o) => [
           o.id,
-          label(o.item),
+          orderDescription(o),
           `${o.qty}`,
           `${o.arrived}`,
+          orderMass(o) ? massLabel(orderMass(o)) : '—',
           o.mode,
           `D${day(o.eta)} ${clock(o.eta)}`,
           badge(o.status, o.status === 'done' ? 'green' : ''),
@@ -1164,10 +1210,10 @@ function openModal(which: string) {
   const root = $('#modal-root');
   let content = '';
   if (which === 'start') {
-    content = `<div class="start-title"><span class="eyebrow">A PHYSICAL FACTORY SANDBOX</span><h1>Every piece<br>has a place.</h1><p>Start with an open yard and a rail connection.<br>Bring people and materials. Build what comes next.</p></div><div class="start-choices">${btn('new:starter', '<b>Start a new yard</b><span>Empty ground, with a starter supply order on its way.</span>', 'start-choice recommended')}${btn('new:empty', '<b>Start completely empty</b><span>Choose every worker, machine, and material yourself.</span>', 'start-choice')}${btn('new:demo', '<b>Explore Birch Junction</b><span>A small working base, stocked and ready to expand.</span>', 'start-choice')}</div><p class="note">No budget limit · construction and logistics · local saves · version 0.8</p>`;
+    content = `<div class="start-title"><span class="eyebrow">A PHYSICAL FACTORY SANDBOX</span><h1>Every piece<br>has a place.</h1><p>Start with an open yard and a rail connection.<br>Bring people and materials. Build what comes next.</p></div><div class="start-choices">${btn('new:starter', '<b>Start a new yard</b><span>Empty ground, with a starter supply order on its way.</span>', 'start-choice recommended')}${btn('new:empty', '<b>Start completely empty</b><span>Choose every worker, machine, and material yourself.</span>', 'start-choice')}${btn('new:demo', '<b>Explore Birch Junction</b><span>A small working base, stocked and ready to expand.</span>', 'start-choice')}</div><p class="note">No budget limit · construction and logistics · local saves · version 0.9</p>`;
   }
   if (which === 'menu') {
-    content = `<h1>${esc(state.name)}</h1><p class="subtitle">Starter Yard · version 0.8.0</p><div class="menu-grid">${btn('save', 'Save to browser', 'primary')}${btn('export-save', 'Export save file')}${btn('export-diagnostics', 'Export diagnostic history')}${btn('source-code', 'Source code · MIT')}${btn('import-save', 'Import save file')}${btn('restore-backup', 'Restore previous yard')}${btn('help', 'Controls and guide')}${btn('new-confirm', 'Start a new yard')}${btn('close-modal', 'Return to yard')}</div><p class="note">Autosaves every 20 seconds. Export a file for a portable backup. Your game stays on this computer.</p>`;
+    content = `<h1>${esc(state.name)}</h1><p class="subtitle">Starter Yard · version 0.9.0</p><div class="menu-grid">${btn('save', 'Save to browser', 'primary')}${btn('export-save', 'Export save file')}${btn('export-diagnostics', 'Export diagnostic history')}${btn('source-code', 'Source code · MIT')}${btn('import-save', 'Import save file')}${btn('restore-backup', 'Restore previous yard')}${btn('help', 'Controls and guide')}${btn('new-confirm', 'Start a new yard')}${btn('close-modal', 'Return to yard')}</div><p class="note">Autosaves every 20 seconds. Export a file for a portable backup. Your game stays on this computer.</p>`;
   }
   if (which === 'new-confirm') {
     content = `<h1>Start another yard</h1><p>Your current yard will be saved as a browser backup before the new yard is created.</p><div class="button-stack">${btn('new:starter', 'New yard + starter supplies', 'primary')}${btn('new:empty', 'Completely empty yard')}${btn('new:demo', 'Birch Junction example')}${btn('close-modal', 'Keep current yard')}</div>`;
@@ -1191,7 +1237,7 @@ function openModal(which: string) {
     )}<h3>Physical constraints</h3><p>Leave <b>3 m clear aisles</b> for machines. Offices need the 6 t excavator; the forklift cannot lift them. Diesel drums contain 200 L and stay in place when empty. Request refueling from Equipment.</p><p>The <b>Work</b> register explains blocked assignments. Canceling rail work first places its load safely and secures the buffer. A rail panel already installed stays in place. Other loaded jobs deposit their kits at the site. Finished buildings can be dismantled and recovered.</p><h3>Vehicle work roles</h3><p>Open <b>Equipment</b> and change a machine’s <b>Automatic work</b> selector, or select it in the yard. For parallel receiving and paving, set the forklift to <b>Receiving only</b> and the excavator to <b>Paving only</b>, with an operator for each. A role change finishes the current job or unloading batch before switching. <b>All work</b> restores shared assignments; <b>Hold new work</b> stops new assignments while leaving driving and refueling available.</p><h3>Work orders, parking, and shifts</h3><p><b>Work</b> starts with active orders. Expand a building or paving order; assign equipment to a parent or child. Explicit assignments override automatic roles after current work finishes. Click asset IDs to inspect assigned people, stock, or equipment. Click table headers to sort; use Column filters to narrow records.</p><p>Select equipment to choose a parking bay in the yard or enter its coordinates. Workers have Always on, daily, overnight, and custom schedules. They finish current work, park, exit, walk to the actual bus, and return next shift. Chartered trips appear in Costs.</p><p>Use <b>Activity → Export diagnostic history</b> after a problem. The local rolling record includes positions, routes, blockers, phases, and recent full yard checkpoints.</p><h3>Traffic</h3><p>Road traffic keeps right. Buses continue forward after their stop; delivery trucks back clear of their berth before departing forward. Machines yield to people and route around obstructions. Keep receiving and turning areas clear; the equipment inspector identifies any actor blocking a route.</p><h3>First-version boundaries</h3><p>A 232 × 98 m buildable yard, straight rail panels, owned-equipment freight handling and simplified utility services. No chemical production, seasons, maintenance failures, full rail dispatch yet.</p></section></div>`;
   }
   if (which === 'shop') {
-    content = `<div class="shop-head"><div><span class="eyebrow">PROCUREMENT</span><h1>People, machines & materials</h1><p>Order freely. Costs are recorded; there is no spending limit.</p></div>${btn('starter-order', 'Order starter supplies')}</div><div class="shop-options"><label>Material transport <select id="transport"><option value="road">Truck · 12 t loads</option><option value="rail">Rail · 48 t loads</option></select></label><span>Your equipment unloads · $90 / road load · $240 / rail load</span></div>${[
+    content = `<div class="shop-head"><div><span class="eyebrow">PROCUREMENT</span><h1>People, machines & materials</h1><p>Order freely. Costs are recorded; there is no spending limit.</p></div>${btn('starter-order', 'Order starter supplies')}</div><div class="shop-options"><label>Material transport <select id="transport"><option value="road" ${purchaseTransport === 'road' ? 'selected' : ''}>Truck · 12 t loads</option><option value="rail" ${purchaseTransport === 'rail' ? 'selected' : ''}>Rail · 48 t loads</option></select></label><span>Your equipment unloads · $90 / road load · $240 / rail load</span></div><div id="purchase-cart" class="purchase-cart"></div><div class="catalog-head"><span>Item</span><span>Unit cost</span><span>Unit weight</span><span>Qty</span><span>Line weight</span><span>Order / batch</span></div>${[
       ['Crew', ROLES],
       ['Equipment', EQUIPMENT],
       ['Materials', MATERIALS],
@@ -1202,7 +1248,7 @@ function openModal(which: string) {
           `<h3>${name}</h3><div class="catalog">${Object.entries(items)
             .map(
               ([k, v]: [string, any]) =>
-                `<div class="catalog-row"><div><b>${esc(v.name)}</b><small>${esc(v.description)}</small></div><span class="price">${money(v.price)}</span><input type="number" id="qty-${k}" min="1" max="1000" value="${k === 'slab' ? 24 : k === 'rail' ? 4 : 1}" aria-label="Quantity of ${esc(v.name)}">${btn(`purchase:${k}`, k in ROLES ? 'Hire' : 'Order', 'small')}</div>`,
+                `<div class="catalog-row"><div><b>${esc(v.name)}</b><small>${esc(v.description)}</small></div><span class="price">${money(v.price)}</span><span class="catalog-mass">${v.mass ? massLabel(v.mass) : k in ROLES ? 'Passenger' : 'Service'}</span><input type="number" id="qty-${k}" data-catalog-item="${k}" min="1" max="1000" value="${k === 'slab' ? 24 : k === 'rail' ? 4 : 1}" aria-label="Quantity of ${esc(v.name)}"><span class="catalog-mass" id="mass-${k}">${v.mass ? massLabel(v.mass * (k === 'slab' ? 24 : k === 'rail' ? 4 : 1)) : '—'}</span><div class="catalog-actions">${btn(`purchase:${k}`, k in ROLES ? 'Hire' : 'Order', 'small')}${btn(`cart-add:${k}`, 'Add', 'small', 'aria-label="Add ' + esc(v.name) + ' to batch"')}</div></div>`,
             )
             .join('')}</div>`,
       )
@@ -1212,6 +1258,7 @@ function openModal(which: string) {
     content +=
       '<p class="note"><a href="/manual.html" target="_blank" rel="noopener">Open the complete illustrated player guide →</a></p>';
   root.innerHTML = `<div class="modal-shade"><section class="modal ${which === 'start' ? 'welcome' : ''} ${which === 'shop' ? 'shop' : ''} ${which === 'help' ? 'help' : ''}" role="dialog" aria-modal="true" aria-label="${which}">${which !== 'start' ? btn('close-modal', '×', 'modal-close', 'aria-label="Close dialog"') : ''}${content}</section></div>`;
+  if (which === 'shop') renderCart();
 }
 function closeModal() {
   modal = '';
@@ -1226,6 +1273,7 @@ function start(kind: string) {
   state = kind === 'demo' ? Sim.demoState() : Sim.createState();
   accumulator = 0;
   lastTime = performance.now();
+  purchaseCart.clear();
   if (kind === 'starter') Sim.starterOrder(state);
   world.revision = -1;
   selection = undefined;
@@ -1378,6 +1426,40 @@ async function action(value: string) {
       toast('Starter supplies ordered. Follow arrivals in Deliveries.');
       persist(true);
       break;
+    case 'cart-add': {
+      const qty = Number($<HTMLInputElement>(`#qty-${b}`)?.value || 1);
+      if (!Number.isInteger(qty) || qty < 1 || qty + (purchaseCart.get(b) || 0) > 1000) {
+        toast('Use a whole batch quantity between 1 and 1,000 per item.', true);
+        break;
+      }
+      purchaseCart.set(b, (purchaseCart.get(b) || 0) + qty);
+      renderCart();
+      break;
+    }
+    case 'cart-remove':
+      purchaseCart.delete(b);
+      renderCart();
+      break;
+    case 'cart-clear':
+      purchaseCart.clear();
+      renderCart();
+      break;
+    case 'purchase-batch': {
+      const lines = [...purchaseCart].map(([item, qty]) => ({ item, qty }));
+      try {
+        const ids = Sim.purchaseBatch(state, lines, purchaseTransport);
+        recorder.record(state, 'purchase-batch', { lines, mode: purchaseTransport, orders: ids });
+        purchaseCart.clear();
+        renderCart();
+        persist(true);
+        toast(
+          `Batch ordered · ${ids.length} physical delivery${ids.length === 1 ? '' : ' loads'}.`,
+        );
+      } catch (error) {
+        toast((error as Error).message, true);
+      }
+      break;
+    }
     case 'purchase': {
       const qty = Number($<HTMLInputElement>(`#qty-${b}`)?.value || 1);
       const mode = b in MATERIALS ? $<HTMLSelectElement>('#transport')?.value || 'road' : 'road';
@@ -1668,6 +1750,16 @@ document.addEventListener('click', (e) => {
 });
 document.addEventListener('input', (e) => {
   const target = e.target as HTMLInputElement;
+  if (target.dataset.catalogItem) {
+    const item = target.dataset.catalogItem;
+    const el = document.querySelector<HTMLElement>(`#mass-${item}`);
+    if (el)
+      el.textContent =
+        itemMass(item) && Number.isFinite(Number(target.value))
+          ? massLabel(itemMass(item) * Number(target.value))
+          : '—';
+    return;
+  }
   if (target.dataset.columnFilter) {
     const key = target.dataset.columnFilter,
       index = Number(target.dataset.column);
@@ -1695,6 +1787,11 @@ document.addEventListener('input', (e) => {
 });
 document.addEventListener('change', (e) => {
   const target = e.target as HTMLSelectElement;
+  if (target.id === 'transport') {
+    purchaseTransport = target.value as 'road' | 'rail';
+    renderCart();
+    return;
+  }
   if (target.dataset.jobEquipment) {
     const error = setJobEquipment(state, target.dataset.jobEquipment, target.value || undefined);
     recorder.record(state, 'equipment-assignment', {

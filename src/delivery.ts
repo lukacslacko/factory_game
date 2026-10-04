@@ -1,3 +1,5 @@
+export { orderLines, orderDescription, orderMass, itemMass } from './procurement';
+import { orderLines, orderDescription, pendingOrderLine } from './procurement';
 import { workerAvailable, commuteDoor } from './workforce';
 import { equipmentHasAssignedWork } from './jobs';
 import { RAIL_PANEL_PITCH } from './railwork';
@@ -83,23 +85,37 @@ export function freightPose(o: Order) {
     : { ...o.vehicle, yaw: o.drive?.yaw || 0 };
 }
 export function shipmentLots(o: Order) {
-  const m = MATERIALS[o.item as Item];
-  if (!m) return [];
-  const count = Math.ceil(o.qty / m.max),
-    out: { index: number; qty: number; original: number; x: number; z: number }[] = [];
-  let taken = o.arrived;
-  for (let i = 0; i < count; i++) {
-    const original = Math.min(m.max, o.qty - i * m.max),
-      qty = Math.max(0, original - taken);
-    taken = Math.max(0, taken - original);
-    out.push({
-      index: i,
-      qty,
-      original,
-      x: (i - (count - 1) / 2) * m.w + (o.mode === 'road' ? -1.4 : 0),
-      z: 0,
-    });
+  const out: {
+    index: number;
+    lineIndex: number;
+    item: Item;
+    qty: number;
+    original: number;
+    x: number;
+    z: number;
+  }[] = [];
+  let width = 0;
+  for (const [lineIndex, line] of orderLines(o).entries()) {
+    const m = MATERIALS[line.item as Item];
+    if (!m) continue;
+    let taken = line.arrived;
+    for (let i = 0; i < Math.ceil(line.qty / m.max); i++) {
+      const original = Math.min(m.max, line.qty - i * m.max),
+        qty = Math.max(0, original - taken);
+      taken = Math.max(0, taken - original);
+      out.push({
+        index: out.length,
+        lineIndex,
+        item: line.item as Item,
+        qty,
+        original,
+        x: width + m.w / 2,
+        z: 0,
+      });
+      width += m.w;
+    }
   }
+  for (const lot of out) lot.x -= width / 2 + (o.mode === 'road' ? 1.4 : 0);
   return out;
 }
 export function carrierRects(s: State): Rect[] {
@@ -230,14 +246,14 @@ function finish(s: State, o: Order, api: DeliveryAPI) {
     o.id,
     o.commute
       ? `Shift bus ${o.commute.direction}: ${o.qty} passengers boarded/alighted.`
-      : `Received ${o.qty} × ${label(o.item)} using site resources.`,
+      : `Received ${orderDescription(o)} using site resources.`,
   );
   api.notice(
     s,
     o.commute ? 'Shift bus departing' : 'Delivery received',
     o.commute
       ? `${o.qty} workers · ${o.commute.direction}`
-      : `${o.qty} × ${label(o.item)} received and recorded.`,
+      : `${orderDescription(o)} received and recorded.`,
     o.id,
   );
 }
@@ -251,7 +267,7 @@ function waiting(s: State, o: Order, message: string, code: string, api: Deliver
   }
 }
 function materialMachine(s: State, o: Order, preferred?: string) {
-  const mass = MATERIALS[o.item as Item].mass;
+  const mass = MATERIALS[pendingOrderLine(o)!.item as Item].mass;
   const machines = s.equipment.filter(
     (e) =>
       !equipmentHasAssignedWork(s, e) &&
@@ -359,7 +375,7 @@ function riggingPoint(source: Point, item: Item): Point {
 }
 function startUnloading(s: State, o: Order, api: DeliveryAPI, preferred?: string) {
   preferred ??= o.operatorId;
-  const item = o.item as Item,
+  const item = pendingOrderLine(o)!.item as Item,
     m = MATERIALS[item],
     pair = materialMachine(s, o, preferred);
   if (!pair) {
@@ -433,6 +449,8 @@ function startUnloading(s: State, o: Order, api: DeliveryAPI, preferred?: string
     return false;
   }
   o.unload = {
+    item,
+    lineIndex: slot.lineIndex,
     equipmentId: e.id,
     operatorId: w.id,
     riggerId: rigger?.id,
@@ -504,7 +522,7 @@ function unloadTick(s: State, o: Order, dt: number, api: DeliveryAPI) {
     e = s.equipment.find((e) => e.id === t.equipmentId)!,
     w = s.workers.find((w) => w.id === t.operatorId)!,
     r = s.workers.find((w) => w.id === t.riggerId),
-    item = o.item as Item;
+    item = t.item || (o.item as Item);
   if (!e || !w) {
     o.note = 'Assigned machine or operator missing';
     return;
@@ -591,6 +609,7 @@ function unloadTick(s: State, o: Order, dt: number, api: DeliveryAPI) {
     }
     e.cargo = { item, qty: t.qty };
     o.arrived += t.qty;
+    if (o.manifest) o.manifest[t.lineIndex!].arrived += t.qty;
     t.cargo = { ...t.source, y: t.sourceY, yaw: t.sourceYaw };
     api.movement(s, item, t.qty, o.id, e.id, 'Unloaded onto site equipment');
     set('lift');
@@ -997,25 +1016,27 @@ function crewTick(s: State, o: Order, dt: number, api: DeliveryAPI) {
   }
   o.handling += dt;
   if (o.arrived < o.qty && o.handling >= 2) {
+    const role = pendingOrderLine(o)!.item as Worker['role'];
     const p = localPoint({ ...o.vehicle, yaw: 0 }, 1.35, 1.7),
       wid = api.id(s, 'worker');
     const w: Worker = {
       id: wid,
       name: `Worker #${s.workers.length + 1}`,
-      role: o.item as Worker['role'],
+      role,
       x: p.x,
       z: p.z,
       path: [],
       duty: 'auto',
       status: 'Stepping off bus',
       hours: 0,
-      wage: ROLES[o.item as Worker['role']].wage,
+      wage: ROLES[role].wage,
       heading: 1,
       y: 0.5,
       yaw: Math.PI / 2,
       transportOrder: o.id,
     };
     s.workers.push(w);
+    if (o.manifest) pendingOrderLine(o)!.arrived++;
     o.arrived++;
     o.handling = 0;
     s.revision++;
@@ -1354,7 +1375,7 @@ export function tickDelivery(s: State, o: Order, dt: number, api: DeliveryAPI) {
     api.notice(
       s,
       kind === 'rail' ? 'Train approaching' : 'Road delivery approaching',
-      `${o.qty} × ${label(o.item)} · ${o.id}`,
+      `${orderDescription(o)} · ${o.id}`,
       o.id,
     );
     if (kind === 'lowloader') purchasedMachine(s, o, api);
@@ -1456,7 +1477,7 @@ export function tickDelivery(s: State, o: Order, dt: number, api: DeliveryAPI) {
         o.id,
         o.commute
           ? `Chartered ${o.commute.direction} shift bus · ${o.qty} passengers`
-          : `${o.qty} × ${label(o.item)} + transport`,
+          : `${orderDescription(o)} + transport`,
         o.total,
       );
       o.invoiced = true;
@@ -1473,7 +1494,7 @@ export function tickDelivery(s: State, o: Order, dt: number, api: DeliveryAPI) {
       o.id,
       o.commute
         ? `Chartered ${o.commute.direction} shift bus · ${o.qty} passengers`
-        : `${o.qty} × ${label(o.item)} + transport`,
+        : `${orderDescription(o)} + transport`,
       o.total,
     );
     o.invoiced = true;

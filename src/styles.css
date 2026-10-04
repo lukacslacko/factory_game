@@ -1400,16 +1400,180 @@ h3 {
   }
 }
 /* Compact register controls retain the information density of the site ledger. */
-.sort-header { display:flex; gap:8px; align-items:center; justify-content:space-between; width:100%; padding:0; border:0; background:none; font:inherit; color:inherit; text-align:left; white-space:nowrap; }
-.sort-header:hover { color:var(--accent); background:none; }
-.sort-arrow { font-size:10px; opacity:.55; }
-.entity-link { padding:0; font:inherit; white-space:nowrap; }
-.column-filters th { padding:3px 6px; }
-.column-filters input { width:100%; min-width:45px; height:24px; padding:2px 4px; font-size:11px; }
-.assignment-select { max-width:210px; font-size:11px; padding:3px; }
-.work-depth { padding-left:calc(var(--depth, 0) * 13px); display:inline-flex; gap:6px; align-items:center; }
-.work-group td { background:rgba(255,255,255,.025); font-weight:600; }
-.parking-controls { display:grid; grid-template-columns:1fr 1fr; gap:5px; }
-.parking-controls label { font-size:11px; }
-.parking-controls input,.parking-controls select { width:100%; padding:4px; }
-.register-pager { display:flex; align-items:center; gap:12px; justify-content:flex-end; font-size:11px; padding:7px 0; }
+.sort-header {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  white-space: nowrap;
+}
+.sort-header:hover {
+  color: var(--accent);
+  background: none;
+}
+.sort-arrow {
+  font-size: 10px;
+  opacity: 0.55;
+}
+.entity-link {
+  padding: 0;
+  font: inherit;
+  white-space: nowrap;
+}
+.column-filters th {
+  padding: 3px 6px;
+}
+.column-filters input {
+  width: 100%;
+  min-width: 45px;
+  height: 24px;
+  padding: 2px 4px;
+  font-size: 11px;
+}
+.assignment-select {
+  max-width: 210px;
+  font-size: 11px;
+  padding: 3px;
+}
+.work-depth {
+  padding-left: calc(var(--depth, 0) * 13px);
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+}
+.work-group td {
+  background: rgba(255, 255, 255, 0.025);
+  font-weight: 600;
+}
+.parking-controls {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 5px;
+}
+.parking-controls label {
+  font-size: 11px;
+}
+.parking-controls input,
+.parking-controls select {
+  width: 100%;
+  padding: 4px;
+}
+.register-pager {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  justify-content: flex-end;
+  font-size: 11px;
+  padding: 7px 0;
+}
+
+/* Dense procurement rows and a persistent mixed-load basket. */
+.modal.shop {
+  width: 1040px;
+}
+.catalog-row,
+.catalog-head {
+  grid-template-columns: minmax(190px, 1fr) 75px 75px 58px 80px 112px;
+  gap: 8px;
+}
+.catalog-head {
+  display: grid;
+  padding: 6px 10px;
+  color: #5c7750;
+  font-size: 10px;
+}
+.catalog-head > span:not(:first-child),
+.catalog-mass {
+  text-align: right;
+}
+.catalog-mass {
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+.catalog-actions {
+  display: flex;
+  gap: 4px;
+  justify-content: flex-end;
+}
+.purchase-cart {
+  border: 1px solid #a7b794;
+  background: #f4f5e9;
+  margin: 12px 0;
+  padding: 9px 10px;
+}
+.cart-head,
+.cart-footer {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 11px;
+}
+.cart-head {
+  justify-content: space-between;
+}
+.cart-head span {
+  text-align: right;
+  color: #486141;
+}
+.cart-lines {
+  margin: 8px 0;
+}
+.cart-lines > div {
+  display: grid;
+  grid-template-columns: 1fr 55px 95px 28px;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 0;
+  border-bottom: 1px solid #dce3cf;
+  font-size: 11px;
+}
+.cart-lines b,
+.cart-lines span:nth-child(3) {
+  text-align: right;
+}
+.cart-footer {
+  margin-top: 8px;
+}
+.cart-footer small {
+  flex: 1;
+  color: #5c7750;
+  font-size: 10px;
+}
+@media (max-width: 800px) {
+  .catalog-row,
+  .catalog-head {
+    grid-template-columns: minmax(125px, 1fr) 62px 58px 45px 66px 94px;
+    gap: 4px;
+    padding: 6px;
+  }
+  .catalog-row small {
+    font-size: 9px;
+  }
+  .catalog-row b,
+  .catalog-mass {
+    font-size: 10px;
+  }
+  .catalog-actions button {
+    padding: 4px 5px;
+    font-size: 10px;
+  }
+  .catalog-row input {
+    width: 45px;
+  }
+  .cart-head {
+    align-items: start;
+  }
+  .cart-footer {
+    flex-wrap: wrap;
+  }
+  .cart-footer small {
+    flex-basis: 100%;
+  }
+}

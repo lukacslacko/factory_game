@@ -1,3 +1,10 @@
+import {
+  FREIGHT_CAPACITY,
+  FREIGHT_DECK_LENGTH,
+  CREW_BUS_SEATS,
+  orderDeckLength,
+  orderMass,
+} from './procurement';
 import type { State } from './types';
 import { EQUIPMENT_ROLES } from './equipment-roles';
 import { MATERIALS, EQUIPMENT, ROLES, SERVICES } from './catalog';
@@ -461,6 +468,47 @@ export function validateState(value: any): asserts value is State {
     }
   }
   for (const o of s.orders) {
+    if (o.manifest !== undefined) {
+      const lines = o.manifest;
+      if (
+        !Array.isArray(lines) ||
+        lines.length < 2 ||
+        lines.length > 20 ||
+        o.commute ||
+        lines.some(
+          (l: any) =>
+            !l ||
+            typeof l.item !== 'string' ||
+            !Number.isInteger(l.qty) ||
+            l.qty < 1 ||
+            !Number.isInteger(l.arrived) ||
+            l.arrived < 0 ||
+            l.arrived > l.qty,
+        ) ||
+        new Set(lines.map((l: any) => l.item)).size !== lines.length ||
+        lines[0].item !== o.item ||
+        lines.reduce((n: number, l: any) => n + l.qty, 0) !== o.qty ||
+        lines.reduce((n: number, l: any) => n + l.arrived, 0) !== o.arrived
+      )
+        fail('invalid delivery manifest');
+      const material = lines.every((l: any) => Object.hasOwn(MATERIALS, l.item)),
+        crew = lines.every((l: any) => Object.hasOwn(ROLES, l.item));
+      if (!material && !crew) fail('incompatible items on one carrier');
+      if (crew && (o.mode !== 'road' || o.qty > CREW_BUS_SEATS)) fail('overfilled crew bus');
+      if (
+        material &&
+        (!['road', 'rail'].includes(o.mode) ||
+          orderMass(o) > FREIGHT_CAPACITY[o.mode as 'road' | 'rail'] ||
+          orderDeckLength(lines) > FREIGHT_DECK_LENGTH[o.mode as 'road' | 'rail'])
+      )
+        fail('overfilled freight carrier');
+      // Loading order is physical: completed earlier lines, at most one partial line.
+      let unfinished = false;
+      for (const l of lines) {
+        if (unfinished && l.arrived > 0) fail('out-of-order manifest transfer');
+        if (l.arrived < l.qty) unfinished = true;
+      }
+    }
     if (o.carrierDeparted !== undefined && typeof o.carrierDeparted !== 'boolean')
       fail('invalid carrier departure');
     if (o.carrierDeparted && (!['departing', 'done'].includes(o.status) || o.arrived !== o.qty))
@@ -542,6 +590,21 @@ export function validateState(value: any): asserts value is State {
       fail('invalid utility crew');
     if (o.unload) {
       const t = o.unload;
+      if (t.item !== undefined && !Object.hasOwn(MATERIALS, t.item))
+        fail('invalid unloading material');
+      if (
+        o.manifest &&
+        (!Number.isInteger(t.lineIndex) ||
+          !o.manifest[t.lineIndex] ||
+          o.manifest[t.lineIndex].item !== t.item)
+      )
+        fail('invalid unloading manifest line');
+      if (
+        !o.manifest &&
+        ((t.lineIndex !== undefined && t.lineIndex !== 0) ||
+          (t.item !== undefined && t.item !== o.item))
+      )
+        fail('invalid unloading manifest line');
       if (
         !s.equipment.some((e: any) => e.id === t.equipmentId) ||
         !s.workers.some((w: any) => w.id === t.operatorId && w.role === 'operator') ||
@@ -552,7 +615,7 @@ export function validateState(value: any): asserts value is State {
         !(o.item in MATERIALS) ||
         !Number.isInteger(t.qty) ||
         t.qty < 1 ||
-        t.qty > MATERIALS[o.item as keyof typeof MATERIALS].max ||
+        t.qty > MATERIALS[(t.item || o.item) as keyof typeof MATERIALS]?.max ||
         !finite(t.clock) ||
         t.clock < 0
       )
@@ -582,7 +645,10 @@ export function validateState(value: any): asserts value is State {
         fail('invalid unloading positions');
       if (t.cargo && (!point(t.cargo) || !finite(t.cargo.y) || !finite(t.cargo.yaw)))
         fail('invalid lifted cargo pose');
-      if (t.mergeId && !s.stacks.some((q: any) => q.id === t.mergeId && q.item === o.item))
+      if (
+        t.mergeId &&
+        !s.stacks.some((q: any) => q.id === t.mergeId && q.item === (t.item || o.item))
+      )
         fail('unloading destination stack is missing');
     }
   }

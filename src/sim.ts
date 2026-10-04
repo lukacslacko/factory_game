@@ -1,3 +1,5 @@
+import { packPurchase, orderLines, orderDescription } from './procurement';
+export { packPurchase as planPurchaseBatch } from './procurement';
 import { tickWorkforce, workerAvailable } from './workforce';
 import { recordEquipmentTravel } from './ground-wear';
 import { tickRailWork } from './railwork';
@@ -289,57 +291,54 @@ export function purchase(
   qty: number,
   mode: 'road' | 'rail' = 'road',
 ): string[] {
-  if (!Number.isFinite(qty) || qty < 1 || qty > 1000 || !Number.isInteger(qty))
-    throw new Error('Order a whole quantity between 1 and 1,000.');
-  const entry =
-    (MATERIALS as any)[item] ||
-    (EQUIPMENT as any)[item] ||
-    (ROLES as any)[item] ||
-    (SERVICES as any)[item];
-  if (!entry) throw new Error('Unknown catalog item.');
-  if (!(item in MATERIALS)) mode = 'road';
-  const isMaterial = item in MATERIALS,
-    platformCapacity = isMaterial
-      ? Math.max(1, Math.floor((mode === 'road' ? 6 : 16) / entry.w)) * entry.max
-      : 1,
-    cap = isMaterial
-      ? Math.max(
-          1,
-          Math.min(platformCapacity, Math.floor((mode === 'road' ? 12000 : 48000) / entry.mass)),
-        )
-      : item in ROLES
-        ? 12
-        : 1;
-  const ids: string[] = [];
-  while (qty > 0) {
-    const n = Math.min(qty, cap);
-    qty -= n;
-    const oid = id(s, 'order'),
-      transport = mode === 'rail' ? 240 : 90,
-      total = entry.price * n + transport;
-    s.orders.push({
+  return purchaseBatch(s, [{ item, qty }], mode);
+}
+export function purchaseBatch(
+  s: State,
+  lines: { item: string; qty: number }[],
+  mode: 'road' | 'rail' = 'road',
+): string[] {
+  const loads = packPurchase(lines, mode),
+    ids: string[] = [];
+  for (const load of loads) {
+    const manifest = load.manifest,
+      first = manifest[0],
+      qty = manifest.reduce((n, line) => n + line.qty, 0),
+      oid = id(s, 'order'),
+      transport = load.mode === 'rail' ? 240 : 90,
+      total =
+        transport +
+        manifest.reduce((sum, line) => {
+          const entry =
+            (MATERIALS as any)[line.item] ||
+            (EQUIPMENT as any)[line.item] ||
+            (ROLES as any)[line.item] ||
+            (SERVICES as any)[line.item];
+          return sum + entry.price * line.qty;
+        }, 0);
+    const order: Order = {
       id: oid,
-      item,
-      qty: n,
+      item: first.item,
+      qty,
       arrived: 0,
-      mode,
+      ...(manifest.length > 1 ? { manifest } : {}),
+      mode: load.mode,
       status: 'ordered',
       eta: s.time + 180 + (s.orders.filter((o) => o.status !== 'done').length % 3) * 45,
       total,
       invoiced: false,
-      vehicle: { x: -75, z: mode === 'road' ? -13 : 0 },
+      vehicle: { x: -75, z: load.mode === 'road' ? -13 : 0 },
       stage: 0,
       handler: { x: 20, z: 20 },
       handling: 0,
-      note: 'Transport ordered; site equipment and operator required',
-    });
+      note:
+        first.item in ROLES
+          ? 'Crew bus ordered'
+          : 'Transport ordered; site equipment and operator required',
+    };
+    s.orders.push(order);
     ids.push(oid);
-    event(
-      s,
-      'Order',
-      oid,
-      `Ordered ${n} × ${label(item)} by ${mode}. Unloading uses site equipment and an operator.`,
-    );
+    event(s, 'Order', oid, `Ordered ${orderDescription(order)} by ${load.mode} on one carrier.`);
   }
   s.revision++;
   return ids;
@@ -523,8 +522,10 @@ export function missingMaterials(s: State) {
       .filter((t) => t.item === item)
       .reduce((n, t) => n + t.qty - t.reserved, 0);
     const incoming = s.orders
-      .filter((o) => o.item === item && o.status !== 'done')
-      .reduce((n, o) => n + o.qty - o.arrived, 0);
+      .filter((o) => o.status !== 'done')
+      .flatMap(orderLines)
+      .filter((line) => line.item === item)
+      .reduce((n, line) => n + line.qty - line.arrived, 0);
     result[item] = Math.max(0, result[item]! - available - incoming);
   }
   return result;
@@ -1946,8 +1947,14 @@ export function totals(s: State, item: Item) {
     cargo: s.equipment
       .filter((e) => e.cargo?.item === item)
       .reduce((n, e) => n + (e.cargo?.qty || 0), 0),
-    incoming: s.orders.filter((o) => o.item === item).reduce((n, o) => n + o.qty - o.arrived, 0),
-    delivered: s.orders.filter((o) => o.item === item).reduce((n, o) => n + o.arrived, 0),
+    incoming: s.orders
+      .flatMap(orderLines)
+      .filter((line) => line.item === item)
+      .reduce((n, line) => n + line.qty - line.arrived, 0),
+    delivered: s.orders
+      .flatMap(orderLines)
+      .filter((line) => line.item === item)
+      .reduce((n, line) => n + line.arrived, 0),
     recovered: s.movements
       .filter((m) => m.item === item && m.reason === 'Opening asset recovered')
       .reduce((n, m) => n + m.qty, 0),

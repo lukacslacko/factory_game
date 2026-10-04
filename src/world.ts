@@ -7,6 +7,7 @@ import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { surfaceMaterial } from './surfaces';
 import { WornPaths } from './worn-paths';
+import { GATE_PADS, groundPad, sceneryRandom } from './terrain-visuals';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import type {
   State,
@@ -570,22 +571,23 @@ export class World {
     const g = new THREE.Group();
     g.name = 'transport-corridor';
     this.scene.add(g);
-    const road = box(g, 120, -0.005, ROAD_CENTER_Z, 800, 0.06, ROAD_WIDTH, 0xffffff);
+    const road = groundPad(g, 120, -0.005, ROAD_CENTER_Z, 800, 0.06, ROAD_WIDTH, 0xffffff);
     road.material = surfaceMaterial('asphalt');
-    for (let x = -240; x < 520; x += 8) box(g, x, 0.033, ROAD_CENTER_Z, 3, 0.008, 0.1, 0xe3e1d5);
+    for (let x = -240; x < 520; x += 8)
+      groundPad(g, x, 0.033, ROAD_CENTER_Z, 3, 0.008, 0.1, 0xe3e1d5);
     for (const z of [ROAD_CENTER_Z - ROAD_WIDTH / 2 + 0.15, ROAD_CENTER_Z + ROAD_WIDTH / 2 - 0.15])
-      box(g, 120, 0.033, z, 800, 0.007, 0.085, 0xe3e1d5);
+      groundPad(g, 120, 0.033, z, 800, 0.007, 0.085, 0xe3e1d5);
     // Two distinct gate lanes, with room for the vehicle bodies as they turn.
-    box(g, -8, 0.02, 1.5, 8.4, 0.1, 28.8, 0x797a76);
-    box(g, -12.3, 0.025, -6.1, 14.2, 0.09, 10.4, 0x797a76);
-    for (const z of [-5, 9.5, 13]) box(g, -8, 0.078, z, 0.09, 0.01, 1.8, 0xe3e1d5);
+    for (const r of GATE_PADS)
+      groundPad(g, r.x + r.w / 2, 0.02, r.z + r.d / 2, r.w, 0.1, r.d, 0x797a76);
+    for (const z of [-5, 9.5, 13]) groundPad(g, -8, 0.078, z, 0.09, 0.01, 1.8, 0xe3e1d5);
     // The bus door opens onto this curbside landing rather than into traffic.
-    box(g, -30, 0.003, -7.9, 16, 0.006, 1.4, 0xb6b7a8);
-    box(g, -30, 0.008, -8.65, 16, 0.012, 0.18, 0xd6cfab);
+    groundPad(g, -30, 0.003, -7.9, 16, 0.006, 1.4, 0xb6b7a8);
+    groundPad(g, -30, 0.008, -8.65, 16, 0.012, 0.18, 0xd6cfab);
     const busStop = sign(g, 'BUS', -30, 0.012, -7.8, 2);
     busStop.rotation.x = -Math.PI / 2;
     // Compacted maneuvering ground for the empty lowloader's forward turn.
-    box(g, -18, 0.007, 36, 30, 0.012, 38, 0xb3a790);
+    groundPad(g, -18, 0.007, 36, 30, 0.012, 38, 0xb3a790);
     this.rail(g, [new THREE.Vector3(-260, 0, 0), new THREE.Vector3(520, 0, 0)]);
     this.rail(
       g,
@@ -663,7 +665,7 @@ export class World {
       const b = box(g, -13, 2.5, z, 1.5, 0.18, 0.08, 0xe3debc);
       b.rotation.z = -0.7;
     }
-    box(g, 6.5, 0.03, 18, 39, 0.04, 8, 0xb8ad96);
+    groundPad(g, 6.5, 0.03, 18, 39, 0.04, 8, 0xb8ad96);
     const receiving = sign(g, 'RECEIVING', 18, 0.073, 14, 3);
     receiving.rotation.x = -Math.PI / 2;
   }
@@ -701,11 +703,6 @@ export class World {
   }
   scatterGround(s: State) {
     this.disposeGroup(this.landscape);
-    let seed = 981;
-    const rand = () => {
-      seed = (seed * 1664525 + 1013904223) >>> 0;
-      return seed / 4294967296;
-    };
     const verts: number[] = [];
     for (let i = 0; i < 7; i++) {
       const angle = i * 2.399,
@@ -771,37 +768,46 @@ export class World {
         (r) => x > r.x - 0.5 && x < r.x + r.w + 0.5 && z > r.z - 0.5 && z < r.z + r.d + 0.5,
       );
     };
-    for (let i = 0; i < 42000 && gi < 14000; i++) {
+    let grassCandidates = 0,
+      rockCandidates = 0;
+    for (let i = 0; i < 42000 && grassCandidates < 14000; i++) {
+      const rand = sceneryRandom(981, i);
       const x = -45 + rand() * 285,
         z = -33 + rand() * 170;
-      if (clear(x, z)) continue;
       const patch = (Math.sin(x * 0.12 + z * 0.05) + Math.cos(z * 0.19 - x * 0.07) + 2) / 4;
       if (rand() > patch * 0.85) continue;
+      grassCandidates++;
+      const hidden = clear(x, z);
       o.position.set(x, 0, z);
       o.rotation.set(0, rand() * Math.PI * 2, 0);
       const a = 0.5 + rand() * 0.7;
       o.scale.set(a, a, a);
       o.updateMatrix();
-      grass.setMatrixAt(gi, o.matrix);
-      grass.setColorAt(
-        gi,
-        new THREE.Color(rand() < 0.25 ? 0xa8a270 : 0x7d8e52).multiplyScalar(0.8 + rand() * 0.35),
+      const color = new THREE.Color(rand() < 0.25 ? 0xa8a270 : 0x7d8e52).multiplyScalar(
+        0.8 + rand() * 0.35,
       );
-      gi++;
-      if (rand() < 0.09 && ri < 1200) {
+      if (!hidden) {
+        grass.setMatrixAt(gi, o.matrix);
+        grass.setColorAt(gi++, color);
+      }
+      if (rand() < 0.09 && rockCandidates < 1200) {
+        rockCandidates++;
         o.position.set(x + 0.5, 0.05, z + 0.4);
         o.scale.set(0.12 + rand() * 0.18, 0.09 + rand() * 0.14, 0.1 + rand() * 0.2);
         o.updateMatrix();
-        rock.setMatrixAt(ri++, o.matrix);
+        if (!clear(x + 0.5, z + 0.4)) rock.setMatrixAt(ri++, o.matrix);
       }
     }
     // Rounded leaf clusters, confined to undeveloped ground; no scenery replaces stock.
-    for (let i = 0; i < 3600 && si < 6600; i++) {
+    let shrubCandidates = 0;
+    for (let i = 0; i < 3600 && shrubCandidates < 550; i++) {
+      const rand = sceneryRandom(3911, i);
       const x = -45 + rand() * 285,
         z = -33 + rand() * 170;
       const patch = Math.sin(x * 0.12 + z * 0.05) + Math.cos(z * 0.19 - x * 0.07);
-      if (patch < 0.2 || clear(x, z) || clear(x - 0.7, z - 0.7) || clear(x + 0.7, z + 0.7))
-        continue;
+      if (patch < 0.2) continue;
+      shrubCandidates++;
+      if (clear(x, z) || clear(x - 0.7, z - 0.7) || clear(x + 0.7, z + 0.7)) continue;
       const size = 0.28 + rand() * 0.55;
       for (let l = 0; l < 12 && si < 6600; l++) {
         const theta = l * 2.399 + rand() * 0.4;
@@ -1332,10 +1338,11 @@ export class World {
             yaw: mixAngle(oldCargo?.yaw ?? cargo.yaw, cargo.yaw, alpha),
           }
         : undefined;
+      const unloadingItem = unload?.item || handlingOrder?.item;
       const load =
         e.cargo ||
-        (unload && handlingOrder && handlingOrder.item in MATERIALS
-          ? { item: handlingOrder.item as Item, qty: unload.qty }
+        (unload && unloadingItem && unloadingItem in MATERIALS
+          ? { item: unloadingItem as Item, qty: unload.qty }
           : undefined);
       const loadHeight = load ? stackHeight(load.item, load.qty) : 0;
       let lift = renderedCargo ? renderedCargo.y - pose.y : pose.lift;
@@ -1747,12 +1754,14 @@ export class World {
       replaceContents(
         loadParent,
         'shipment',
-        o.item in MATERIALS ? `${o.item}/${o.qty}/${o.arrived}` : '',
+        o.item in MATERIALS || o.manifest?.length
+          ? `${o.item}/${o.qty}/${o.arrived}/${JSON.stringify(o.manifest || [])}`
+          : '',
         () => {
           const load = new THREE.Group();
           for (const slot of shipmentLots(o)) {
             if (slot.qty <= 0) continue;
-            const c = this.stockModel(o.item, slot.qty);
+            const c = this.stockModel(slot.item, slot.qty);
             c.position.set(slot.x, kind === 'rail' ? 1.3 : 1.15, slot.z);
             load.add(c);
           }

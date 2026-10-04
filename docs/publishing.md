@@ -4,7 +4,7 @@ Version 0.8.0 is published privately at https://plant-01-starter-yard.lukacslack
 
 The editable game lives in this starter-yard directory. The Site repository is a separate, build-only checkout at `../../work/plant01-publish` relative to this directory, with its own `.openai/hosting.json` and Git metadata. It contains only `dist/` and the hosting manifest. Do not upload the full game project or the private design documents when updating that Site.
 
-The Site identity is `appgprj_6ac1ff4c01388191b1d9d0dba709095e`. Reuse it; do not create a replacement. The successful build-only source commit for version 0.8.0 is `242478de8ac2090d014275d7e4940e39701194a7`.
+The Site identity is `appgprj_6ac1ff4c01388191b1d9d0dba709095e`. Reuse it; do not create a replacement. The successful build-only source commit for version 0.9.0 is `64605856db792baa1af8ab5d1c3c2e99966c6cf4`.
 
 For an update, follow the Sites hosting skill to open the existing build-only checkout, build and test the editable game, replace the checkout's `dist/` with that build, inspect its file list, and publish through the same private Site workflow. Keep credentials in process memory/stdin only. The game requires no server secrets, cloud database, or external connectors.
 
@@ -53,3 +53,10 @@ Version 0.8.0 deployed successfully on October 4, 2026 at 20:32 UTC on the exist
 The release adds independent slab finishing/prefetch, early receiving assistance, departing empty carriers, a real-time calendar and labor clock, a reproduced steering correction, persistent worn dirt paths and surface preference. Physical dock/crew deadlocks and redundant slab-route planning were corrected. A large-yard ground texture stall found during production verification was fixed and checked against the maximum supported wear map.
 
 All 167 simulation regressions pass, including the complete-base save/reload and material/fuel audits. Final integrated browser, maximum-map renderer, TypeScript/build and production checks pass. The fresh example completes 145 construction tasks, two physical refueling jobs and 19 deliveries with balanced materials and fuel. Source and documentation are published separately in the public MIT repository. The local package includes the exact deployed build, example and validation records.
+
+
+## Version 0.9 shared procurement and terrain fixes
+
+Version 0.9.0 deployed successfully on October 4, 2026 at 21:25 UTC, preserving the existing private Site and origin. Deployment ID: `appgdep_6ac2c42707f88191b15bb743c5bc8814`. Source commit: `64605856db792baa1af8ab5d1c3c2e99966c6cf4`. The nine built assets plus hosting manifest match the verified production build. Source, design notes, examples, diagnostic captures, and credentials are excluded from the hosted payload.
+
+Mixed catalog lines share physical freight carriers or crew buses. Packing previews and item/quantity weights explain road and rail choices. Dedicated equipment and utility deliveries retain their existing physical operations. Ground self-shadow artifacts and coplanar gate overlap are corrected, and scenery clearing no longer relocates unrelated vegetation. All 175 simulation regressions, integrated browser checks, and production checks pass. The existing balanced example remains a verified prior-release save; it was not regenerated for this release. The public MIT source and local downloadable package retain source, documentation, previews, and validation records separately from the private Site.

@@ -232,7 +232,7 @@
         ><a href="#limits">Version boundaries</a>
       </nav>
       <article>
-        <small>PLAYER GUIDE · VERSION 0.8.0 · OCTOBER 4, 2026</small>
+        <small>PLAYER GUIDE · VERSION 0.9.0 · OCTOBER 4, 2026</small>
         <h1>Build the starter yard</h1>
         <p class="lead">
           Bring people, equipment, and materials to an open industrial site. Give every piece a
@@ -416,10 +416,25 @@
           Containers and kits occupy their own physical space.
         </p>
         <p>
-          Choose truck or rail for materials in Purchase. Each order is split into loads that fit
-          the carrier's weight limit and available deck length. Loads occupy a single center lane
-          for side unloading. People, purchased equipment, and utility crews currently arrive by
-          road. The delivery charge pays for transport; it does not supply a free unloading machine.
+          In <b>Purchase</b>, enter each quantity and click <b>Add</b> to collect a batch. Different
+          worker roles can share one bus; different material types can share one truck or train load.
+          Choose <b>Material transport</b> to compare road and rail packing. The preview shows cargo
+          weight, planned carriers, and total cost before <b>Place batch order</b> commits the request.
+          The per-row <b>Hire</b> and <b>Order</b> buttons still order immediately.
+        </p>
+        <p>
+          Catalog rows show unit weight and quantity weight in kg or metric tons (t). A truck carries
+          at most 12 t on a 6 m deck; a train load carries at most 48 t on a 16 m flatcar. Physical
+          stack dimensions can fill the deck before its weight limit. Buses have 12 seats, and mixed
+          roles share those seats. Equipment and utility services use dedicated road deliveries;
+          selecting rail applies to materials. Each packed carrier has its own transport charge.
+          The delivery charge pays for transport; it does not supply a free unloading machine.
+        </p>
+        <p>
+          Deliveries and their inspectors show the complete manifest, received quantity for each
+          item, and full cargo weight. Mixed cargo retains its original deck positions during
+          unloading. Saving preserves each line's progress; older single-item orders keep their
+          contents. SQL <code>order_lines</code> exposes those line quantities and weights for analysis.
         </p>
         <p>
           Road vehicles keep right. Buses stop at the curb and continue forward after everyone has
@@ -714,7 +729,7 @@
           design vision recorded in the project documents.
         </p>
         <div class="footer">
-          Plant 01 · Starter Yard 0.8.0 · Built locally with Three.js and sql.js · See the included
+          Plant 01 · Starter Yard 0.9.0 · Built locally with Three.js and sql.js · See the included
           README, architecture notes, and test record for technical details.
         </div>
       </article>

@@ -169,6 +169,7 @@ export class DiagnosticRecorder {
           .map((o) => ({
             id: o.id,
             item: o.item,
+            manifest: o.manifest,
             status: o.status,
             position: o.vehicle,
             drive: o.drive,
@@ -182,7 +183,7 @@ export class DiagnosticRecorder {
     return copy({
       format: 'plant01-diagnostics',
       version: 1,
-      gameVersion: '0.8.0',
+      gameVersion: '0.9.0',
       started: this.started,
       entries: this.entries,
       checkpoints: this.checkpoints,

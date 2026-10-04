@@ -6,7 +6,7 @@ The world uses a true perspective 3D camera, with a meter grid, dimensional stoc
 
 ## Play
 
-The private game Site is **https://plant-01-starter-yard.lukacslacko.chatgpt.site**. This package documents version **0.8.0**; deployment status is recorded in `docs/publishing.md`. Sign in with the account that owns the Site. Local and hosted browser saves are separate; use Export save / Import save to transfer a yard.
+The private game Site is **https://plant-01-starter-yard.lukacslacko.chatgpt.site**. This package documents version **0.9.0**; deployment status is recorded in `docs/publishing.md`. Sign in with the account that owns the Site. Local and hosted browser saves are separate; use Export save / Import save to transfer a yard.
 
 On this Mac, double-click **Start Plant 01.command**. It starts the included local server and opens the game at **http://127.0.0.1:4173/**. Keep its Terminal window open while playing; Control-C stops the server.
 
@@ -27,7 +27,7 @@ Open **manual.html** through the local server for the illustrated player guide, 
 ## What works
 
 - Hire builders, equipment operators, and site engineers, named Worker #1, Worker #2, and so on. Buy a 6 t excavator or a 2.5 t forklift. Your own operator walks to its lowloader, boards, and drives it down the ramps.
-- Order material by truck or train. Loads split by weight and available deck length. Freight waits for your own suitable machine, qualified operator, fuel, and reachable storage. Excavator lifts also require a builder or engineer to rig the load. Every batch moves from carrier to machine to its physical stack.
+- Combine different material types on one truck or train, or different worker roles on one bus. Purchase shows unit and line weights, batch cargo weight, and the planned carrier count before ordering. Loads split by weight and available deck length. Freight waits for your own suitable machine, qualified operator, fuel, and reachable storage. Excavator lifts also require a builder or engineer to rig the load. Every batch moves from carrier to machine to its physical stack.
 - Designate storage areas. Slabs stack up to 12 high in neighboring 1 m² cells; incoming batches top up partial stacks first. A forklift lifts at most eight 280 kg slabs per trip. Full-length rail panels, containers, kits, poles, fence panels, and diesel drums retain their dimensions and stack limits. Keep a reachable loading face and travel aisles.
 - Drag paving plans; place offices, WC/showers, sheds, stores, lights, fences, and straight 5 m rail panels. Required foundations become ordinary construction jobs.
 - Builders and operators board equipment, collect material, carry it, place it, and install it. The work register explains missing resources and access problems.
@@ -39,6 +39,14 @@ Open **manual.html** through the local server for the illustrated player guide, 
 - Order electrical and water/sewer services. Utility crews arrive and commission the service. Connected lights illuminate the yard at night.
 - Inspect materials, workers, equipment, structures, deliveries, jobs, events, material movements, actual costs, and outstanding commitments. Track notifications in To do / Doing / Done.
 - Query a fresh SQLite reporting snapshot and export costs as CSV. Autosave locally, export/import a portable save, and restore the previous yard backup.
+
+## Ordering a batch
+
+Open **Purchase**, enter a quantity on each catalog row, and click **Add**. Add builders and operators to share a bus, or slabs, rail panels, poles, and other materials to share freight. Choose **Material transport** to compare truck and rail packing. The batch summary shows cargo weight, planned material loads, crew buses, dedicated deliveries, and total cost. Use **Place batch order** to commit the entire request. **Hire** and **Order** still place an individual row immediately.
+
+A crew bus has 12 seats. A material truck carries at most 12 metric tons on a 6 m deck; a train load carries at most 48 metric tons on a 16 m flatcar. Physical stack dimensions can fill the deck before its weight limit. A batch can therefore produce several actual carriers. Equipment uses separate lowloaders, and services use separate utility vehicles; selecting rail applies to materials. Unit and quantity weights are shown in kg or metric tons (t), while worker rows show passengers and service rows show services.
+
+The **Deliveries** register and each delivery inspector show the complete manifest, line quantities received, and cargo weight. SQL exposes the same data in `order_lines`, with one row per catalog item per carrier. Existing single-item orders remain intact when loading older saves.
 
 ## Physical slab placement
 
@@ -155,3 +163,9 @@ Machines can prefetch the next slab while a worker levels the last one, includin
 1× is real time for both motion and the calendar, with seconds in the top bar. 3× and 10× scale both. Existing dates and financial records are preserved. A reproduced short-corner steering mismatch was corrected; if another flutter occurs, attach the JSON from Activity → Export diagnostic history for review.
 
 Repeated actual equipment travel creates persistent worn dirt paths. Comparable routes prefer hardstanding, then established dirt, then ordinary dirt. Wear is bounded; machinery damage and weather remain future work.
+
+## Version 0.9 procurement and scenery update
+
+Purchase supports mixed batches with a packing preview, displayed unit and quantity weights, and shared buses or material carriers. A mixed carrier retains every manifest line through unloading, costs, diagnostics, reporting, and saves; physical handling still requires owned equipment and hired crew.
+
+Terrain rendering separates overlapping receiving surfaces and corrects depth artifacts in distant ground shadows. Decorative vegetation uses stable world-space candidates: clearing a paved or worn area removes affected plants without moving unrelated plants elsewhere.

@@ -1,6 +1,6 @@
 # Starter Yard architecture
 
-Version 0.8.0 separates serializable simulation, physical delivery sequences, motion, rendering, and the Condensed interface. The simulation is deterministic for a given sequence of commands and time steps and runs without a browser.
+Version 0.9.0 separates serializable simulation, physical delivery sequences, motion, rendering, and the Condensed interface. The simulation is deterministic for a given sequence of commands and time steps and runs without a browser.
 
 ## Files
 
@@ -9,6 +9,7 @@ Version 0.8.0 separates serializable simulation, physical delivery sequences, mo
 | `src/types.ts`                                                              | Serializable entities, assignments, cargo, motion, and save versions                                     |
 | `src/equipment-roles.ts`                                                    | Shared machine work roles, activity mapping, and assignment eligibility                                  |
 | `src/catalog.ts`                                                            | Dimensions, mass, capacity, prices, roles, footprints, and gauge                                         |
+| `src/procurement.ts`                                                     | Validated mixed manifests, shared carrier packing, weight and deck calculations                           |
 | `src/sim.ts`                                                                | Procurement, storage, planning, construction, recovery, fuel, accounting, and migration                  |
 | `src/delivery.ts`                                                           | Carrier movement, equipment deployment, crew arrivals, owned-machine unloading, and storage reservations |
 | `src/boarding.ts`                                                           | Worker transitions when entering or leaving a machine                                                    |
@@ -54,7 +55,11 @@ Changing a role records an equipment event and wakes allocation retries. It does
 
 Road freight, crew buses, lowloaders, and utility vans have separate receiving points. A material truck waiting for a machine therefore does not prevent that machine or its operator from arriving. Oriented carrier footprints, people, equipment, stock, and buildings constrain each short movement. A persisted maneuver permit also covers the yard junction: approaching and departing carriers take turns there, while parked deliveries release it so their resources can arrive. Lowloaders stop at E−10.1, S38, leaving space for the utility van’s full backing envelope. The crew bus stops west of the gate and continues east. Freight and utility trucks back into an exit aisle, pause to change gear, and depart forward westbound. Lowloaders turn forward through a western maneuvering loop. Arrival and departure share a monotonic route distance, but wheel travel changes sign in reverse. Road surface height and pitch follow the raised crossing. Trains reverse along the supplied rail route.
 
-Material load size is limited by both mass and deck length: 6 m for the road platform and 16 m for the flatcar. Freight occupies one center lane for side unloading. Original lot positions remain fixed as quantities decrease, so the remaining cargo does not slide into new positions after every pickup. Each lot respects its catalog stack limit.
+`procurement.ts` validates the complete request before state mutation, merges repeated catalog items, and packs material units into manifests according to both mass and stacked deck length. A road load has a 12,000 kg limit and 6 m deck; a rail load has a 48,000 kg limit and 16 m deck. Mixed worker roles share 12-seat road buses. Equipment units and service visits each retain a dedicated road delivery. Selected rail transport applies only to material loads. Every resulting carrier is a real order with its own transport charge, arrival, unloading, and invoice. Packing is deterministic in entered catalog order; it is not a global minimum-carrier optimization.
+
+`Order.manifest` holds the individual item, ordered quantity, and received quantity for mixed loads. `orderLines` normalizes older single-item orders without rewriting their contents. Arrival/unloading selects the next unfinished manifest line and keeps original deck lot positions stable as cargo leaves. Aggregate `qty` and `arrived` represent all units across the carrier; line reporting preserves their distinct item types. Saves validate the manifest and retain progress, current cargo, reservations, and costs.
+
+Material load size is limited by both mass and deck length. Freight occupies one center lane for side unloading. Original lot positions remain fixed as quantities decrease, so the remaining cargo does not slide into new positions after every pickup. Each lot respects its catalog stack limit.
 
 Unloading requires a purchased available machine, a hired qualified operator, fuel, and reachable storage. Excavator lifting also reserves a builder or engineer as a rigger. Phases include boarding, approach, rigging, lift, backing clear, carrying, lowering, release, and backing away. The rigger starts walking while the operator boards and the machine approaches; rigging still waits for machine alignment and a clear lifting area. Working reach adjusts continuously from the carrier dock to the storage dock, and cargo follows the final alignment turn before lowering. The operator remains seated after the assignment. No carrier forklift or excavator is created to bypass missing resources.
 
@@ -80,7 +85,7 @@ Stable IDs connect entities, events, material transfers, invoices, and notices. 
 
 Notification workflow is independent of popup visibility. Closing a popup does not erase its To do / Doing / Done record. Delivery inspectors expose the current phase, assigned operator and machine, and reason for waiting. Job inspectors expose their actual simulation state.
 
-Run query builds a fresh in-memory SQLite snapshot; it does not expose mutable live state. Tables include inventory, workers, equipment, jobs, orders, stacks, buildings, movements, costs, and events. Times are calendar seconds, coordinates are meters, fuel is liters, and amounts are USD. The `movements` table exposes source and destination. SELECT, WITH, and EXPLAIN results are limited to 2,000 displayed rows.
+Run query builds a fresh in-memory SQLite snapshot; it does not expose mutable live state. Tables include inventory, workers, equipment, jobs, orders, order_lines, stacks, buildings, movements, costs, and events. The `orders.mass_kg` field reports full ordered cargo mass; `order_lines` contains `order_id`, zero-based `line`, `item`, `qty`, `arrived`, and full line `mass_kg`. Worker and service lines have zero freight mass rather than an invented passenger/service weight. Times are calendar seconds, coordinates are meters, fuel is liters, and amounts are USD. The `movements` table exposes source and destination. SELECT, WITH, and EXPLAIN results are limited to 2,000 displayed rows.
 
 ## Rendering
 
@@ -129,3 +134,9 @@ All register tables share natural/numeric sorting and optional column filters. A
 `ground-wear.ts` records accepted traveled meters under machine track/wheel strips into optional `State.groundWear`, with bounded intensity and cell count. Old saves default to an empty map. Routing samples the actual track strips, compares surface cost alongside distance/turn cost, and replays swept poses before accepting a preferred corridor. `worn-paths.ts` displays the field on one blended ground texture, refreshed at most twice per real second, independently of static asset rebuilds. Pavement obscures old dirt wear. Ground compaction survives saving; the texture and scenery instances remain presentation only.
 
 Steering and translation target the same first nonzero waypoint. The previous steering lookahead skipped a short pending segment, causing repeated yaw corrections at corners. A deterministic short-corner regression verifies steady progress and a single 90-degree turn without heading reversals.
+
+## Procurement and stable scenery (0.9)
+
+The Purchase cart holds a draft separately from the simulation until **Place batch order**. Its preview uses the same `planPurchaseBatch` packing function as actual creation; changing material transport recalculates the carrier count before commitment. Direct per-row Hire/Order uses the same packing rules. Catalog and delivery views report unit, quantity, and carrier mass in kg or metric tons.
+
+Ground shadow/depth settings and nonoverlapping gate/apron surfaces address the reported striped terrain artifacts. Decorative terrain candidates derive their position and shape from stable candidate seeds before any installed/planned footprint or wear filtering. Rebuilding scenery therefore only removes or reveals the affected candidates, rather than advancing a shared random sequence and relocating distant vegetation. Decoration remains presentation only and cannot change simulation obstacles or inventory.

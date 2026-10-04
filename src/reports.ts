@@ -3,6 +3,7 @@ import wasmUrl from 'sql.js/dist/sql-wasm.wasm?url';
 import type { State } from './types';
 import { totals } from './sim';
 import { MATERIALS } from './catalog';
+import { orderLines, orderMass, itemMass } from './procurement';
 import { parkingStatus } from './workforce';
 import { equipmentAssignment, jobRows } from './jobs';
 import { equipmentRole } from './equipment-roles';
@@ -39,6 +40,10 @@ export const SQL_EXAMPLES = [
     name: 'Parking and shifts',
     sql: 'SELECT id, kind, parking_x, parking_z, parkingStatus FROM equipment ORDER BY id;',
   },
+  {
+    name: 'Delivery manifests',
+    sql: 'SELECT order_id, item, qty, arrived, mass_kg FROM order_lines ORDER BY order_id, line;',
+  },
 ];
 let runtime: ReturnType<typeof initSqlJs> | undefined;
 export async function query(s: State, sql: string) {
@@ -69,7 +74,18 @@ export async function query(s: State, sql: string) {
     })),
     job_groups: (s.jobGroups || []).map((g) => ({ ...g })),
     work_orders: jobRows(s).map((r) => ({ ...r })),
-    orders: s.orders.map(({ vehicle, handler, allocated, ...o }) => ({ ...o })),
+    orders: s.orders.map(({ vehicle, handler, allocated, ...o }) => ({
+      ...o,
+      mass_kg: orderMass(o),
+    })),
+    order_lines: s.orders.flatMap((o) =>
+      orderLines(o).map((l, line) => ({
+        order_id: o.id,
+        line,
+        ...l,
+        mass_kg: (itemMass(l.item) || 0) * l.qty,
+      })),
+    ),
     costs: s.costs.map((c) => ({ ...c })),
     events: s.events.map((e) => ({ ...e })),
     movements: s.movements.map(({ from, to, ...m }) => ({ ...m, source: from, destination: to })),
@@ -79,6 +95,7 @@ export async function query(s: State, sql: string) {
     zones: s.zones.map((z) => ({ ...z })),
   };
   const defaultCols: Record<string, string[]> = {
+    order_lines: ['order_id', 'line', 'item', 'qty', 'arrived', 'mass_kg'],
     rails: ['id', 'x', 'z', 'rotation', 'length'],
     zones: ['id', 'name', 'x', 'z', 'w', 'd'],
     job_groups: ['id', 'label', 'parentId', 'preferredEquipment', 'created'],

@@ -231,7 +231,14 @@ export interface Job extends Rect {
   railWork?: RailWork;
   handling?: ConstructionHandling;
 }
+export interface OrderLine {
+  item: string;
+  qty: number;
+  arrived: number;
+}
 export interface Order {
+  /** One carrier, with separately accounted material or passenger lines. */
+  manifest?: OrderLine[];
   commute?: {
     direction: 'outbound' | 'inbound';
     workers: string[];
@@ -274,6 +281,9 @@ export interface Order {
   contractor?: Point & Move & Motion & { phase: string; clock: number };
 }
 export interface UnloadTask {
+  /** Fixed during handling, even after this line is emptied on the carrier. */
+  item?: Item;
+  lineIndex?: number;
   equipmentId: string;
   operatorId: string;
   riggerId?: string;
