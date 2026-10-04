@@ -147,4 +147,3 @@ The complete source, tests, design grounding, accepted visual references, guide,
 ## Visual direction
 
 Version 0.7 moves the playable world toward the accepted final C concepts, approximately 80% detailed A and 20% matte miniature B. It uses a closer, axis-facing perspective camera, neutral daylight and metal reflections, restrained contact shading, textured earth/concrete/asphalt/ballast, small leaf clusters, and more detailed machinery, people, and containers. Placed objects keep their physical grid footprints; the rail gauge and working load anchors are unchanged. Condensed records keep their dense text layout. The screenshots are actual gameplay, not concept renders.
-
