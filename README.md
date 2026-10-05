@@ -6,7 +6,7 @@ The world uses a true perspective 3D camera, with a meter grid, dimensional stoc
 
 ## Play
 
-The private game Site is **https://plant-01-starter-yard.lukacslacko.chatgpt.site**. This package documents version **0.10.0**; deployment status is recorded in `docs/publishing.md`. Sign in with the account that owns the Site. Local and hosted browser saves are separate; use Export save / Import save to transfer a yard.
+The private game Site is **https://plant-01-starter-yard.lukacslacko.chatgpt.site**. This package documents version **0.11.0**; deployment status is recorded in `docs/publishing.md`. Sign in with the account that owns the Site. Local and hosted browser saves are separate; use Export save / Import save to transfer a yard.
 
 On this Mac, double-click **Start Plant 01.command**. It starts the included local server and opens the game at **http://127.0.0.1:4173/**. Keep its Terminal window open while playing; Control-C stops the server.
 
@@ -39,6 +39,10 @@ Open **manual.html** through the local server for the illustrated player guide, 
 - Order electrical and water/sewer services. Utility crews arrive and commission the service. Connected lights illuminate the yard at night.
 - Inspect materials, workers, equipment, structures, deliveries, jobs, events, material movements, actual costs, and outstanding commitments. Track notifications in To do / Doing / Done.
 - Query a fresh SQLite reporting snapshot and export costs as CSV. Autosave locally, export/import a portable save, and restore the previous yard backup.
+
+## Version 0.11 automatic work ownership
+
+Automatic dispatch keeps one machine on a whole work order, including its paving cells and foundation subgroups, and one machine on each freight carrier across unloading lifts. Independent work orders and deliveries can still run in parallel. Current physical work finishes safely before a role, fuel, shift, capability, or explicit assignment change permits a handoff. The same ownership survives saving. Older saves finish any already active machinery before continuing with one. Automatic machines are linked in the Work register and inspector and available in SQL. Manual assignments retain priority.
 
 ## Version 0.10 handling and assembly update
 

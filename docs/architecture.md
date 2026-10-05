@@ -1,6 +1,6 @@
 # Starter Yard architecture
 
-Version 0.10.0 separates serializable simulation, physical delivery sequences, motion, rendering, and the Condensed interface. The simulation is deterministic for a given sequence of commands and time steps and runs without a browser.
+Version 0.11.0 separates serializable simulation, physical delivery sequences, motion, rendering, and the Condensed interface. The simulation is deterministic for a given sequence of commands and time steps and runs without a browser.
 
 ## Files
 
@@ -148,3 +148,9 @@ Ground shadow/depth settings and nonoverlapping gate/apron surfaces address the 
 `shed-construction.ts` owns a serializable assembly state: kit staging/unpacking, foundation anchors, component collection/rigging/lifting/carrying/lowering/fastening, and completion. `shed-geometry.ts` provides shared component locations; `shed-visuals.ts` builds matching partial and finished models. Six posts, three roof frames, four roof sections, two back wall panels and one brace appear individually. Materials report the unpacked kit as `inConstruction`, then `installed` after completion. Saves retain the partly built structure and moving member. Cancellation reverses assembly before returning the packed kit to stock. Forward high fastening uses a kit-supplied ladder with saved worker elevation and smooth climb/descent. Recovery unrigging remains schematic, and completed building recovery still uses the existing whole-kit sequence. This is schematic construction rather than structural engineering or rigid-body lifting physics.
 
 Equipment's optional `allowedWork` array stores checked automatic job kinds. Older `workRole` values normalize to all, none or one kind; direct assignments still override automatic eligibility. The register and inspector share the same checkbox popover and defer periodic replacement while it is open. SQL includes both the legacy role and selected kinds.
+
+## Automatic work ownership
+
+`JobGroup.automaticEquipment` records the outer work-order machine separately from `preferredEquipment`. Scheduler reconciliation adopts existing active machines from older saves, waits for competing physical work to finish, and reuses its owner for following leaves. Qualification and operator checks can release future ownership without interrupting current work; explicit assignments still take priority. Group ownership does not blanket-reserve equipment away from receiving missing materials.
+
+`Order.automaticEquipment` retains the receiving machine across lifts of that carrier. Automatic construction and other deliveries respect its remaining-freight reservation; manual work can override at a safe boundary. The receiving lock is cleared when its final parcel is lifted clear. Automatic parking avoids sending the machine home between lifts while its operator is on shift. Saves validate machine references; job rows, inspectors, diagnostics and SQL expose the selected owner.

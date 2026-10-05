@@ -167,7 +167,7 @@ function freeOperator(s: State, e?: Equipment, preferred?: string) {
         !w.transition &&
         !w.deliveryOrder &&
         !w.transportOrder &&
-        (w.duty === 'auto' || w.id === preferred) &&
+        (w.duty === 'auto' || (w.duty === 'manual' && w.id === preferred)) &&
         (!w.vehicle ||
           w.vehicle === e?.id ||
           s.equipment.some(
@@ -228,6 +228,7 @@ function release(s: State, o: Order, api: DeliveryAPI) {
   o.cargoQty = undefined;
 }
 function finish(s: State, o: Order, api: DeliveryAPI) {
+  o.automaticEquipment = undefined;
   o.status = 'departing';
   o.note =
     o.mode === 'rail'
@@ -268,27 +269,53 @@ function waiting(s: State, o: Order, message: string, code: string, api: Deliver
     api.event(s, 'Delivery', o.id, message);
   }
 }
-function materialMachine(s: State, o: Order, preferred?: string) {
-  const mass = MATERIALS[pendingOrderLine(o)!.item as Item].mass;
-  const machines = s.equipment.filter(
-    (e) =>
-      !equipmentHasAssignedWork(s, e) &&
-      !['boarding', 'driving', 'aligning'].includes(e.parkingState || '') &&
-      !e.transportOrder &&
-      !e.deliveryOrder &&
-      !e.job &&
-      !e.refueling &&
-      !e.path.length &&
-      !e.cargo &&
-      equipmentAllows(e, 'receiving') &&
-      e.fuel > 0.5 &&
-      EQUIPMENT[e.kind].capacity >= mass,
+/** Between lifts the carrier still owns its receiving machine; cargo ownership
+ * itself remains on the active UnloadTask until physical withdrawal completes. */
+export function equipmentReservedForDelivery(s: State, e: Equipment, ignoreOrder?: string) {
+  return s.orders.some(
+    (o) =>
+      o.id !== ignoreOrder &&
+      o.status === 'unloading' &&
+      o.arrived < o.qty &&
+      o.automaticEquipment === e.id,
   );
-  // Keep an already seated operator on their own machine; prefer a forklift for suitable freight.
-  machines.sort((a, b) => (a.kind === 'forklift' ? 0 : 1) - (b.kind === 'forklift' ? 0 : 1));
+}
+function materialMachine(s: State, o: Order, preferred?: string, manual = false) {
+  const mass = MATERIALS[pendingOrderLine(o)!.item as Item].mass;
+  const qualified = (e: Equipment) =>
+    !equipmentHasAssignedWork(s, e) &&
+    !e.transportOrder &&
+    !e.deliveryOrder &&
+    !e.job &&
+    !e.refueling &&
+    !e.cargo &&
+    equipmentAllows(e, 'receiving') &&
+    e.fuel > 0.5 &&
+    EQUIPMENT[e.kind].capacity >= mass;
+  const ready = (e: Equipment) =>
+    !e.path.length && !['boarding', 'driving', 'aligning'].includes(e.parkingState || '');
+  if (!manual && o.automaticEquipment) {
+    const owner = s.equipment.find((e) => e.id === o.automaticEquipment),
+      operator = owner && qualified(owner) ? freeOperator(s, owner, preferred) : undefined;
+    if (owner && operator) return ready(owner) ? { e: owner, w: operator } : undefined;
+    // Never reached for an active lift: startUnloading is only called after release.
+    // Role, fuel, shift or explicit assignment changes therefore hand off supported freight.
+    o.automaticEquipment = undefined;
+  }
+  const machines = s.equipment.filter(
+    (e) => qualified(e) && ready(e) && (manual || !equipmentReservedForDelivery(s, e, o.id)),
+  );
+  // Explicit control favors that operator's occupied machine; automatic work
+  // prefers a forklift for suitable freight when the carrier first acquires an owner.
+  const selected = manual ? s.workers.find((w) => w.id === preferred)?.vehicle : undefined;
+  machines.sort(
+    (a, b) =>
+      (a.id === selected ? -1 : a.kind === 'forklift' ? 0 : 1) -
+      (b.id === selected ? -1 : b.kind === 'forklift' ? 0 : 1),
+  );
   for (const e of machines) {
     const w = freeOperator(s, e, preferred);
-    if (w) return { e, w };
+    if (w && (!manual || w.id === preferred)) return { e, w };
   }
 }
 function storageDock(
@@ -375,11 +402,11 @@ function riggingPoint(source: Point, item: Item): Point {
     z: source.z + 1.9,
   };
 }
-function startUnloading(s: State, o: Order, api: DeliveryAPI, preferred?: string) {
+function startUnloading(s: State, o: Order, api: DeliveryAPI, preferred?: string, manual = false) {
   preferred ??= o.operatorId;
   const item = pendingOrderLine(o)!.item as Item,
     m = MATERIALS[item],
-    pair = materialMachine(s, o, preferred);
+    pair = materialMachine(s, o, preferred, manual);
   if (!pair) {
     waiting(
       s,
@@ -472,6 +499,12 @@ function startUnloading(s: State, o: Order, api: DeliveryAPI, preferred?: string
       : 0,
   };
   o.allocated = { ...dest.rect };
+  o.automaticEquipment = e.id;
+  if (manual) {
+    for (const other of s.orders)
+      if (other.id !== o.id && !other.unload && other.automaticEquipment === e.id)
+        other.automaticEquipment = undefined;
+  }
   reserve(s, o, e, w);
   w.path = workerPath;
   if (rigger) {
@@ -503,7 +536,7 @@ export function requestUnloading(s: State, oid: string, wid: string, api: Delive
   }
   if (!(o.item in MATERIALS)) return 'This delivery does not need a machine operator.';
   if (o.unload) return 'Unloading is already assigned.';
-  return startUnloading(s, o, api, wid) ? '' : o.note;
+  return startUnloading(s, o, api, wid, true) ? '' : o.note;
 }
 function cargoFollow(t: UnloadTask, e: Equipment, y: number) {
   const p = localPoint({ ...e, yaw: e.yaw || 0 }, e.reach || 3, 0);

@@ -1,10 +1,10 @@
 # Publication
 
-Version 0.10.0 is published privately at https://plant-01-starter-yard.lukacslacko.chatgpt.site.
+Version 0.11.0 is published privately at https://plant-01-starter-yard.lukacslacko.chatgpt.site.
 
 The editable game lives in this starter-yard directory. The Site repository is a separate, build-only checkout at `../../work/plant01-publish` relative to this directory, with its own `.openai/hosting.json` and Git metadata. It contains only `dist/` and the hosting manifest. Do not upload the full game project or the private design documents when updating that Site.
 
-The Site identity is `appgprj_6ac1ff4c01388191b1d9d0dba709095e`. Reuse it; do not create a replacement. The successful build-only source commit for version 0.10.0 is `9a77979aa92d8cf05192c836d8cd29c30b21bf03`.
+The Site identity is `appgprj_6ac1ff4c01388191b1d9d0dba709095e`. Reuse it; do not create a replacement. The successful build-only source commit for version 0.11.0 is `30198869bcc5f2e7c08f0d04e444dba225286ea2`.
 
 For an update, follow the Sites hosting skill to open the existing build-only checkout, build and test the editable game, replace the checkout's `dist/` with that build, inspect its file list, and publish through the same private Site workflow. Keep credentials in process memory/stdin only. The game requires no server secrets, cloud database, or external connectors.
 
@@ -67,3 +67,11 @@ Version 0.10.0 deployed successfully on October 4, 2026 at 22:48 UTC, preserving
 Forklift cargo rests on the working sections of both fixed fork extensions, and the carriage retracts for travel. Automatic work offers a multi-checkbox dropdown in both equipment views. Shed kits now pass through physical staging, anchors, individual member lifts, positioning, and worker fastening with an assembly ladder before the completed building appears. Partial construction survives saving and can be recovered after cancellation. Two clearance regressions found during verification were fixed without bypassing collisions.
 
 All 189 sequential simulation regressions, integrated browser checks, TypeScript/build validation, and independent production checks pass. Actual forklift and partial-shed gameplay captures were visually inspected. The existing balanced example remains a compatible v0.8 save, checked in production and not regenerated for this release. The public MIT source and downloadable project include implementation, documentation, previews, and validation records separately from the private Site.
+
+## Version 0.11 single-machine automatic dispatch
+
+Version 0.11.0 deployed successfully on October 5, 2026 at 12:57 CEST, on the same private Site and origin. Deployment ID: `appgdep_6ac3827720c48191b5dc0dd9b3d087f3`. Build-only source commit: `30198869bcc5f2e7c08f0d04e444dba225286ea2`. Its nine built assets and hosting manifest match the final locally tested production build; source, design notes, saves, diagnostics and credentials remain excluded from the Site.
+
+A whole construction work order now keeps one automatic machine across its child tasks. A freight carrier similarly keeps one machine across receiving lifts. Independent orders stay parallel; safe handoffs and explicit assignments remain available. Saved ownership and legacy active tasks are preserved, and linked work inspectors identify the machine. Inspector assignment controls no longer push IDs outside the panel.
+
+All 204 sequential simulation tests, integrated browser checks, TypeScript/build and independent production checks pass. The existing compatible example remains a verified prior-release save rather than a newly generated yard. Source, documentation, gameplay captures and validation records are updated separately in the public MIT repository and downloadable package.

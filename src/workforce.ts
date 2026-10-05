@@ -9,7 +9,7 @@ import {
   equipmentSweepBlocked,
   staticObstacleRects,
 } from './traffic';
-import { equipmentHasAssignedWork } from './jobs';
+import { equipmentHasAssignedWork, automaticEquipmentHasWork } from './jobs';
 
 export interface WorkforceAPI {
   id(s: State, type: string): string;
@@ -139,7 +139,11 @@ function parkingTick(s: State, e: Equipment, dt: number, api: WorkforceAPI) {
     return;
   }
   if (
-    equipmentHasAssignedWork(s, e) &&
+    (equipmentHasAssignedWork(s, e) ||
+      automaticEquipmentHasWork(s, e) ||
+      s.orders.some(
+        (o) => o.status === 'unloading' && o.arrived < o.qty && o.automaticEquipment === e.id,
+      )) &&
     (!e.operator ||
       shiftIsActive(
         s,

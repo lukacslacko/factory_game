@@ -204,6 +204,8 @@ export interface JobGroup extends Rect {
   label: string;
   parentId?: string;
   preferredEquipment?: string;
+  /** Sticky automatic machine for the whole work order, separate from a manual assignment. */
+  automaticEquipment?: string;
   equipmentPriority?: number;
   created: number;
 }
@@ -285,6 +287,8 @@ export interface OrderLine {
 export interface Order {
   /** One carrier, with separately accounted material or passenger lines. */
   manifest?: OrderLine[];
+  /** One automatic unloading machine across all lifts of this carrier. */
+  automaticEquipment?: string;
   commute?: {
     direction: 'outbound' | 'inbound';
     workers: string[];

@@ -15,6 +15,10 @@ import {
   jobEquipmentAssignment,
   equipmentReservedForJob,
   equipmentCanDoJob,
+  automaticEquipmentAllowsJob,
+  automaticEquipmentForWork,
+  claimAutomaticEquipment,
+  refreshAutomaticEquipment,
 } from './jobs';
 import {
   EQUIPMENT_ROLES,
@@ -85,6 +89,7 @@ import {
   migrateRoadDrive,
   constructionStorageClearance,
   syncDeliveryCargo,
+  equipmentReservedForDelivery,
 } from './delivery';
 const PREFIX: Record<string, string> = {
   worker: 'WRK',
@@ -1258,6 +1263,19 @@ function assign(s: State, j: Job) {
         : `Assigned ${requested.id} cannot lift or handle this load`;
     return;
   }
+  const automaticId = !requestedId ? automaticEquipmentForWork(s, j) : undefined;
+  const automatic = automaticId ? s.equipment.find((e) => e.id === automaticId) : undefined;
+  if (
+    automatic &&
+    (automatic.job ||
+      automatic.deliveryOrder ||
+      automatic.transportOrder ||
+      automatic.refueling ||
+      automatic.path.length)
+  ) {
+    j.reason = `Waiting for automatic ${automatic.id} to finish ${automatic.job || automatic.deliveryOrder || automatic.transportOrder || automatic.refueling || 'travel'}`;
+    return;
+  }
   const worker =
     s.workers.find(
       (w) =>
@@ -1320,7 +1338,11 @@ function assign(s: State, j: Job) {
   }
   const explicit = jobEquipmentAssignment(s, j).equipmentId;
   const allowed = (e: Equipment) =>
-    equipmentReservedForJob(s, e, j) && (explicit === e.id || equipmentAllows(e, jobActivity(j)));
+    equipmentReservedForJob(s, e, j) &&
+    (explicit === e.id ||
+      (equipmentAllows(e, jobActivity(j)) &&
+        automaticEquipmentAllowsJob(s, e, j) &&
+        !equipmentReservedForDelivery(s, e)));
   const mass = MATERIALS[j.item!]?.mass || 1;
   let operator: Worker | undefined, eq: Equipment | undefined;
   for (const candidate of operators) {
@@ -1347,32 +1369,34 @@ function assign(s: State, j: Job) {
     }
   }
   if (!eq) {
-    j.reason = s.equipment.some(
-      (e) =>
-        !e.job &&
-        allowed(e) &&
-        (!['rail', 'shed'].includes(j.kind) || e.kind === 'excavator') &&
-        EQUIPMENT[e.kind].capacity >= mass &&
-        e.fuel <= 0.2,
-    )
-      ? 'Equipment needs diesel — request refueling'
+    j.reason = automaticId
+      ? `Waiting for automatic ${automaticId}; one machine handles this work order`
       : s.equipment.some(
             (e) =>
-              (!['rail', 'shed'].includes(j.kind) || e.kind === 'excavator') &&
-              EQUIPMENT[e.kind].capacity >= mass,
-          ) &&
-          !s.equipment.some(
-            (e) =>
+              !e.job &&
               allowed(e) &&
               (!['rail', 'shed'].includes(j.kind) || e.kind === 'excavator') &&
-              EQUIPMENT[e.kind].capacity >= mass,
+              EQUIPMENT[e.kind].capacity >= mass &&
+              e.fuel <= 0.2,
           )
-        ? `No suitable machine allows ${EQUIPMENT_ROLES[jobActivity(j)].replace(' only', '').toLowerCase()} — change Automatic work in Equipment`
-        : j.kind === 'rail'
-          ? 'Need an available excavator for rail laying and buffer handling'
-          : j.kind === 'shed'
-            ? 'Need an available excavator to erect and lift shed components'
-            : 'Need available equipment with enough lift capacity';
+        ? 'Equipment needs diesel — request refueling'
+        : s.equipment.some(
+              (e) =>
+                (!['rail', 'shed'].includes(j.kind) || e.kind === 'excavator') &&
+                EQUIPMENT[e.kind].capacity >= mass,
+            ) &&
+            !s.equipment.some(
+              (e) =>
+                allowed(e) &&
+                (!['rail', 'shed'].includes(j.kind) || e.kind === 'excavator') &&
+                EQUIPMENT[e.kind].capacity >= mass,
+            )
+          ? `No suitable machine allows ${EQUIPMENT_ROLES[jobActivity(j)].replace(' only', '').toLowerCase()} — change Automatic work in Equipment`
+          : j.kind === 'rail'
+            ? 'Need an available excavator for rail laying and buffer handling'
+            : j.kind === 'shed'
+              ? 'Need an available excavator to erect and lift shed components'
+              : 'Need available equipment with enough lift capacity';
     return;
   }
   if (!operator) return;
@@ -1429,6 +1453,7 @@ function assign(s: State, j: Job) {
   j.equipment = eq.id;
   j.stack = stack?.id;
   j.status = 'doing';
+  claimAutomaticEquipment(s, j, eq);
   j.phase = 'Board equipment';
   j.reason = '';
   j.elapsed = 0;
@@ -2059,13 +2084,24 @@ export function tick(s: State, dt: number) {
   for (const j of s.jobs) tickJob(s, j, dt);
   // Scheduling is deliberately slower than movement; pathfinding is only needed when assignments change.
   if (Math.floor((s.elapsed - dt) * 2) !== Math.floor(s.elapsed * 2)) {
+    refreshAutomaticEquipment(s, (e) =>
+      s.workers.some(
+        (w) =>
+          w.role === 'operator' &&
+          w.duty === 'auto' &&
+          workerAvailable(s, w) &&
+          (!e.operator || e.operator === w.id),
+      ),
+    );
     const queued = s.jobs
       .filter((j) => j.status === 'todo')
       .map((job) => ({ job, assignment: jobEquipmentAssignment(s, job) }));
     queued.sort(
       (a, b) =>
         (b.assignment.priority || 0) - (a.assignment.priority || 0) ||
-        Number(!!b.assignment.equipmentId) - Number(!!a.assignment.equipmentId),
+        Number(!!b.assignment.equipmentId) - Number(!!a.assignment.equipmentId) ||
+        Number(!!automaticEquipmentForWork(s, b.job)) -
+          Number(!!automaticEquipmentForWork(s, a.job)),
     );
     for (const { job } of queued) assign(s, job);
   }

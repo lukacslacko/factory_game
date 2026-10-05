@@ -8,6 +8,7 @@ import { checkBatchProcurement } from './batch-procurement.mjs';
 import { checkTimeAndWear } from './time-and-wear.mjs';
 import { checkForkLoadRendering } from './fork-load-rendering.mjs';
 import { checkShedRendering } from './shed-rendering.mjs';
+import { checkAutomaticWork } from './automatic-work.mjs';
 import { createServer } from 'vite';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
@@ -230,6 +231,7 @@ async function ready() {
   const batchProcurement = await checkBatchProcurement(page, base);
   const forkLoadRendering = await checkForkLoadRendering(page, base);
   const shedRendering = await checkShedRendering(page, base);
+  const automaticWork = await checkAutomaticWork(page, base);
   const layouts = [];
   for (const width of [1440, 1024, 768]) {
     await page.setViewportSize({ width, height: 900 });
@@ -261,6 +263,7 @@ async function ready() {
         batchProcurement,
         forkLoadRendering,
         shedRendering,
+        automaticWork,
         checks: [
           'perspective depth and view-relative WASD after orbit',
           'floor grab-pan without click or worker commands',

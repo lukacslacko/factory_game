@@ -5,7 +5,7 @@ import { totals } from './sim';
 import { MATERIALS } from './catalog';
 import { orderLines, orderMass, itemMass } from './procurement';
 import { parkingStatus } from './workforce';
-import { equipmentAssignment, jobRows } from './jobs';
+import { equipmentAssignment, jobRows, automaticEquipmentForWork } from './jobs';
 import { equipmentRole, equipmentActivities, equipmentWorkSummary } from './equipment-roles';
 export const SQL_EXAMPLES = [
   {
@@ -73,6 +73,7 @@ export async function query(s: State, sql: string) {
       ...j,
       assigned_equipment: equipmentAssignment(s, j.id).equipmentId,
       assignment_source: equipmentAssignment(s, j.id).sourceId,
+      automatic_equipment: automaticEquipmentForWork(s, j),
     })),
     job_groups: (s.jobGroups || []).map((g) => ({ ...g })),
     work_orders: jobRows(s).map((r) => ({ ...r })),
@@ -111,7 +112,7 @@ export async function query(s: State, sql: string) {
     order_lines: ['order_id', 'line', 'item', 'qty', 'arrived', 'mass_kg'],
     rails: ['id', 'x', 'z', 'rotation', 'length'],
     zones: ['id', 'name', 'x', 'z', 'w', 'd'],
-    job_groups: ['id', 'label', 'parentId', 'preferredEquipment', 'created'],
+    job_groups: ['id', 'label', 'parentId', 'preferredEquipment', 'automaticEquipment', 'created'],
     work_orders: [
       'id',
       'label',
@@ -171,8 +172,9 @@ export async function query(s: State, sql: string) {
       'parentId',
       'assigned_equipment',
       'assignment_source',
+      'automatic_equipment',
     ],
-    orders: ['id', 'item', 'qty', 'arrived', 'status', 'total', 'eta'],
+    orders: ['id', 'item', 'qty', 'arrived', 'status', 'total', 'eta', 'automaticEquipment'],
     costs: ['id', 'time', 'category', 'entity', 'description', 'amount'],
     events: ['id', 'time', 'type', 'entity', 'text'],
     movements: ['id', 'time', 'item', 'qty', 'source', 'destination', 'reason'],

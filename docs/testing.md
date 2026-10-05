@@ -1,6 +1,6 @@
 # Starter Yard validation
 
-This record includes version 0.10 forklift support, work checklists, and staged shed assembly, alongside the earlier handling, traffic, and rendering checks. It does not certify every browser, an arbitrary large factory, or an unattended multi-hour soak.
+This record includes version 0.11 automatic equipment ownership alongside the earlier forklift support, work checklists, shed assembly, handling, traffic, and rendering checks. It does not certify every browser, an arbitrary large factory, or an unattended multi-hour soak.
 
 ## Simulation and motion regressions
 
@@ -172,3 +172,13 @@ The wider suite also covers a recovered office backing clear before turning besi
 The final frozen implementation passes **189/189** sequential simulation regressions in **109.84 seconds**, with no failures, cancellations, or skipped tests and a 384 MB heap cap. The integrated browser suite passes with no page or console errors, including all five shed component types, ladder climbing, supported rail/slab loads, retained checklist focus, and all 18 register/width combinations. The contact tests measure actual cargo/tine meshes; the motion bound accounts for chassis travel, turn radius, extension and lift. Worker-clearance pauses are retained, with interpolation sampled during an advancing tick.
 
 The final production check passes version 0.10.0 menu/guide, local SQL/WebAssembly, absence of the development harness, older nighttime and 147-job example imports, all three guide images, and the guide at 768 pixels. No page errors, console warnings, failed requests, or external asset requests were observed. A paused-yard sample averaged 16.67 ms per frame on this Mac; it is not a large-factory performance guarantee. The complete source/test fingerprint and deployed build hashes are recorded in the local release package.
+
+## Version 0.11 single-machine automatic work
+
+Fifteen new regressions cover sticky ownership across paving cells and unloading lifts, independent parallel work orders/carriers, saved ownership, safe role/fuel/operator handoffs, capacity changes across foundations and heavy assembly, explicit overrides, legacy active assignments, and invalid saved references. Current cargo remains with its real machine. The full sequential suite passes **204/204** tests in **120.19 seconds**, with no failures, cancellations or skips, and a 384 MB heap cap.
+
+The browser check selects a real automatically owned paving order through the Work register, follows its linked equipment ID, queries its SQL owner, and reloads that same owner through the Save control. Broader integrated and production results are recorded after those checks.
+
+The integrated browser suite passes with no page or console errors. The actual automatic owner is linked in the work inspector, survives the interface Save/reload flow, and appears in SQL. Independent simulation checks cover concurrent work and receiving. All 18 register/width combinations and prior cargo, construction, controls, notices, logs and terrain checks pass. After the full simulation run, only browser fixture navigation, inspector layout, and the SQL column declaration were corrected; simulation inputs remain unchanged. The final browser run also asserts that assignment controls cannot clip linked equipment IDs.
+
+The final production check passes version 0.11.0 menu/guide, local SQL/WebAssembly, absence of the development harness, older nighttime and 147-job example imports, all guide images, and 768-pixel guide width. No page errors, console warnings, failed requests or external asset requests were observed. The paused-yard sample averaged 16.67 ms per frame on this Mac; it does not establish large-factory performance. Production assets match the deployed build byte for byte.

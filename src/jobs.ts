@@ -1,5 +1,6 @@
 import type { Equipment, Item, Job, JobGroup, Rect, State } from './types';
 import { EQUIPMENT, MATERIALS, label } from './catalog';
+import { equipmentAllows, jobActivity } from './equipment-roles';
 
 export interface Assignment {
   equipmentId?: string;
@@ -27,6 +28,90 @@ export interface WorkRow {
   finished?: number;
 }
 const unfinished = (j: Job) => j.status !== 'done' && j.status !== 'canceled';
+/** Ownership applies to the outer work order, including foundation subgroups. */
+export function automaticWorkGroup(s: State, work: Job | JobGroup): JobGroup | undefined {
+  let group = s.jobGroups?.find((g) => g.id === ('kind' in work ? work.parentId : work.id));
+  const seen = new Set<string>();
+  while (group?.parentId && !seen.has(group.id)) {
+    seen.add(group.id);
+    group = s.jobGroups?.find((g) => g.id === group!.parentId) || group;
+  }
+  return group;
+}
+export function automaticEquipmentForWork(s: State, work: Job | JobGroup): string | undefined {
+  return automaticWorkGroup(s, work)?.automaticEquipment;
+}
+/** Reconcile saved/legacy ownership without interrupting a loaded or working machine. */
+export function refreshAutomaticEquipment(s: State, operatorAvailable: (e: Equipment) => boolean) {
+  const groups = new Map<string, { group: JobGroup; jobs: Job[] }>();
+  for (const j of s.jobs) {
+    if (j.kind === 'refuel') continue;
+    const group = automaticWorkGroup(s, j);
+    if (!group) continue;
+    let entry = groups.get(group.id);
+    if (!entry) groups.set(group.id, (entry = { group, jobs: [] }));
+    if (unfinished(j)) entry.jobs.push(j);
+  }
+  for (const { group, jobs } of groups.values()) {
+    if (!jobs.length) {
+      group.automaticEquipment = undefined;
+      continue;
+    }
+    const active = jobs.filter(
+      (j) => j.status === 'doing' && j.equipment && !j.handling?.equipmentReleased,
+    );
+    if (active.length) {
+      // An older save can have several machines already in flight. Drain their
+      // real work, then continue with one; never abandon a carried load.
+      if (!active.some((j) => j.equipment === group.automaticEquipment))
+        group.automaticEquipment = active[0].equipment;
+      continue;
+    }
+    const e = s.equipment.find((e) => e.id === group.automaticEquipment);
+    const machineTasks = jobs.filter(
+      (j) => !j.handling?.equipmentReleased && !jobEquipmentAssignment(s, j).equipmentId,
+    );
+    if (
+      e &&
+      !equipmentHasAssignedWork(s, e) &&
+      e.fuel > 0.2 &&
+      operatorAvailable(e) &&
+      (machineTasks.length === 0 ||
+        machineTasks.some((j) => equipmentAllows(e, jobActivity(j)) && equipmentCanDoJob(e, j, s)))
+    )
+      continue;
+    group.automaticEquipment = undefined;
+  }
+}
+export function automaticEquipmentAllowsJob(s: State, e: Equipment, j: Job): boolean {
+  const group = automaticWorkGroup(s, j);
+  if (!group) return true;
+  if (group.automaticEquipment && group.automaticEquipment !== e.id) return false;
+  return !s.jobs.some(
+    (other) =>
+      other.id !== j.id &&
+      other.kind !== 'refuel' &&
+      other.status === 'doing' &&
+      other.equipment &&
+      other.equipment !== e.id &&
+      !other.handling?.equipmentReleased &&
+      automaticWorkGroup(s, other)?.id === group.id,
+  );
+}
+export function claimAutomaticEquipment(s: State, j: Job, e: Equipment) {
+  if (jobEquipmentAssignment(s, j).equipmentId) return;
+  const group = automaticWorkGroup(s, j);
+  if (group) group.automaticEquipment = e.id;
+}
+export function automaticEquipmentHasWork(s: State, e: Equipment): boolean {
+  return (
+    s.jobGroups?.some(
+      (g) =>
+        g.automaticEquipment === e.id &&
+        workLeaves(s, g.id).some((j) => unfinished(j) && !j.handling?.equipmentReleased),
+    ) || false
+  );
+}
 export function createJobGroup(s: State, title: string, r: Rect, parentId?: string): JobGroup {
   const group: JobGroup = {
     ...r,
@@ -181,7 +266,7 @@ export function jobRows(s: State): WorkRow[] {
       reason: j.reason || j.phase,
       worker: j.worker,
       operator: j.operator,
-      equipment: j.equipment,
+      equipment: j.equipment || (unfinished(j) ? automaticEquipmentForWork(s, j) : undefined),
       preferredEquipment: a.equipmentId,
       assignmentSource: a.sourceId,
       leafIds: [j.id],
@@ -223,7 +308,12 @@ export function jobRows(s: State): WorkRow[] {
       reason: `${leaves.filter((j) => j.status === 'done').length}/${leaves.length} complete${activity ? ' · ' + activity : ''}`,
       worker: workers.length === 1 ? workers[0] : undefined,
       operator: operators.length === 1 ? operators[0] : undefined,
-      equipment: equipment.length === 1 ? equipment[0] : undefined,
+      equipment:
+        equipment.length === 1
+          ? equipment[0]
+          : !equipment.length && active.length
+            ? automaticEquipmentForWork(s, g)
+            : undefined,
       preferredEquipment: a.equipmentId,
       assignmentSource: a.sourceId,
       leafIds: leaves.map((j) => j.id),

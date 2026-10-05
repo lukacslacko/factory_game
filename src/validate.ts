@@ -81,6 +81,12 @@ export function validateState(value: any): asserts value is State {
   const groups = new Map<string, any>((s.jobGroups || []).map((g: any) => [g.id, g]));
   for (const work of [...(s.jobGroups || []), ...s.jobs]) {
     if (
+      work.automaticEquipment !== undefined &&
+      (typeof work.automaticEquipment !== 'string' ||
+        !s.equipment.some((e: any) => e.id === work.automaticEquipment))
+    )
+      fail('invalid automatic work-order equipment');
+    if (
       work.equipmentPriority !== undefined &&
       (!Number.isInteger(work.equipmentPriority) || work.equipmentPriority < 0)
     )
@@ -568,6 +574,12 @@ export function validateState(value: any): asserts value is State {
     }
   }
   for (const o of s.orders) {
+    if (
+      o.automaticEquipment !== undefined &&
+      (typeof o.automaticEquipment !== 'string' ||
+        !s.equipment.some((e: any) => e.id === o.automaticEquipment))
+    )
+      fail('invalid automatic delivery equipment');
     if (o.manifest !== undefined) {
       const lines = o.manifest;
       if (
