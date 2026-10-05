@@ -77,3 +77,9 @@ Pump station #9 will use the same named transfer references later. Completing th
 [#30 — Recover loaded delivery equipment blocked by fixed stock and surface warnings](https://github.com/lukacslacko/factory_game/issues/30) tracks the creator's STK-0074 forklift report, safe manual recovery, automatic alignment reapproaches, and durable warning filters. Related broader yielding work #17 stays open; this does not implement railway recovery #7.
 
 Issue #30 is completed in published v0.16.0 with 301 regressions and integrated browser/production verification. #17 retains the broader construction/parking scope.
+
+- [#31 — Rail support workers should accompany machines during pickup travel](https://github.com/lukacslacko/factory_game/issues/31).
+- [#32 — Manual rail crews must replace existing automatic assignments](https://github.com/lukacslacko/factory_game/issues/32).
+- [#33 — Batch and pre-stage rails for the whole connected work run](https://github.com/lukacslacko/factory_game/issues/33), including one crew assignment for connected 5 m plans.
+
+Issues #31–#33 are completed in published v0.17.0, verified by 329 frozen regressions and final browser/production checks. Shared-stock cancellation/resume, one whole-work crew, and full six-curve installation are included. Broader blocker behavior #17 and railway recovery #7 remain open.

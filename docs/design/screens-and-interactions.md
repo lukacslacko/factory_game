@@ -145,3 +145,9 @@ The parent rail work inspector offers two compact selectors: Staging equipment a
 The equipment inspector offers **Pause unloading & take control**, explains unsafe physical phases, and shows **Resume unloading** while paused. The world mode hint identifies the paused delivery; after reload the inspector can restore direct control of the retained operator. Manual movement uses existing floor input and collision checks. No new operator or forklift is spawned.
 
 Activity has dense **Warnings**, **Info**, and **All** buttons with counts and a Severity column. Warnings hides routine material movement rows. IDs remain linked, and the filter survives live updates, tab changes and reload. A prolonged delivery blockage creates a linked unseen Inbox **Delivery handling blocked** todo, retained for the player's task board.
+
+## One crew choice for connected rail work
+
+The panel inspector links **Whole rail work**. A component-layout inspector directs the player to its connected parent; only that parent shows the two staging/installation selectors, with total panel count. Applying a crew immediately overrides unloaded automatic work; a physical pass reports a pending manual handover when its load must first be supported. Existing edits persist through live updates.
+
+The world renders each panel in a carried preparation batch and raises the crane hook above the actual stack. Equipment cargo shows quantity; shared stock IDs and individual jobs remain linked. SQL and diagnostics include batch leader, quantity and preparation ownership IDs.

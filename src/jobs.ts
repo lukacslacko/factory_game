@@ -1,6 +1,7 @@
 import type { Equipment, Item, Job, JobGroup, Rect, State } from './types';
 import { EQUIPMENT, MATERIALS, label } from './catalog';
 import { equipmentAllows, jobActivity } from './equipment-roles';
+import { railBatchHeld, stagedRailStackOwnedBy, releaseUnliftedRailBatch } from './rail-staging';
 
 export interface Assignment {
   equipmentId?: string;
@@ -166,10 +167,37 @@ function resolveEquipmentAssignment(
   work: Job | JobGroup | undefined,
   workId: string,
 ): Assignment {
+  if (work && 'kind' in work && work.preferredEquipment) {
+    const equipmentId = work.preferredEquipment;
+    const e = s.equipment.find((e) => e.id === equipmentId);
+    const busy = e?.job || e?.deliveryOrder || e?.transportOrder || e?.refueling;
+    return {
+      equipmentId: work.preferredEquipment,
+      sourceId: work.id,
+      inherited: false,
+      priority: work.equipmentPriority || 0,
+      text: `Assigned ${work.preferredEquipment}${busy ? ` · finishing ${busy}` : ''}`,
+    };
+  }
   if (work && 'kind' in work && ['rail', 'remove'].includes(work.kind)) {
     const group = railCrewGroup(s, work);
     const crew = group?.railCrew;
     if (crew?.stagingEquipment && crew.installingEquipment) {
+      const workParent = work.parentId;
+      let closer = s.jobGroups?.find((g) => g.id === workParent);
+      const seen = new Set<string>();
+      while (closer && closer.id !== group!.id && !seen.has(closer.id)) {
+        if (closer.preferredEquipment)
+          return {
+            equipmentId: closer.preferredEquipment,
+            sourceId: closer.id,
+            inherited: true,
+            priority: closer.equipmentPriority || 0,
+            text: `Inherited ${closer.preferredEquipment}`,
+          };
+        seen.add(closer.id);
+        closer = s.jobGroups?.find((g) => g.id === closer!.parentId);
+      }
       const staging = work.kind === 'rail' && railNeedsStaging(work);
       const equipmentId = staging ? crew.stagingEquipment : crew.installingEquipment;
       return {
@@ -258,6 +286,114 @@ export function equipmentCanDoJob(e: Equipment, j: Job, s?: State): boolean {
     EQUIPMENT[e.kind].capacity >= (MATERIALS[item!]?.mass || 1)
   );
 }
+function assignmentGroupIds(s: State, groupId: string): Set<string> {
+  const ids = new Set([groupId]);
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const g of s.jobGroups || [])
+      if (g.parentId && ids.has(g.parentId) && !ids.has(g.id)) {
+        ids.add(g.id);
+        changed = true;
+      }
+  }
+  return ids;
+}
+
+/** Apply manual choices at a real unloaded boundary, never by deleting a load. */
+export function reconcileEquipmentAssignments(s: State): void {
+  for (const j of s.jobs) {
+    if (
+      j.status !== 'doing' ||
+      !j.equipment ||
+      ['refuel', 'throwSwitch'].includes(j.kind) ||
+      j.cancel
+    )
+      continue;
+    const desired = jobEquipmentAssignment(s, j).equipmentId;
+    if (!desired || desired === j.equipment) continue;
+    const e = s.equipment.find((q) => q.id === j.equipment);
+    if (!e || j.handling?.equipmentReleased) continue;
+    const r = j.railWork;
+    if (
+      j.kind === 'rail' &&
+      railCrewGroup(s, j) &&
+      r &&
+      ['source-lift', 'source-clear', 'stage-travel', 'stage-align', 'stage-lower'].includes(
+        r.phase,
+      ) &&
+      (!r.buffer || r.buffer.secured)
+    ) {
+      // An old automatic crane already owns this lifted panel. Let it finish
+      // the real staging pass; the newly selected installer gets the supported panel.
+      j.railStageOnly = true;
+    }
+    const railUnloaded =
+      !r ||
+      (r.panel.state === 'stored' &&
+        ['source-approach', 'source-rig'].includes(r.phase) &&
+        (r.phase !== 'source-rig' || r.clock === 0) &&
+        (!r.buffer || r.buffer.secured));
+    const constructionUnloaded =
+      !j.handling ||
+      (j.handling.state === 'stored' &&
+        ['approach', 'rig'].includes(j.handling.phase) &&
+        (j.handling.phase !== 'rig' || j.handling.clock === 0));
+    const safe =
+      !e.cargo &&
+      !e.assemblyLoad &&
+      !e.refueling &&
+      !j.delivered &&
+      railUnloaded &&
+      constructionUnloaded &&
+      !j.shedAssembly &&
+      !j.recoveryStack;
+    if (!safe) {
+      j.reason = `Manual ${desired} will take over after ${e.id} safely finishes this physical pass`;
+      continue;
+    }
+    releaseUnliftedRailBatch(s, j);
+    const stack = s.stacks.find((q) => q.id === j.stack);
+    const ownedStaged = !!stack && stagedRailStackOwnedBy(s, stack, j);
+    if (stack && !ownedStaged) stack.reserved = Math.max(0, stack.reserved - j.qty);
+    for (const w of s.workers.filter((q) => q.job === j.id)) {
+      w.job = undefined;
+      if (!w.transition && !w.yieldingTo) w.path = [];
+      w.status = w.vehicle ? 'Available in cab' : 'Available';
+    }
+    if (e.job === j.id) e.job = undefined;
+    e.path = [];
+    e.work = 0;
+    e.trafficGoal = undefined;
+    e.trafficReverse = undefined;
+    e.blockedBy = undefined;
+    e.trafficWait = 0;
+    j.worker = undefined;
+    j.operator = undefined;
+    j.equipment = undefined;
+    if (!ownedStaged) j.stack = undefined;
+    j.railWork = undefined;
+    j.handling = undefined;
+    j.railStageOnly = undefined;
+    j.status = 'todo';
+    j.phase = 'Waiting';
+    j.elapsed = 0;
+    j.reason = `Manual assignment superseded ${e.id}; waiting for ${desired}`;
+    j.retryAt = undefined;
+    j.retryRevision = undefined;
+    const group = automaticWorkGroup(s, j);
+    if (group?.automaticEquipment === e.id) group.automaticEquipment = undefined;
+    s.events.push({
+      id: `EV-${String(s.next++).padStart(4, '0')}`,
+      time: s.time,
+      type: 'Assignment',
+      entity: j.id,
+      text: `Released unloaded ${e.id} before pickup; ${desired} now owns the requested work. Physical stock remains in place.`,
+    });
+    s.revision++;
+  }
+}
+
 export function setJobEquipment(s: State, workId: string, equipmentId?: string): string {
   const work = s.jobs.find((j) => j.id === workId) || s.jobGroups?.find((g) => g.id === workId);
   if (!work) return 'Work order no longer exists.';
@@ -268,16 +404,23 @@ export function setJobEquipment(s: State, workId: string, equipmentId?: string):
   if (equipmentId) {
     const e = s.equipment.find((e) => e.id === equipmentId);
     if (!e) return 'Equipment no longer exists.';
-    const old = work.preferredEquipment;
-    work.preferredEquipment = equipmentId;
-    const impossible = leaves.find(
-      (j) => equipmentAssignment(s, j.id).sourceId === workId && !equipmentCanDoJob(e, j, s),
-    );
-    work.preferredEquipment = old;
+    const impossible = leaves.find((j) => !equipmentCanDoJob(e, { ...j, railStageOnly: false }, s));
     if (impossible)
       return `${equipmentId} cannot perform ${label(impossible.kind)}; ${impossible.kind === 'shed' ? 'shed erection requires an excavator' : impossible.kind === 'rail' ? 'rail laying requires an excavator' : 'the load must fit its lift capacity'}.`;
   }
   work.preferredEquipment = equipmentId;
+  if (!('kind' in work) && equipmentId) {
+    // A new group Apply explicitly replaces older group and child choices.
+    for (const group of s.jobGroups || [])
+      if (assignmentGroupIds(s, workId).has(group.id)) {
+        group.railCrew = undefined;
+        if (group.id !== workId) group.preferredEquipment = undefined;
+      }
+    for (const j of leaves) {
+      j.preferredEquipment = undefined;
+      j.equipmentPriority = undefined;
+    }
+  }
   work.equipmentPriority = equipmentId ? s.next : undefined;
   for (const j of leaves) {
     j.retryAt = undefined;
@@ -293,6 +436,7 @@ export function setJobEquipment(s: State, workId: string, equipmentId?: string):
       : 'Cleared equipment assignment; parent assignment or automatic selection applies.',
   });
   s.revision++;
+  reconcileEquipmentAssignments(s);
   // A pending delivery retries when its selected machine is released. Never interrupt cargo in flight.
   for (const o of s.orders) if (o.status === 'unloading' && !o.unload) o.retryAt = undefined;
   return '';
@@ -418,7 +562,14 @@ export function sortWorkRows<
 }
 
 export function railCrewGroup(s: State, j: Job): JobGroup | undefined {
-  return s.jobGroups?.find((g) => g.id === (j.track?.groupId || j.parentId) && g.railCrew);
+  let group = s.jobGroups?.find((g) => g.id === (j.parentId || j.track?.groupId));
+  const seen = new Set<string>();
+  while (group && !seen.has(group.id)) {
+    if (group.railCrew) return group;
+    seen.add(group.id);
+    group = s.jobGroups?.find((g) => g.id === group!.parentId);
+  }
+  return undefined;
 }
 export function railNeedsStaging(j: Job): boolean {
   return !j.delivered && j.legacyRailHandoff !== 'staged' && j.legacyRailHandoff !== 'installed';
@@ -426,16 +577,13 @@ export function railNeedsStaging(j: Job): boolean {
 /** One real panel record passes through two machines; no duplicate material demand. */
 export function railStagingAllowed(s: State, j: Job): boolean {
   const group = railCrewGroup(s, j);
-  if (!group || !railNeedsStaging(j)) return false;
+  if (!group || !railNeedsStaging(j) || railBatchHeld(s, j)) return false;
   const jobs = workLeaves(s, group.id).filter((k) => k.kind === 'rail' && unfinished(k));
-  // One staged/in-flight panel ahead, in the original installation order.
+  // A real staging batch owns held siblings. Further batches may prepare while
+  // the installer uses existing stock, but one staging machine works at a time.
   return (
-    !jobs.some(
-      (k) =>
-        k.id !== j.id &&
-        ((k.railStageOnly && k.status === 'doing') ||
-          (k.legacyRailHandoff === 'staged' && k.status === 'todo')),
-    ) && jobs.find((k) => railNeedsStaging(k))?.id === j.id
+    !jobs.some((k) => k.id !== j.id && k.railStageOnly && k.status === 'doing') &&
+    jobs.find((k) => railNeedsStaging(k))?.id === j.id
   );
 }
 export function setRailCrew(
@@ -461,10 +609,19 @@ export function setRailCrew(
       return 'Installation and buffer handling require an excavator.';
     if (jobs.some((j) => EQUIPMENT[staging.kind].capacity < (MATERIALS[j.item!]?.mass || 1)))
       return 'The staging machine cannot lift every panel in this work order.';
-    if (jobs.some((j) => j.preferredEquipment))
-      return 'Clear individual panel equipment assignments before assigning this rail crew.';
   }
   group.railCrew = stagingEquipment ? { stagingEquipment, installingEquipment } : undefined;
+  if (stagingEquipment) {
+    for (const child of s.jobGroups || [])
+      if (assignmentGroupIds(s, groupId).has(child.id)) {
+        child.preferredEquipment = undefined;
+        if (child.id !== groupId) child.railCrew = undefined;
+      }
+    for (const j of jobs) {
+      j.preferredEquipment = undefined;
+      j.equipmentPriority = undefined;
+    }
+  }
   group.automaticEquipment = undefined;
   group.equipmentPriority = stagingEquipment ? s.next : undefined;
   s.events.push({
@@ -481,6 +638,7 @@ export function setRailCrew(
     j.retryRevision = undefined;
   }
   s.revision++;
+  reconcileEquipmentAssignments(s);
   return '';
 }
 

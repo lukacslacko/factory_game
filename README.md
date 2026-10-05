@@ -6,7 +6,7 @@ The world uses a true perspective 3D camera, with a meter grid, dimensional stoc
 
 ## Play
 
-The private game Site is **https://plant-01-starter-yard.lukacslacko.chatgpt.site**. This package documents version **0.16.0**; deployment status is recorded in `docs/publishing.md`. Sign in with the account that owns the Site. Local and hosted browser saves are separate; use Export save / Import save to transfer a yard.
+The private game Site is **https://plant-01-starter-yard.lukacslacko.chatgpt.site**. This package documents version **0.17.0**; deployment status is recorded in `docs/publishing.md`. Sign in with the account that owns the Site. Local and hosted browser saves are separate; use Export save / Import save to transfer a yard.
 
 On this Mac, double-click **Start Plant 01.command**. It starts the included local server and opens the game at **http://127.0.0.1:4173/**. Keep its Terminal window open while playing; Control-C stops the server.
 
@@ -41,13 +41,15 @@ Open **manual.html** through the local server for the illustrated player guide, 
 - Inspect materials, workers, equipment, structures, deliveries, jobs, events, material movements, actual costs, and outstanding commitments. Track notifications in To do / Doing / Done.
 - Query a fresh SQLite reporting snapshot and export costs as CSV. Autosave locally, export/import a portable save, and restore the previous yard backup.
 
-## Version 0.15 rail construction crews
+## Version 0.17 connected rail construction crews
 
 A connected multi-panel rail work order removes its buffer once, keeps it physically beside the track while panels are installed, and returns it at the final endpoint. Cancellation restores the last installed endpoint. Curves and straight runs retain the same buffer, stock, and worker records across save/reload.
 
-Select the parent rail work order in Jobs and choose separate **Staging equipment** and **Installation equipment**, then save the crew. A forklift or excavator can stage panels within its lift capacity; installation requires an excavator. At most one panel is prepared ahead, and handoff waits for actual supported setdown and machine withdrawal. Each machine needs its own operator. Empty selectors restore normal single-machine work.
+Select the parent rail work order in Jobs and choose separate **Staging equipment** and **Installation equipment**, then save the crew. Manual changes replace unloaded automatic assignments immediately; carried loads reach a safe physical handoff first. A forklift or excavator can stage panels within its lift capacity; installation requires an excavator. The stager carries the largest needed same-type stack that fits its lift capacity from one real source pile, and prepares the whole run ahead of installation. A 6 t excavator can lift four straight panels or three curved panels; a 2.5 t forklift can lift one rail panel. Handoff waits for supported setdown and withdrawal. Connected planned joints share one parent work order, including separate 5 m placements; component IDs and individual panel tasks remain intact. Each machine needs its own operator. Empty selectors restore normal single-machine work.
 
-In Equipment, assign a builder or engineer as a **Support worker**. The helper is reserved for that machine, walks nearby, and performs its ground work. Rest, manual control, shifts, and existing jobs remain respected. Crew changes finish current physical handling before taking effect. Two machines need enough space for both approaches; a crew does not bypass collision checks or create free workers.
+Click any planned panel's **Whole rail work** link to edit the shared crew. **Set rail work group** applies both selections to that whole run. Whole-work **Resume canceled panels** restores canceled components together. Actual gameplay captures are in `connected-rail-work-preview.png` and `rail-batch-staging-preview.png`.
+
+In Equipment, assign a builder or engineer as a **Support worker**. The helper is reserved for that machine, walks nearby throughout collection and travel, and performs its ground work. Rest, manual control, shifts, and existing jobs remain respected. Unloaded work hands over immediately; crew changes finish current physical handling before a loaded handoff. Two machines need enough space for both approaches; a crew does not bypass collision checks or create free workers.
 
 ## Version 0.14 named rail locations
 

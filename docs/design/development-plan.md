@@ -163,3 +163,9 @@ Completed and published in v0.15.0 for creator playtesting: batch buffer handlin
 ## Delivery handling recovery checkpoint
 
 Version 0.16 addresses #30: fixed-stock turning reapproaches, safely paused loaded manual recovery, and durable filtered warnings. It does not advance the separate railway recovery #7 or close the broader construction/parking blockers #17. Review this change with the creator's affected save if the equivalent-scenario correction does not resolve their playtest.
+
+## Rail crew corrections checkpoint — version 0.17
+
+Address #31 (helpers accompany pickup/travel), #32 (manual priority and nearby automatic dispatch), and #33 (capacity-limited stack trips, complete pre-staging and one connected parent crew assignment). Validate loaded/unloaded handover, true source stacks, shared preparation reservations, buffer continuity, older-group import, cancellation, save/reload, exact inventory, no duplicate buying and actual interface controls. Keep railway recovery #7 and the later reception/shunting/fluid checkpoints deferred for creator review.
+
+Checkpoint outcome: v0.17.0 published; 329/329 frozen regressions, browser controls and production checks pass. The whole-run crew and full supported staging stacks are ready for creator testing. Shared-stock cancellation/resume, physical curve buffer alternatives and the reproduced mutual escape are included. No next railway or chemical checkpoint has started.

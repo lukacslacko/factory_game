@@ -98,6 +98,8 @@ export class DiagnosticRecorder {
           handlingPhase: j.handling?.phase,
           railPhase: j.railWork?.phase,
           railStageOnly: j.railStageOnly,
+          stagingBatch: j.railWork?.stagingBatch,
+          stagingBatchLeader: j.railStagingBatch,
           railCrew: s.jobGroups?.find((g) => g.id === (j.track?.groupId || j.parentId))?.railCrew,
           trackLayout: j.track?.layout,
           trackSection: j.track?.section,
@@ -192,7 +194,7 @@ export class DiagnosticRecorder {
     return copy({
       format: 'plant01-diagnostics',
       version: 1,
-      gameVersion: '0.16.0',
+      gameVersion: '0.17.0',
       started: this.started,
       entries: this.entries,
       checkpoints: this.checkpoints,

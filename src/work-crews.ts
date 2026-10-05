@@ -119,13 +119,26 @@ function accompanyingTransit(s: State, w: Worker, equipmentId: string): boolean 
     job?.equipment === equipmentId &&
     job.worker === w.id &&
     job.status === 'doing' &&
-    job.railWork
+    job.kind === 'rail'
   ) {
+    // The initial collection route starts before the detailed rail handling
+    // sequence is initialized. It already belongs to this equipment and crew.
+    if (!job.railWork) return true;
     return [
+      // Approaches are travel too: the dedicated rigger must accompany the
+      // machine before it parks, rather than starting a long walk after arrival.
+      // Once parked, this hook stops and railwork owns the exact rigging walk.
+      'source-approach',
       'source-clear',
       'stage-travel',
+      'legacy-fork-withdraw',
+      'unbolt-buffer',
+      'buffer-rig',
       'panel-carry',
+      'panel-approach',
       'buffer-carry-aside',
+      'buffer-retrieve',
+      'buffer-rig-return',
       'buffer-carry-end',
       'cancel-panel-return',
     ].includes(job.railWork.phase);

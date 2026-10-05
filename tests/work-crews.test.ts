@@ -235,6 +235,104 @@ test('dedicated rail helper accompanies transit and gives rigging and clearance 
   assert.equal(w.path, explicit, 'A physical lifting clearance walk takes priority over following');
 });
 
+test('dedicated helpers accompany every rail pickup approach without replacing physical operation paths', () => {
+  for (const phase of [
+    'source-approach',
+    'panel-approach',
+    'buffer-retrieve',
+    'unbolt-buffer',
+    'buffer-rig',
+    'buffer-rig-return',
+    'legacy-fork-withdraw',
+  ] as const) {
+    const { s, e, w } = crew();
+    const j = S.plan(s, 'rail', 125, 4).job!;
+    e.x = 65;
+    e.z = 40;
+    e.path = [{ x: 100, z: 40 }];
+    e.job = j.id;
+    w.x = 30;
+    w.z = 40;
+    w.job = j.id;
+    j.worker = w.id;
+    j.equipment = e.id;
+    j.status = 'doing';
+    j.railWork = {
+      phase,
+      clock: 0,
+      start: { x: 116, z: 28 },
+      end: { x: 122, z: 28 },
+      axisYaw: 0,
+      side: { x: 0, z: 1 },
+      stage: { x: 114, z: 36, w: 6, d: 3 },
+      stageDock: { x: 116, z: 40 },
+      railDock: { x: 116, z: 32 },
+      bufferAside: { x: 113, z: 32 },
+      panel: { x: 68, z: 40, y: 0, yaw: 0, state: 'stored' },
+    };
+    assert.equal(setEquipmentAssistant(s, e.id, w.id), '');
+    updateEquipmentAssistants(s, 0.1);
+    assert.ok(w.path.length, `Helper starts accompanying ${phase} before the machine arrives`);
+    assert.ok(dist(w.path.at(-1)!, e) <= 6.5);
+    const explicit = [{ x: 70, z: 45 }];
+    w.path = explicit;
+    w.status = 'Walking clear of the excavator turning area';
+    s.elapsed += 3;
+    updateEquipmentAssistants(s, 0.1);
+    assert.equal(w.path, explicit, `${phase} retains the actual boom clearance walk`);
+  }
+});
+
+test('a rail support worker physically stays with the excavator during a long source pickup journey', () => {
+  const { s, e, w } = crew();
+  e.x = 20;
+  e.z = 35;
+  w.x = 22;
+  w.z = 39;
+  assert.equal(setEquipmentAssistant(s, e.id, w.id), '');
+  s.stacks.push({
+    id: 'DISTANT-RAIL',
+    item: 'rail',
+    qty: 1,
+    reserved: 0,
+    x: 70,
+    z: 40,
+    w: 6,
+    d: 3,
+    source: 'opening',
+  });
+  const j = S.plan(s, 'rail', 125, 4).job!;
+  let walkedDuringApproach = 0;
+  let maxDistance = 0;
+  let previous = { x: w.x, z: w.z };
+  tickUntil(
+    s,
+    () => j.railWork?.phase === 'source-rig',
+    200,
+    () => {
+      const step = dist(previous, w);
+      assert.ok(step < 0.18, 'The support worker walks continuously');
+      assert.equal(
+        workerMoveBlocked(s, { ...w, ...previous }, w),
+        '',
+        'Walking clears real equipment',
+      );
+      if ((!j.railWork || j.railWork.phase === 'source-approach') && e.path.length) {
+        walkedDuringApproach += step;
+        maxDistance = Math.max(maxDistance, dist(w, e));
+      }
+      previous = { x: w.x, z: w.z };
+    },
+  );
+  assert.ok(walkedDuringApproach > 25, 'The worker follows across the yard before pickup begins');
+  assert.ok(
+    maxDistance < 8,
+    `The helper remains nearby rather than staying at the old site (${maxDistance} m)`,
+  );
+  assert.equal(j.worker, w.id);
+  assert.equal(e.cargo, undefined, 'Pickup still waits for actual rigging');
+});
+
 test('ordinary automatically assigned paving uses its own dedicated helper without requiring an unassigned builder', async () => {
   const { seedHandlingResources, tickUntil } = await import('./support/yard');
   const s = S.createState();

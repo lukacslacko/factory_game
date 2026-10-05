@@ -37,7 +37,16 @@ import {
   railCrewGroup,
   railNeedsStaging,
   railStagingAllowed,
+  reconcileEquipmentAssignments,
+  workLeaves,
 } from './jobs';
+import {
+  railBatchHeld,
+  stagedRailStackOwnedBy,
+  releaseUnliftedRailBatch,
+  reconcileRailStagingBatch,
+} from './rail-staging';
+import { groupConnectedRailWork, railWorkGroup } from './rail-work-groups';
 import {
   EQUIPMENT_ROLES,
   EQUIPMENT_ACTIVITIES,
@@ -565,6 +574,7 @@ export function plan(
         }
   }
   const job = newJob(s, kind, r, rotation, undefined, parentId);
+  if (kind === 'rail') groupConnectedRailWork(s);
   event(s, 'Planning', job.id, `Planned ${label(kind)} at ${r.x}, ${r.z}.`);
   s.revision++;
   return { job, error: '' };
@@ -688,6 +698,7 @@ export function planRailLayout(
     j.item = trackItem(piece);
     return j;
   });
+  groupConnectedRailWork(s);
   event(
     s,
     'Planning',
@@ -695,11 +706,11 @@ export function planRailLayout(
     `Planned ${group.label}: ${jobs.length} independently delivered and installed panels at E${origin.x}, S${origin.z}.`,
   );
   s.revision++;
-  return { jobs, group, error: '' };
+  return { jobs, group: railWorkGroup(s, jobs[0]) || group, error: '' };
 }
 export function resumeTrackWork(s: State, workId: string): string {
   const own = s.jobs.find((j) => j.id === workId);
-  const leaves = own ? [own] : s.jobs.filter((j) => j.track?.groupId === workId);
+  const leaves = own ? [own] : workLeaves(s, workId).filter((j) => j.kind === 'rail');
   if (!leaves.length || leaves.some((j) => !j.track))
     return 'Select a curved or modular track work order.';
   if (leaves.some((j) => j.status === 'doing' && j.cancel))
@@ -740,8 +751,15 @@ export function resumeTrackWork(s: State, workId: string): string {
       continue;
     }
     const staged = s.stacks.find(
-      (t) => t.id === j.railWork?.panel.stackId && t.qty > 0 && t.source === j.id,
+      (t) =>
+        t.item === j.item &&
+        t.qty - t.reserved >= j.qty &&
+        (t.railStagingJobs?.includes(j.id) ||
+          (t.source === j.id &&
+            (t.id === j.railWork?.panel.stackId || j.legacyRailHandoff === 'staged'))),
     );
+    if (staged) staged.reserved += j.qty;
+    j.stack = staged?.id;
     j.legacyRailHandoff = staged ? 'staged' : undefined;
     j.railWork = undefined;
     j.status = 'todo';
@@ -810,6 +828,11 @@ export function pave(s: State, r: Rect) {
 export function missingMaterials(s: State) {
   const result: Partial<Record<Item, number>> = {};
   for (const j of s.jobs) {
+    if (
+      railBatchHeld(s, j) ||
+      s.stacks.some((t) => stagedRailStackOwnedBy(s, t, j) && t.qty >= j.qty && t.reserved >= j.qty)
+    )
+      continue;
     if (j.item && j.status !== 'done' && j.status !== 'canceled' && !j.delivered && !j.equipment)
       result[j.item] = (result[j.item] || 0) + j.qty;
   }
@@ -1061,7 +1084,7 @@ function tickMove(s: State, p: Worker | Equipment, dt: number, speed: number) {
   }
   if (
     vehicle &&
-    !p.trafficGoal &&
+    (!p.trafficGoal || ((p.trafficWait || 0) > 3 && otherMachine?.blockedBy === p.id)) &&
     otherMachine &&
     (otherMachine.path.length ||
       otherMachine.work ||
@@ -1070,11 +1093,33 @@ function tickMove(s: State, p: Worker | Equipment, dt: number, speed: number) {
     // Exactly one actor yields. Two empty machines previously both escaped,
     // immediately restored their opposing goals, and repeated the same turn
     // for hundreds of seconds. Keep one stable priority through the encounter
-    // and finish an existing escape before considering another one.
-    (Number(!!otherMachine.cargo) > Number(!!p.cargo) ||
+    // and finish an existing escape unless both actors are stuck on it. An
+    // immobilized machine cannot yield, so its fueled neighbor makes room.
+    (otherMachine.fuel <= 0 ||
+      !!otherMachine.refueling ||
+      Number(!!otherMachine.cargo) > Number(!!p.cargo) ||
       (!!otherMachine.cargo === !!p.cargo && otherMachine.id < p.id))
   ) {
     const away = Math.atan2(p.z - otherMachine.z, p.x - otherMachine.x);
+    // A stale escape can trap two machines nose-to-load. Try a straight
+    // physical withdrawal before another turn, keeping the original work goal.
+    const rear = localPoint({ ...p, yaw: p.yaw ?? (p.heading * Math.PI) / 2 }, -4, 0);
+    const withdrawal = machineRoute(
+      s,
+      { ...p, reverse: true },
+      rear,
+      pedestrianObstacles(s),
+      40,
+      true,
+    );
+    if (withdrawal?.length === 1) {
+      p.trafficGoal ??= { ...goal };
+      p.path = withdrawal;
+      p.reverse = true;
+      p.trafficReverse = true;
+      p.trafficWait = 0;
+      return;
+    }
     for (const offset of [0, Math.PI / 4, -Math.PI / 4, Math.PI / 2, -Math.PI / 2]) {
       const target = { x: p.x + Math.cos(away + offset) * 4, z: p.z + Math.sin(away + offset) * 4 };
       for (const reverse of [!!p.reverse, !p.reverse]) {
@@ -1143,7 +1188,7 @@ export function moveWorker(s: State, wid: string, p: Point): string {
   const w = s.workers.find((w) => w.id === wid);
   if (!w) return 'Worker not found.';
   const recoveringDelivery = isPausedDeliveryOperator(s, w);
-  if (!workerAvailable(s, w) && !(recoveringDelivery && w.shiftPhase === 'finishing'))
+  if (!workerAvailable(s, w) && !recoveringDelivery)
     return 'This worker is off shift, commuting, or returning equipment to parking.';
   if (w.transition || (w.deliveryOrder && !recoveringDelivery) || w.transportOrder)
     return 'Finish the delivery assignment before taking control.';
@@ -1319,6 +1364,10 @@ export function cancelJob(s: State, jid: string) {
     return;
   }
   if (j.railWork && j.status === 'doing') {
+    // Cancellation and an immediate save form one transaction. Unlifted
+    // siblings no longer belong to this abandoned pass; its own reservation
+    // remains until the physical crew safely stops on the next tick.
+    if (j.railWork.panel.state === 'stored') releaseUnliftedRailBatch(s, j);
     j.cancel = true;
     j.reason = 'Cancel requested; securing the panel and buffer before stopping.';
     return;
@@ -1340,6 +1389,8 @@ export function cancelJob(s: State, jid: string) {
   finishRelease(s, j);
   j.status = 'canceled';
   j.phase = 'Canceled';
+  const batchLeader = s.jobs.find((leader) => leader.id === j.railStagingBatch);
+  if (batchLeader?.railWork?.stagingBatch) reconcileRailStagingBatch(s, batchLeader);
   event(s, 'Work', j.id, 'Plan canceled; unused stock released.');
   queueLooseRailBufferCleanup(s);
   s.revision++;
@@ -1347,24 +1398,19 @@ export function cancelJob(s: State, jid: string) {
 function queueLooseRailBufferCleanup(s: State) {
   for (const group of s.jobGroups || []) {
     const shared = group.railBuffer;
+    const members = shared ? workLeaves(s, group.id) : [];
     if (
       shared &&
       !shared.pose.secured &&
       !shared.ownerJob &&
-      !s.jobs.some(
-        (k) =>
-          k.kind === 'rail' &&
-          (k.track?.groupId || k.parentId) === group!.id &&
-          !['done', 'canceled'].includes(k.status),
-      )
+      !members.some((k) => k.kind === 'rail' && !['done', 'canceled'].includes(k.status))
     ) {
-      const owner = [...s.jobs]
+      const owner = [...members]
         .reverse()
         .find(
           (k) =>
             k.delivered &&
             k.railWork?.panel.state === 'installed' &&
-            (k.track?.groupId || k.parentId) === group!.id &&
             dist(k.railWork.end, shared.latestEnd) < 0.02,
         );
       if (owner?.railWork) {
@@ -1441,6 +1487,10 @@ function foundationReady(s: State, j: Job) {
   return true;
 }
 function assign(s: State, j: Job) {
+  if (railBatchHeld(s, j)) {
+    j.reason = `Reserved in ${j.railStagingBatch}'s physical staging batch`;
+    return;
+  }
   if (j.status !== 'todo') return;
   if (j.retryRevision === s.revision && (j.retryAt || 0) > s.elapsed) return;
   if (assignTurnoutOperation(s, j, { obstacles, event, complete, release: finishRelease })) return;
@@ -1519,8 +1569,7 @@ function assign(s: State, j: Job) {
   if (j.kind === 'rail') {
     j.railStageOnly = !!railCrewGroup(s, j) && railNeedsStaging(j) && !j.cancel;
     if (j.railStageOnly && !railStagingAllowed(s, j)) {
-      j.reason =
-        'Waiting for the staged panel ahead to be collected; one panel is prepared at a time';
+      j.reason = 'Waiting for the staging machine to finish its current load';
       return;
     }
   }
@@ -1599,9 +1648,12 @@ function assign(s: State, j: Job) {
   let stack =
     j.kind === 'remove' || installedLegacyRail
       ? undefined
-      : s.stacks.find(
+      : s.stacks.find((t) => t.qty >= j.qty && stagedRailStackOwnedBy(s, t, j)) ||
+        s.stacks.find(
           (t) =>
             t.item === j.item &&
+            (!railStagingStackOwned(s, t.id) ||
+              (j.legacyRailHandoff === 'staged' && t.source === j.id)) &&
             (j.kind !== 'slab' || !constructionSourceBusy(s, t.id, j.id)) &&
             t.qty - t.reserved >= j.qty &&
             (j.legacyRailHandoff !== 'staged' || t.source === j.id),
@@ -1743,8 +1795,8 @@ function assign(s: State, j: Job) {
         k.handling.phase === 'settle',
     );
   let operator: Worker | undefined, eq: Equipment | undefined;
-  for (const candidate of operators) {
-    const machines = s.equipment
+  const pairs = operators.flatMap((candidate) =>
+    s.equipment
       .filter(
         (e) =>
           !e.job &&
@@ -1763,12 +1815,20 @@ function assign(s: State, j: Job) {
           (!!worker || prefetch || !!availableEquipmentAssistant(s, e.id)) &&
           e.fuel > 0.2,
       )
-      .sort((a, b) => Number(b.id === candidate.vehicle) - Number(a.id === candidate.vehicle));
-    if (machines.length) {
-      operator = candidate;
-      eq = machines[0];
-      break;
-    }
+      .map((machine) => ({ operator: candidate, machine })),
+  );
+  pairs.sort(
+    (a, b) =>
+      Number(b.operator.id === j.preferredWorker) - Number(a.operator.id === j.preferredWorker) ||
+      dist(a.machine, stack || j) +
+        (a.operator.vehicle === a.machine.id ? 0 : dist(a.operator, a.machine)) -
+        (dist(b.machine, stack || j) +
+          (b.operator.vehicle === b.machine.id ? 0 : dist(b.operator, b.machine))) ||
+      a.machine.id.localeCompare(b.machine.id),
+  );
+  if (pairs.length) {
+    operator = pairs[0].operator;
+    eq = pairs[0].machine;
   }
   if (!eq) {
     j.reason = automaticId
@@ -1843,6 +1903,8 @@ function assign(s: State, j: Job) {
     for (const alternative of s.stacks.filter(
       (t) =>
         t.item === j.item &&
+        (!railStagingStackOwned(s, t.id) ||
+          (j.legacyRailHandoff === 'staged' && t.source === j.id)) &&
         (j.kind !== 'slab' || !constructionSourceBusy(s, t.id, j.id)) &&
         t.qty - t.reserved >= j.qty &&
         (j.legacyRailHandoff !== 'staged' || t.source === j.id),
@@ -1904,7 +1966,8 @@ function assign(s: State, j: Job) {
   operator.path = operatorPath;
   operator.status = 'Board equipment';
   eq.job = j.id;
-  if (stack) stack.reserved += j.qty;
+  if (stack && (!stagedRailStackOwnedBy(s, stack, j) || stack.reserved < j.qty))
+    stack.reserved += j.qty;
   s.revision++;
 }
 function recoveryDestination(s: State, j: Job, e: Equipment) {
@@ -2438,6 +2501,7 @@ function tickJob(s: State, j: Job, dt: number) {
 }
 export function tick(s: State, dt: number) {
   if (s.paused) return;
+  reconcileEquipmentAssignments(s);
   s.elapsed += dt;
   s.time += dt;
   s.wageClock += dt;
@@ -2523,6 +2587,7 @@ export function tick(s: State, dt: number) {
   }
   restoreYieldingWorkers(s);
   for (const j of s.jobs) tickJob(s, j, dt);
+  reconcileEquipmentAssignments(s);
   updateEquipmentAssistants(s, dt);
   // Scheduling is deliberately slower than movement; pathfinding is only needed when assignments change.
   if (Math.floor((s.elapsed - dt) * 2) !== Math.floor(s.elapsed * 2)) {
@@ -2673,6 +2738,7 @@ export function load(json: string): State {
   s.groundWear ??= {};
   s.railLocations ??= [];
   for (const order of s.orders) migrateRoadDrive(s, order);
+  groupConnectedRailWork(s);
   s.revision++;
   return s;
 }

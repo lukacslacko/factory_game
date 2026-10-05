@@ -189,7 +189,8 @@ function freeOperator(s: State, e?: Equipment, preferred?: string) {
     .sort(
       (a, b) =>
         (a.id === preferred ? -10 : a.vehicle === e?.id ? -5 : a.vehicle ? 1 : 0) -
-        (b.id === preferred ? -10 : b.vehicle === e?.id ? -5 : b.vehicle ? 1 : 0),
+          (b.id === preferred ? -10 : b.vehicle === e?.id ? -5 : b.vehicle ? 1 : 0) ||
+        (e ? dist(a, e) - dist(b, e) : 0),
     )[0];
 }
 function walkingRoute(s: State, w: Worker, p: Point, api: DeliveryAPI) {
@@ -313,18 +314,26 @@ function materialMachine(s: State, o: Order, preferred?: string, manual = false)
   const machines = s.equipment.filter(
     (e) => qualified(e) && ready(e) && (manual || !equipmentReservedForDelivery(s, e, o.id)),
   );
-  // Explicit control favors that operator's occupied machine; automatic work
-  // prefers a forklift for suitable freight when the carrier first acquires an owner.
+  // Nearby feasible equipment and its real operator beat a distant machine.
+  // A small forklift handling preference breaks close choices, never a yard-wide trip.
   const selected = manual ? s.workers.find((w) => w.id === preferred)?.vehicle : undefined;
-  machines.sort(
-    (a, b) =>
-      (a.id === selected ? -1 : a.kind === 'forklift' ? 0 : 1) -
-      (b.id === selected ? -1 : b.kind === 'forklift' ? 0 : 1),
-  );
-  for (const e of machines) {
-    const w = freeOperator(s, e, preferred);
-    if (w && (!manual || w.id === preferred)) return { e, w };
-  }
+  const carrier = freightPose(o);
+  return machines
+    .map((e) => ({ e, w: freeOperator(s, e, preferred) }))
+    .filter(
+      (pair): pair is { e: Equipment; w: Worker } =>
+        !!pair.w && (!manual || pair.w.id === preferred),
+    )
+    .sort(
+      (a, b) =>
+        Number(b.e.id === selected) - Number(a.e.id === selected) ||
+        dist(a.e, carrier) +
+          (a.w.vehicle === a.e.id ? 0 : dist(a.w, a.e) * 0.6) +
+          (a.e.kind === 'forklift' ? 0 : 5) -
+          (dist(b.e, carrier) +
+            (b.w.vehicle === b.e.id ? 0 : dist(b.w, b.e) * 0.6) +
+            (b.e.kind === 'forklift' ? 0 : 5)),
+    )[0];
 }
 function storageDock(
   s: State,

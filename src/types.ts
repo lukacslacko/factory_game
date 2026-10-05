@@ -100,6 +100,8 @@ export interface Equipment extends Point, Move, Motion {
   reach?: number;
 }
 export interface Stack extends Rect {
+  /** Physical panels in shared preparation stock; canceled IDs retain resumable, unreserved steel. */
+  railStagingJobs?: string[];
   trackHand?: 1 | -1;
   baseHeight?: number;
   yaw?: number;
@@ -185,6 +187,8 @@ export interface RailBatchBuffer {
   ownerJob?: string;
 }
 export interface RailWork {
+  /** Same-type panels transported together by this staging pass; installation remains per panel. */
+  stagingBatch?: { jobIds: string[]; qty: number };
   configuredHand?: 1 | -1;
   configureProgress?: number;
   legacyForkYaw?: number;
@@ -300,6 +304,8 @@ export interface ShedAssembly {
   };
 }
 export interface Job extends Rect {
+  /** Another panel's active staging pass owns this panel's reserved or carried material. */
+  railStagingBatch?: string;
   track?: TrackPiece;
   parentId?: string;
   preferredEquipment?: string;

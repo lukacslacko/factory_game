@@ -386,3 +386,15 @@ Creator reports a forklift carrying a diesel barrel waiting for STK-0074 to clea
 Implement a collision-checked aligned reapproach, safe pause / retained-operator manual driving / resume, durable blockage Inbox todo, and Activity Warnings/Info/All. Preserve supported cargo, real crew, destination reservation, carrier departure and invoicing. Do not allow takeover in a physical transfer. Validate equivalent fixed-stack and occupied-destination scenarios, save/reload, clickable warnings, and actual floor input. Track this scoped fix in #30; leave broader blocker behavior #17 and railway recovery #7 open.
 
 Outcome: v0.16.0 is published at the same game origin; 301/301 sequential regressions, integrated browser controls and production checks pass. The source/test inputs remained unchanged across verification. The release includes compatible saves, diagnostic metadata and SQL severity; the next railway checkpoint remains deferred.
+
+## October 5 — Rail helpers, manual priority, batch staging and one connected work
+
+Creator reports support workers only walk to hang a panel after the excavator arrives; requested they always stay close. The initial collection drive occurs before detailed rail handling exists, and several travel phases lacked following. Extend actual nearby walking across those legs while preserving rigging, clearance and player/shift control.
+
+Applying a two-excavator crew after automatic dispatch must replace that automatic assignment. Manual decisions take precedence throughout the factory. Release unloaded work immediately; preserve an already carried or partly installed load until a safe physical handoff. Prefer nearby feasible automatic equipment/operators instead of arbitrary distant choices.
+
+The stager should carry the largest needed supported stack fitting capacity, and bring all required panels ahead rather than one-panel-ahead throttling. Track shared physical preparation piles and per-panel ownership, including cancellation, saving and material demand. No remote combination of separate source piles.
+
+Additional creator steering: every 5 m placement currently requires a separate two-machine selection. Group connected planned joints into a whole-run work order, exposing one crew choice and keeping individual panel jobs and component geometry IDs. Do not merge crossings or merely close footprints. Track these corrections individually in #31, #32 and #33; railway recovery #7 remains outside this release.
+
+Outcome: v0.17.0 is published on the same game origin at 19:33 UTC. Connected plans share a whole-run crew, automatic unloaded work yields immediately to manual choices, helpers accompany transit, and supported source stacks carry up to four straight or three curved panels within excavator capacity. The stager prepares all needed available steel independently of installation. Shared-stack cancellation/resume and a blocked curve buffer dock were reproduced and corrected with conserved assets and checked real routes. All 329 frozen regressions, final browser controls and production verification pass. Issues #31–#33 are completed; railway recovery #7 remains deferred.

@@ -1,3 +1,4 @@
+import { checkRailWorkUpdatesUI } from './rail-work-updates-ui.mjs';
 import { checkRailLocationsUI } from './rail-locations-ui.mjs';
 import { checkRailCrewsUI } from './rail-crews-ui.mjs';
 import { checkDeliveryRecoveryUI } from './delivery-recovery-ui.mjs';
@@ -244,6 +245,7 @@ async function ready() {
   const railLocations = await checkRailLocationsUI(page, base);
   const railCrews = await checkRailCrewsUI(page, base);
   const deliveryRecovery = await checkDeliveryRecoveryUI(page, base);
+  const railWorkUpdates = await checkRailWorkUpdatesUI(page, base);
   const layouts = [];
   for (const width of [1440, 1024, 768]) {
     await page.setViewportSize({ width, height: 900 });
@@ -288,6 +290,7 @@ async function ready() {
         railLocations,
         railCrews,
         deliveryRecovery,
+        railWorkUpdates,
         trackRendering,
         trackUI,
         checks: [

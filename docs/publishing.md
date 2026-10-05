@@ -1,10 +1,10 @@
 # Publication
 
-Version 0.16.0 is published privately at https://plant-01-starter-yard.lukacslacko.chatgpt.site.
+Version 0.17.0 is published privately at https://plant-01-starter-yard.lukacslacko.chatgpt.site.
 
 The editable game lives in this starter-yard directory. The Site repository is a separate, build-only checkout at `../../work/plant01-publish` relative to this directory, with its own `.openai/hosting.json` and Git metadata. It contains only `dist/` and the hosting manifest. Do not upload the full game project or the private design documents when updating that Site.
 
-The Site identity is `appgprj_6ac1ff4c01388191b1d9d0dba709095e`. Reuse it; do not create a replacement. The successful build-only source commit for version 0.16.0 is `2312b5d8a372bb137018b37ede202e7580309f6b`.
+The Site identity is `appgprj_6ac1ff4c01388191b1d9d0dba709095e`. Reuse it; do not create a replacement. The successful build-only source commit for version 0.17.0 is `141783b6ffe0d8c5787b1ea9100999c87185055f`.
 
 For an update, follow the Sites hosting skill to open the existing build-only checkout, build and test the editable game, replace the checkout's `dist/` with that build, inspect its file list, and publish through the same private Site workflow. Keep credentials in process memory/stdin only. The game requires no server secrets, cloud database, or external connectors.
 
@@ -115,3 +115,11 @@ All 292 simulation regressions pass. The subsequent diagnostic-version and ordin
 Version 0.16.0 deployed successfully on October 5, 2026 at 18:44 UTC on the same private Site and origin. Deployment ID: `appgdep_6ac3efe662ac8191a22447b131ef7711`. Build-only source commit: `2312b5d8a372bb137018b37ede202e7580309f6b`. The nine verified built assets plus hosting manifest contain no source, save, diagnostics, design documents, or credentials.
 
 The release adds safe pause/manual-drive/resume for supported delivery loads, collision-checked final-heading reapproaches around fixed stock, durable blockage Inbox todos and Activity severity filtering. All 301 frozen simulation regressions, integrated browser checks with actual floor input and Save/reload, TypeScript/build, and independent production checks pass. The compatible completed v0.8 example is retained. The creator's exact blocked save was not available; equivalent fixed-rail-stack and occupied-destination cases validate the fix. Broader blocker yielding #17 and railway recovery #7 remain open.
+
+## Version 0.17 connected rail work and bulk staging
+
+Version 0.17.0 deployed successfully on October 5, 2026 at 19:33 UTC, preserving the same private Site and origin. Deployment ID: `appgdep_6ac3fb76d0288191a0bf2d1ee82713e2`. Build-only source commit: `141783b6ffe0d8c5787b1ea9100999c87185055f`. The nine verified built assets plus hosting manifest match the exact locally tested production build; source, design notes, saves, diagnostics and credentials remain excluded.
+
+Connected pending rail plans share one whole-work crew assignment. Helpers accompany pickup/travel, explicit assignments supersede unloaded automation, and real capacity-limited stacks are prepared ahead of installation. Shared steel, canceled reservations and safe handoffs persist through save/reload. Curve buffer resting places include the crane's actual route and final pose. A reproduced mutual traffic escape is corrected through physical checked withdrawal.
+
+All 329 frozen regressions, the final integrated browser suite, TypeScript/build and independent production checks pass. Browser controls verify four-panel carrying, whole-run assignment and child-component resume. Production verifies loaded-batch import/SQL and older saves, with no runtime errors or external requests. The completed example remains a compatible v0.8 save. Issues #31–#33 track these corrections; broader blocker behavior #17 and railway recovery #7 remain open. Public MIT source and the downloadable project are updated separately.

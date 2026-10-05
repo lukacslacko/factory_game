@@ -1703,7 +1703,12 @@ export class World {
       } else if (e.kind === 'excavator' && railWork && railLoad) {
         const anchor = railWork.lifting === 'buffer' ? localPoint(railLoad, 0.45, 0) : railLoad;
         const targetLift =
-          railLoad.y + (railWork.lifting === 'buffer' ? 1.05 : 0.325) + 0.7 - pose.y;
+          railLoad.y +
+          (railWork.lifting === 'buffer'
+            ? 1.05
+            : 0.325 + ((railWork.stagingBatch?.qty || 1) - 1) * RAIL_PANEL_PITCH) +
+          0.7 -
+          pose.y;
         const targetReach = Math.hypot(anchor.x - pose.x, anchor.z - pose.z);
         const targetYaw = -(Math.atan2(anchor.z - pose.z, anchor.x - pose.x) - pose.yaw);
         const rigging = ['source-rig', 'panel-rig', 'buffer-rig', 'buffer-rig-return'].includes(
@@ -2010,16 +2015,17 @@ export class World {
         id: j.id,
       });
       const hand = j.track?.layout === 'turnout' ? (r.configuredHand ?? 1) : 1;
+      const quantity = r.stagingBatch?.qty || 1;
       const configuring = r.phase === 'configure-staged-panel';
       replaceContents(
         g,
         'panel-parts',
-        `${j.item || 'rail'}/${hand}/${configuring ? j.track?.hand : ''}`,
+        `${j.item || 'rail'}/${hand}/${quantity}/${configuring ? j.track?.hand : ''}`,
         () => {
           if (!configuring)
             return j.item === 'rail'
-              ? this.railPanelModel()
-              : stockRailModel(j.item || 'rail', 1, hand);
+              ? this.railPanelModel(quantity)
+              : stockRailModel(j.item || 'rail', quantity, hand);
           const assembly = new THREE.Group();
           for (const [name, variant] of [
             ['supplied', hand],

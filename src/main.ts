@@ -61,6 +61,7 @@ import {
   automaticEquipmentForWork,
 } from './jobs';
 import { equipmentAssistant, setEquipmentAssistant } from './work-crews';
+import { railWorkGroup } from './rail-work-groups';
 import {
   deliveryControlState,
   pauseDeliveryHandling,
@@ -770,6 +771,10 @@ function railCrewControls(groupId: string) {
     leaves.some((j) => j.kind === 'rail') &&
     leaves.every((j) => j.kind === 'rail' || j.kind === 'remove');
   if (!group || (!group.track && !railOnly)) return '';
+  const firstRail = leaves.find((j) => j.kind === 'rail');
+  const whole = firstRail && railWorkGroup(state, firstRail);
+  if (whole && whole.id !== group.id)
+    return `<p class="note">This layout belongs to ${reference(whole.id)}. ${btn('entity:' + whole.id, 'Assign the whole connected rail work', 'small')}</p>`;
   const done = !leaves.some((j) => ['todo', 'doing'].includes(j.status));
   const crew = railCrewDrafts.get(groupId) || group.railCrew;
   const options = (selected: string | undefined, installer: boolean) =>
@@ -780,7 +785,7 @@ function railCrewControls(groupId: string) {
           `<option value="${esc(e.id)}" ${e.id === selected ? 'selected' : ''}>${esc(e.id)} · ${esc(label(e.kind))}</option>`,
       )
       .join('');
-  return `<fieldset class="rail-crew-controls" data-rail-crew="${esc(groupId)}"><legend>Rail work group</legend><label>Bring panels to preparation area<select id="rail-staging-equipment" aria-label="Rail staging equipment" ${done ? 'disabled' : ''}><option value="">Single-machine work</option>${options(crew?.stagingEquipment, false)}</select></label><label>Install panels and handle the buffer<select id="rail-installing-equipment" aria-label="Rail installation equipment" ${done ? 'disabled' : ''}><option value="">Single-machine work</option>${options(crew?.installingEquipment, true)}</select></label>${btn('rail-crew-save:' + groupId, 'Set rail work group', 'small', done ? 'disabled' : '')}<p class="note">Choose two different machines to stage the next panel while the excavator installs the current one. Each machine needs its own operator and support worker. Assign support workers in Equipment. Clear both choices to return to single-machine work.</p>${group.railCrew ? `<p class="note">Staging: ${reference(group.railCrew.stagingEquipment || 'Unassigned')} · Installation: ${reference(group.railCrew.installingEquipment || 'Unassigned')}</p>` : ''}</fieldset>`;
+  return `<fieldset class="rail-crew-controls" data-rail-crew="${esc(groupId)}"><legend>Rail work group · ${leaves.filter((j) => j.kind === 'rail').length} panels</legend><label>Bring panels to preparation area<select id="rail-staging-equipment" aria-label="Rail staging equipment" ${done ? 'disabled' : ''}><option value="">Single-machine work</option>${options(crew?.stagingEquipment, false)}</select></label><label>Install panels and handle the buffer<select id="rail-installing-equipment" aria-label="Rail installation equipment" ${done ? 'disabled' : ''}><option value="">Single-machine work</option>${options(crew?.installingEquipment, true)}</select></label>${btn('rail-crew-save:' + groupId, 'Set rail work group', 'small', done ? 'disabled' : '')}<p class="note">The staging machine brings full supported stacks from storage, within its lift capacity, and keeps supplying the whole run ahead of installation. Each machine needs its own operator and support worker. Manual changes take precedence: an unloaded machine hands over immediately; a carried load is first placed safely. Clear both choices to return to single-machine work.</p>${group.railCrew ? `<p class="note">Staging: ${reference(group.railCrew.stagingEquipment || 'Unassigned')} · Installation: ${reference(group.railCrew.installingEquipment || 'Unassigned')}</p>` : ''}</fieldset>`;
 }
 function scheduleControl(w: Worker) {
   const value = w.schedule ? `${w.schedule.start},${w.schedule.end}` : '';
@@ -1030,6 +1035,14 @@ function renderInspector(force = false) {
         ['Equipment', esc(j.equipment || automaticEquipmentForWork(state, j) || 'Unassigned')],
         ['Assign equipment', assignmentControl(j.id)],
         ['Parent work', esc(j.parentId || 'Standalone job')],
+        ...(j.kind === 'rail'
+          ? ([
+              [
+                'Whole rail work',
+                reference(railWorkGroup(state, j)?.id || j.parentId || 'Standalone job'),
+              ],
+            ] as [string, unknown][])
+          : []),
         ['Operator', esc(j.operator || 'Unassigned')],
         ['Reserved stock', esc(j.stack || 'None')],
         [
@@ -1104,7 +1117,7 @@ function renderInspector(force = false) {
   if (
     selection.type === 'jobGroup' &&
     e.track &&
-    state.jobs.some((j) => j.track?.groupId === e.id && j.status === 'canceled')
+    workLeaves(state, e.id).some((j) => j.track && j.status === 'canceled')
   )
     body += btn('resume-track:' + e.id, 'Resume canceled panels', 'primary');
   if (selection.type === 'building' && e.length) {
@@ -1798,7 +1811,7 @@ function openModal(which: string) {
     content = `<div class="start-title"><span class="eyebrow">A PHYSICAL FACTORY SANDBOX</span><h1>Every piece<br>has a place.</h1><p>Start with an open yard and a rail connection.<br>Bring people and materials. Build what comes next.</p></div><div class="start-choices">${btn('new:starter', '<b>Start a new yard</b><span>Empty ground, with a starter supply order on its way.</span>', 'start-choice recommended')}${btn('new:empty', '<b>Start completely empty</b><span>Choose every worker, machine, and material yourself.</span>', 'start-choice')}${btn('new:demo', '<b>Explore Birch Junction</b><span>A small working base, stocked and ready to expand.</span>', 'start-choice')}</div><p class="note">No budget limit · construction and logistics · local saves · version 0.12</p>`;
   }
   if (which === 'menu') {
-    content = `<h1>${esc(state.name)}</h1><p class="subtitle">Starter Yard · version 0.16.0</p><div class="menu-grid">${btn('save', 'Save to browser', 'primary')}${btn('export-save', 'Export save file')}${btn('export-diagnostics', 'Export diagnostic history')}${btn('source-code', 'Source code · MIT')}${btn('import-save', 'Import save file')}${btn('restore-backup', 'Restore previous yard')}${btn('help', 'Controls and guide')}${btn('new-confirm', 'Start a new yard')}${btn('close-modal', 'Return to yard')}</div><p class="note">Autosaves every 20 seconds. Export a file for a portable backup. Your game stays on this computer.</p>`;
+    content = `<h1>${esc(state.name)}</h1><p class="subtitle">Starter Yard · version 0.17.0</p><div class="menu-grid">${btn('save', 'Save to browser', 'primary')}${btn('export-save', 'Export save file')}${btn('export-diagnostics', 'Export diagnostic history')}${btn('source-code', 'Source code · MIT')}${btn('import-save', 'Import save file')}${btn('restore-backup', 'Restore previous yard')}${btn('help', 'Controls and guide')}${btn('new-confirm', 'Start a new yard')}${btn('close-modal', 'Return to yard')}</div><p class="note">Autosaves every 20 seconds. Export a file for a portable backup. Your game stays on this computer.</p>`;
   }
   if (which === 'new-confirm') {
     content = `<h1>Start another yard</h1><p>Your current yard will be saved as a browser backup before the new yard is created.</p><div class="button-stack">${btn('new:starter', 'New yard + starter supplies', 'primary')}${btn('new:empty', 'Completely empty yard')}${btn('new:demo', 'Birch Junction example')}${btn('close-modal', 'Keep current yard')}</div>`;
@@ -1849,6 +1862,11 @@ function closeModal() {
   modal = '';
   $('#modal-root').innerHTML = '';
 }
+function resetNoticePopup() {
+  lastNotice = '';
+  clearTimeout(noticeTimer);
+  $('#delivery-toast').hidden = true;
+}
 function start(kind: string) {
   railCrewDrafts.clear();
   if (state.elapsed > 0 || state.orders.length) {
@@ -1857,6 +1875,7 @@ function start(kind: string) {
     } catch {}
   }
   state = kind === 'demo' ? Sim.demoState() : Sim.createState();
+  resetNoticePopup();
   railLocationEdit = undefined;
   railLocationDraft = undefined;
   accumulator = 0;
@@ -2429,6 +2448,8 @@ async function action(value: string) {
         }
         const old = Sim.save(state);
         state = Sim.load(json);
+        resetNoticePopup();
+        railCrewDrafts.clear();
         localStorage.setItem('plant01-backup-v1', old);
         state.paused = true;
         world.revision = -1;
@@ -2678,6 +2699,7 @@ $('#import-file').addEventListener('change', async (e) => {
     const next = Sim.load(await file.text());
     localStorage.setItem('plant01-backup-v1', Sim.save(state));
     state = next;
+    resetNoticePopup();
     railCrewDrafts.clear();
     state.paused = true;
     world.revision = -1;

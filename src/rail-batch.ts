@@ -1,12 +1,12 @@
 import type { Job, JobGroup, RailWork, RailWorkPose, State } from './types';
 import { dist } from './path';
 import { trackGeometry } from './track';
+import { railWorkGroup } from './rail-work-groups';
 
 /** One physical buffer belongs to the continuous installed route, not each panel. */
 export function railBatchGroup(s: State, j: Job): JobGroup | undefined {
   if (j.railStageOnly || j.track?.route === 'branch') return undefined;
-  const id = j.track?.groupId || j.parentId;
-  return s.jobGroups?.find((g) => g.id === id);
+  return railWorkGroup(s, j);
 }
 
 function batchMembers(s: State, j: Job) {
@@ -16,7 +16,7 @@ function batchMembers(s: State, j: Job) {
         (other) =>
           other.kind === 'rail' &&
           other.track?.route !== 'branch' &&
-          (other.track?.groupId || other.parentId) === group.id,
+          railWorkGroup(s, other)?.id === group.id,
       )
     : [];
 }

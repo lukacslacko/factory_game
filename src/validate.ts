@@ -10,6 +10,7 @@ import {
 import type { State } from './types';
 import { EQUIPMENT_ROLES, EQUIPMENT_ACTIVITIES } from './equipment-roles';
 import { MATERIALS, EQUIPMENT, ROLES, SERVICES } from './catalog';
+import { railWorkGroup } from './rail-work-groups';
 const fail = (message: string): never => {
   throw new Error(`Invalid save: ${message}.`);
 };
@@ -90,6 +91,16 @@ export function validateState(value: any): asserts value is State {
     }
   }
   const pose = (p: any) => point(p) && finite(p.y) && finite(p.yaw);
+  const belongsToGroup = (j: any, groupId: string) => {
+    let id = j.parentId || j.track?.groupId;
+    const seen = new Set<string>();
+    while (id && !seen.has(id)) {
+      if (id === groupId) return true;
+      seen.add(id);
+      id = (s.jobGroups || []).find((g: any) => g.id === id)?.parentId;
+    }
+    return false;
+  };
   for (const g of s.jobGroups || []) {
     if (g.railCrew) {
       const c = g.railCrew;
@@ -100,9 +111,7 @@ export function validateState(value: any): asserts value is State {
         !installing ||
         staging.id === installing.id ||
         installing.kind !== 'excavator' ||
-        !s.jobs.some(
-          (j: any) => j.kind === 'rail' && (j.parentId === g.id || j.track?.groupId === g.id),
-        )
+        !s.jobs.some((j: any) => j.kind === 'rail' && belongsToGroup(j, g.id))
       )
         fail('invalid rail work crew');
     }
@@ -116,7 +125,9 @@ export function validateState(value: any): asserts value is State {
         !pose(b.start) ||
         !pose(b.latestEnd) ||
         (b.ownerJob !== undefined &&
-          !s.jobs.some((j: any) => j.id === b.ownerJob && j.kind === 'rail' && j.parentId === g.id))
+          !s.jobs.some(
+            (j: any) => j.id === b.ownerJob && j.kind === 'rail' && belongsToGroup(j, g.id),
+          ))
       )
         fail('invalid shared rail buffer');
     }
@@ -129,6 +140,18 @@ export function validateState(value: any): asserts value is State {
       (typeof j.railStageOnly !== 'boolean' || j.kind !== 'rail')
     )
       fail('invalid rail staging pass');
+  for (const j of s.jobs)
+    if (j.railStagingBatch !== undefined) {
+      const leader = s.jobs.find((q: any) => q.id === j.railStagingBatch);
+      if (
+        j.kind !== 'rail' ||
+        typeof j.railStagingBatch !== 'string' ||
+        !leader ||
+        leader.status !== 'doing' ||
+        !leader.railWork?.stagingBatch?.jobIds.includes(j.id)
+      )
+        fail('invalid reserved rail staging batch');
+    }
   for (const j of s.jobs)
     if (
       j.railBufferCleanup !== undefined &&
@@ -328,6 +351,19 @@ export function validateState(value: any): asserts value is State {
       fail('invalid equipment cargo');
   }
   for (const t of s.stacks) {
+    if (
+      t.railStagingJobs !== undefined &&
+      (!t.item?.startsWith('rail') ||
+        !Array.isArray(t.railStagingJobs) ||
+        t.railStagingJobs.length > MATERIALS[t.item as keyof typeof MATERIALS].max ||
+        new Set(t.railStagingJobs).size !== t.railStagingJobs.length ||
+        t.railStagingJobs.some(
+          (id: unknown) =>
+            typeof id !== 'string' ||
+            !s.jobs.some((j: any) => j.id === id && j.kind === 'rail' && j.item === t.item),
+        ))
+    )
+      fail('invalid shared rail staging stock');
     if (
       t.trackHand !== undefined &&
       (![1, -1].includes(t.trackHand) || !t.item?.startsWith('rail'))
@@ -647,6 +683,35 @@ export function validateState(value: any): asserts value is State {
     }
     if (j.railWork) {
       const r = j.railWork;
+      if (r.stagingBatch !== undefined) {
+        const b = r.stagingBatch,
+          material = MATERIALS[(j.item || 'rail') as keyof typeof MATERIALS];
+        const machine = s.equipment.find((e: any) => e.id === j.equipment);
+        if (
+          !j.railStageOnly ||
+          !b ||
+          !Array.isArray(b.jobIds) ||
+          !Number.isInteger(b.qty) ||
+          b.qty < 1 ||
+          b.qty > material.max ||
+          b.jobIds.length !== b.qty ||
+          new Set(b.jobIds).size !== b.qty ||
+          !b.jobIds.includes(j.id) ||
+          !machine ||
+          b.qty * material.mass > EQUIPMENT[machine.kind as keyof typeof EQUIPMENT].capacity ||
+          b.jobIds.some(
+            (id: unknown) =>
+              !s.jobs.some(
+                (member: any) =>
+                  member.id === id &&
+                  member.kind === 'rail' &&
+                  member.item === j.item &&
+                  railWorkGroup(s, member)?.id === railWorkGroup(s, j)?.id,
+              ),
+          )
+        )
+          fail('invalid physical rail staging batch');
+      }
       const phases = [
         'configure-staged-panel',
         'source-approach',
@@ -737,7 +802,9 @@ export function validateState(value: any): asserts value is State {
               t.id === (r.panel.state === 'stored' ? r.source?.stackId : r.panel.stackId) &&
               t.item === (j.item || 'rail') &&
               t.qty > 0 &&
-              t.reserved > 0,
+              (r.stagingBatch && r.panel.state === 'staged'
+                ? t.qty >= r.stagingBatch.qty
+                : t.reserved >= (r.stagingBatch?.qty || 1)),
           )
         )
           fail('reserved rail panel is missing');
@@ -745,7 +812,9 @@ export function validateState(value: any): asserts value is State {
           ['carried', 'placed'].includes(r.panel.state) &&
           !s.equipment.some(
             (e: any) =>
-              e.id === j.equipment && e.cargo?.item === (j.item || 'rail') && e.cargo.qty === 1,
+              e.id === j.equipment &&
+              e.cargo?.item === (j.item || 'rail') &&
+              e.cargo.qty === (r.stagingBatch?.qty || 1),
           )
         )
           fail('suspended rail panel is missing');

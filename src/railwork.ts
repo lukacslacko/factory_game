@@ -11,6 +11,16 @@ import type {
   Worker,
 } from './types';
 import { forkStagingWithdrawal, legacyStagingAccessible } from './legacy-rail';
+import { railCrewGroup } from './jobs';
+import { railWorkGroup } from './rail-work-groups';
+import {
+  planRailStagingBatch,
+  reserveRailStagingBatch,
+  reconcileRailStagingBatch,
+  releaseUnliftedRailBatch,
+  handOffRailStagingBatch,
+  stagedRailStackOwnedBy,
+} from './rail-staging';
 import {
   claimRailBatchBuffer,
   railBatchContinues,
@@ -46,6 +56,12 @@ export const RAIL_PANEL_PITCH = 0.36;
 /** Staging supports hold one job-owned panel, not reusable receiving capacity. */
 export function railStagingStackOwned(s: State, stackId: string): boolean {
   const stack = s.stacks.find((t) => t.id === stackId);
+  if (
+    stack?.railStagingJobs?.some((id) =>
+      s.jobs.some((j) => j.id === id && !['done', 'canceled'].includes(j.status)),
+    )
+  )
+    return true;
   return s.jobs.some(
     (j) =>
       j.kind === 'rail' &&
@@ -133,6 +149,69 @@ function blocked(s: State, r: Rect, api: RailWorkAPI) {
   );
 }
 
+/** Preview the supported buffer AND the crane's actual parking/turning area.
+ * A clear 3 m resting square alone can leave the crane trapped against another
+ * prepared rail stack. This probe never changes a live buffer or machine. */
+function clearBufferRest(
+  s: State,
+  j: Job,
+  e: Equipment,
+  side: Point,
+  preferred: Point,
+  api: RailWorkAPI,
+): Point | undefined {
+  const geometry = trackGeometry(j),
+    start = geometry.entry,
+    forward = { x: Math.cos(start.yaw + Math.PI), z: Math.sin(start.yaw + Math.PI) },
+    reach = REACH + (j.track?.layout === 'curve' ? 0.8 : 0),
+    from = j.railWork?.buffer?.carried
+      ? e
+      : { ...e, ...add(start, side, reach), yaw: facing(add(start, side, reach), start) },
+    probe = {
+      ...from,
+      reach,
+      // Only the route preview uses this generic physical load envelope.
+      // Actual buffer animation continues to use its own saved pose.
+      assemblyLoad: {
+        job: j.id,
+        kind: 'beam' as const,
+        length: 1.75,
+        width: 2.05,
+        yawOffset: (j.railWork?.buffer?.yaw ?? start.yaw + Math.PI) - (from.yaw ?? 0),
+      },
+    },
+    preview = {
+      ...s,
+      workers: s.workers.filter(
+        (w) => w.id !== j.worker || w.duty !== 'auto' || w.path.length || !!w.transition,
+      ),
+    },
+    candidates = [preferred];
+  for (const gap of [8, 11, 15.5, 19.5, 24.5])
+    for (const back of [8, 12, 16, 20]) candidates.push(add(add(start, side, gap), forward, -back));
+  for (const p of candidates) {
+    const dock = add(p, side, reach),
+      finalYaw = facing(dock, p),
+      box = { x: p.x - 1.5, z: p.z - 1.5, w: 3, d: 3 };
+    if (blocked(s, box, api) || equipmentMoveBlocked(preview, probe, { ...dock, yaw: finalYaw }))
+      continue;
+    if (
+      machineRoute(preview, probe, dock, api.obstacles(preview), 450, true, finalYaw) ||
+      machineRoute(
+        preview,
+        { ...probe, reverse: !probe.reverse },
+        dock,
+        api.obstacles(preview),
+        450,
+        true,
+        finalYaw,
+      )
+    )
+      return p;
+  }
+  return undefined;
+}
+
 function chooseStaging(s: State, j: Job, e: Equipment, api: RailWorkAPI, deferForkAccess = false) {
   const geometry = trackGeometry(j),
     c = geometry.pose;
@@ -156,9 +235,7 @@ function chooseStaging(s: State, j: Job, e: Equipment, api: RailWorkAPI, deferFo
       (w) => w.id !== j.worker || w.duty !== 'auto' || w.path.length || !!w.transition,
     ),
   };
-  const sharedBuffer = s.jobGroups?.find(
-    (g) => g.id === (j.track?.groupId || j.parentId),
-  )?.railBuffer;
+  const sharedBuffer = railWorkGroup(s, j)?.railBuffer;
   const restingBuffer =
     sharedBuffer &&
     !sharedBuffer.pose.secured &&
@@ -166,7 +243,7 @@ function chooseStaging(s: State, j: Job, e: Equipment, api: RailWorkAPI, deferFo
       ? sharedBuffer.pose
       : undefined;
   if (j.legacyRailHandoff === 'staged') {
-    const stack = s.stacks.find((t) => t.id === j.stack && t.source === j.id && t.qty > 0);
+    const stack = s.stacks.find((t) => stagedRailStackOwnedBy(s, t, j) && t.qty > 0);
     if (!stack) return undefined;
     const p = center(stack),
       delta = { x: p.x - c.x, z: p.z - c.z };
@@ -175,19 +252,28 @@ function chooseStaging(s: State, j: Job, e: Equipment, api: RailWorkAPI, deferFo
     const side = { x: baseSide.x * sign, z: baseSide.z * sign };
     const stockYaw = stack.yaw ?? stagingYaw,
       stockSide = { x: -Math.sin(stockYaw) * sign, z: Math.cos(stockYaw) * sign };
+    const preferredAside = add(add(start, side, gap), forward, j.track ? -8 : -4);
+    const bufferAside = restingBuffer
+      ? { x: restingBuffer.x, z: restingBuffer.z }
+      : clearBufferRest(s, j, e, side, preferredAside, api);
+    if (!bufferAside) return undefined;
     return {
       side,
       stage: { x: stack.x, z: stack.z, w: stack.w, d: stack.d },
       stageDock: add(p, stockSide, -REACH),
       railDock: add(c, side, REACH),
-      bufferAside: restingBuffer
-        ? { x: restingBuffer.x, z: restingBuffer.z }
-        : add(add(start, side, gap), forward, j.track ? -8 : -4),
+      bufferAside,
       stageYaw: stockYaw,
     };
   }
+  const gaps = j.track?.layout === 'curve' ? [15.5, 18.5, 21.5] : [9.5, 12.5, 15.5];
+  // A full work order can need several real stacks before its installer is
+  // ready. Spread later batches into clear preparation space rather than
+  // requiring an earlier stack to disappear before the next trip starts.
+  if (j.railStageOnly)
+    gaps.push(...(j.track?.layout === 'curve' ? [25.5, 29.5, 35.5] : [19.5, 24.5, 30.5]));
   for (const sign of [1, -1])
-    for (const gap of j.track?.layout === 'curve' ? [15.5, 18.5, 21.5] : [9.5, 12.5, 15.5]) {
+    for (const gap of gaps) {
       const side = { x: baseSide.x * sign, z: baseSide.z * sign };
       const stageSide = { x: -Math.sin(stagingYaw) * sign, z: Math.cos(stagingYaw) * sign };
       const candidate = add(c, side, gap),
@@ -303,6 +389,8 @@ function initialize(s: State, j: Job, e: Equipment, api: RailWorkAPI) {
           (t) => t.id === j.stack && t.item === railItem(j) && t.qty >= 1 && t.reserved >= 1,
         )
       : undefined;
+  const stagingBatch = sourceStack ? planRailStagingBatch(s, j, e, sourceStack) : undefined;
+  const sourceQty = stagingBatch?.qty || 1;
   let source: RailWork['source'];
   if (
     sourceStack &&
@@ -347,10 +435,12 @@ function initialize(s: State, j: Job, e: Equipment, api: RailWorkAPI) {
         const liftedState = {
           ...s,
           stacks: s.stacks.map((t) =>
-            t.id === sourceStack.id ? { ...t, qty: t.qty - 1, reserved: t.reserved - 1 } : t,
+            t.id === sourceStack.id
+              ? { ...t, qty: t.qty - sourceQty, reserved: Math.max(0, t.reserved - 1) }
+              : t,
           ),
         };
-        const loaded = { ...parked, cargo: { item: railItem(j), qty: 1, yaw } };
+        const loaded = { ...parked, cargo: { item: railItem(j), qty: sourceQty, yaw } };
         const inward = add(dock, direction, -2.5 * sign);
         const loadedClear = machineRoute(
           liftedState,
@@ -393,7 +483,7 @@ function initialize(s: State, j: Job, e: Equipment, api: RailWorkAPI) {
               y:
                 surface(s, point) +
                 (sourceStack.baseHeight || 0) +
-                Math.max(0, sourceStack.qty - 1) * RAIL_PANEL_PITCH,
+                Math.max(0, sourceStack.qty - sourceQty) * RAIL_PANEL_PITCH,
               yaw,
             },
             dock,
@@ -417,7 +507,9 @@ function initialize(s: State, j: Job, e: Equipment, api: RailWorkAPI) {
     const liftedState = {
       ...s,
       stacks: s.stacks.map((t) =>
-        t.id === source!.stackId ? { ...t, qty: t.qty - 1, reserved: t.reserved - 1 } : t,
+        t.id === source!.stackId
+          ? { ...t, qty: t.qty - sourceQty, reserved: Math.max(0, t.reserved - 1) }
+          : t,
       ),
     };
     const loadedAtSource = {
@@ -425,7 +517,7 @@ function initialize(s: State, j: Job, e: Equipment, api: RailWorkAPI) {
       ...source.dock,
       yaw: facing(source.dock, source.pose),
       reach: dist(source.dock, source.pose),
-      cargo: { item: railItem(j), qty: 1, yaw: source.pose.yaw },
+      cargo: { item: railItem(j), qty: sourceQty, yaw: source.pose.yaw },
     };
     staging = chooseStaging(liftedState, j, loadedAtSource, api);
     if (!staging) {
@@ -439,6 +531,7 @@ function initialize(s: State, j: Job, e: Equipment, api: RailWorkAPI) {
       ? s.stacks.find((t) => t.id === j.stack && t.qty > 0 && t.reserved > 0)
       : undefined;
   const r: RailWork = {
+    stagingBatch,
     ...staging,
     phase: installed
       ? 'buffer-retrieve'
@@ -468,7 +561,10 @@ function initialize(s: State, j: Job, e: Equipment, api: RailWorkAPI) {
       : staged
         ? {
             ...center(staged),
-            y: surface(s, center(staged)) + (staged.baseHeight || 0),
+            y:
+              surface(s, center(staged)) +
+              (staged.baseHeight || 0) +
+              Math.max(0, staged.qty - 1) * RAIL_PANEL_PITCH,
             yaw: staged.yaw || 0,
             state: 'staged',
             stackId: staged.id,
@@ -511,6 +607,7 @@ function initialize(s: State, j: Job, e: Equipment, api: RailWorkAPI) {
   )
     r.phase = 'configure-staged-panel';
   j.railWork = r;
+  if (sourceStack) reserveRailStagingBatch(s, j, sourceStack);
   const crew = s.workers.find((worker) => worker.id === j.worker);
   if (crew) {
     // A prior yielding maneuver can retain a return destination beside a
@@ -812,6 +909,7 @@ function animatePose(r: RailWork, to: RailWorkPose, seconds: number, pose: RailW
 
 function stagePanel(s: State, j: Job, e: Equipment, api: RailWorkAPI) {
   const r = j.railWork!;
+  const qty = r.stagingBatch?.qty || 1;
   const id = r.panel.stackId || api.id(s, 'stack');
   let stack = s.stacks.find((t) => t.id === id);
   if (!stack) {
@@ -821,14 +919,26 @@ function stagePanel(s: State, j: Job, e: Equipment, api: RailWorkAPI) {
       item: railItem(j),
       qty: 0,
       reserved: 0,
-      source: j.id,
+      source: r.stagingBatch ? railCrewGroup(s, j)?.id || j.parentId || j.id : j.id,
       yaw: stageYaw(r),
       trackHand: suppliedHand(r),
     };
     s.stacks.push(stack);
   }
-  stack.qty = 1;
-  stack.reserved = 1;
+  stack.qty = qty;
+  // Keep the identity of every physically deposited panel, including canceled
+  // members. Their unreserved steel can be reclaimed when the work is resumed.
+  stack.railStagingJobs = r.stagingBatch?.jobIds.slice() || (j.railStageOnly ? [j.id] : undefined);
+  stack.reserved = stack.railStagingJobs
+    ? stack.railStagingJobs.filter((id) =>
+        s.jobs.some((member) => member.id === id && member.status !== 'canceled' && !member.cancel),
+      ).length
+    : 1;
+  if (r.stagingBatch)
+    for (const id of r.stagingBatch.jobIds) {
+      const member = s.jobs.find((other) => other.id === id);
+      if (member && member.status !== 'canceled' && !member.cancel) member.stack = stack.id;
+    }
   if (j.legacyRailHandoff === 'carried' || (j.railStageOnly && e.kind === 'forklift'))
     stack.baseHeight = 0.06;
   r.panel.stackId = id;
@@ -839,20 +949,35 @@ function stagePanel(s: State, j: Job, e: Equipment, api: RailWorkAPI) {
   });
   e.cargo = undefined;
   r.lifting = undefined;
-  j.stack = id;
-  api.movement(s, railItem(j), 1, e.id, id, 'Rail panel placed on temporary staging supports');
+  j.stack = stack.railStagingJobs && j.cancel ? undefined : id;
+  api.movement(
+    s,
+    railItem(j),
+    qty,
+    e.id,
+    id,
+    qty > 1
+      ? 'Rail panel stack placed on temporary staging supports'
+      : 'Rail panel placed on temporary staging supports',
+  );
   s.revision++;
 }
 
 function collectStagedPanel(s: State, j: Job, e: Equipment, api: RailWorkAPI) {
   const r = j.railWork!,
     t = s.stacks.find((t) => t.id === r.panel.stackId);
-  if (!t || t.qty !== 1 || t.reserved !== 1) {
+  if (
+    !t ||
+    t.qty < 1 ||
+    t.reserved < 1 ||
+    (t.railStagingJobs && !t.railStagingJobs.includes(j.id))
+  ) {
     j.reason = 'Reserved staged rail panel is unavailable';
     return false;
   }
-  t.qty = 0;
-  t.reserved = 0;
+  t.qty--;
+  t.reserved--;
+  if (t.railStagingJobs) t.railStagingJobs = t.railStagingJobs.filter((id) => id !== j.id);
   e.cargo = { item: railItem(j), qty: 1, yaw: r.panel.yaw };
   r.panel.state = 'carried';
   r.lifting = 'panel';
@@ -972,6 +1097,7 @@ export function tickRailWork(s: State, j: Job, dt: number, api: RailWorkAPI): bo
   if (j.cancel && r.panel.state !== 'installed') {
     r.restoreOriginal = true;
     if (r.panel.state === 'stored') {
+      releaseUnliftedRailBatch(s, j);
       if (r.buffer && !r.buffer.secured) {
         if (!r.phase.includes('buffer')) {
           e.path = [];
@@ -1143,7 +1269,8 @@ export function tickRailWork(s: State, j: Job, dt: number, api: RailWorkAPI): bo
   } else if (r.phase === 'source-rig') {
     const source = r.source!,
       stack = s.stacks.find((t) => t.id === source.stackId);
-    if (!stack || stack.qty < 1 || stack.reserved < 1) {
+    const qty = reconcileRailStagingBatch(s, j);
+    if (!stack || stack.qty < qty || stack.reserved < qty) {
       j.reason = 'Reserved rail panel is unavailable';
       return true;
     }
@@ -1156,20 +1283,27 @@ export function tickRailWork(s: State, j: Job, dt: number, api: RailWorkAPI): bo
         : 'Attaching slings to the top rail panel';
     if (r.clock >= 3) {
       if (!crewClearForLift(s, j, e, w, r.panel, false, api, source.clear)) return true;
-      stack.qty--;
-      stack.reserved--;
-      e.cargo = { item: railItem(j), qty: 1, yaw: r.panel.yaw };
+      stack.qty -= qty;
+      stack.reserved -= qty;
+      e.cargo = { item: railItem(j), qty, yaw: r.panel.yaw };
+      if (r.stagingBatch)
+        for (const id of r.stagingBatch.jobIds) {
+          const member = s.jobs.find((other) => other.id === id);
+          if (member) member.stack = undefined;
+        }
       j.stack = undefined;
       r.panel.state = 'carried';
       api.movement(
         s,
         railItem(j),
-        1,
+        qty,
         stack.id,
         e.id,
         e.kind === 'forklift'
           ? 'Rail panel raised on its supporting forks from storage'
-          : 'Rigged rail panel lifted from its storage stack',
+          : qty > 1
+            ? 'Rigged rail panel stack lifted from storage'
+            : 'Rigged rail panel lifted from its storage stack',
       );
       transition(s, j, 'source-lift', r.panel);
     }
@@ -1369,7 +1503,16 @@ export function tickRailWork(s: State, j: Job, dt: number, api: RailWorkAPI): bo
     e.lift = 0.12;
     e.reach = 2.7;
     const stagedStackId = r.panel.stackId;
+    const stagedStack = s.stacks.find((t) => t.id === stagedStackId);
+    // A cancellation after lowering still owns its reservation. A canceled
+    // member deposited earlier never acquired one, so its stack link is absent.
+    if (j.cancel && j.stack === stagedStackId && stagedStack?.railStagingJobs?.includes(j.id))
+      stagedStack.reserved = Math.max(0, stagedStack.reserved - j.qty);
+    // These reservations belong to all batch members. Release the empty machine
+    // without decrementing the leader's reservation a second time.
+    if (r.stagingBatch || j.railStageOnly) j.stack = undefined;
     api.release(s, j);
+    if (stagedStack) handOffRailStagingBatch(s, j, stagedStack);
     j.legacyRailHandoff = j.cancel ? undefined : 'staged';
     j.railWork = undefined;
     j.status = j.cancel ? 'canceled' : 'todo';
@@ -1429,6 +1572,24 @@ export function tickRailWork(s: State, j: Job, dt: number, api: RailWorkAPI): bo
     if (machineAt(s, j, e, bufferDock(r.bufferAside), r.bufferAside, dt, api)) {
       followLoad(r, e, 'buffer', dt);
       transition(s, j, 'buffer-lower-aside', r.buffer!);
+    } else if (
+      !e.path.length &&
+      j.reason === 'Machine route blocked during rail work; clear the approach' &&
+      s.elapsed >= (e.trafficRetry || 0)
+    ) {
+      e.trafficRetry = s.elapsed + 1.5;
+      const aside = clearBufferRest(s, j, e, r.side, r.bufferAside, api);
+      if (aside && dist(aside, r.bufferAside) > 0.02) {
+        r.bufferAside = aside;
+        j.reason = '';
+        api.event(
+          s,
+          'Work',
+          j.id,
+          'Selected an accessible alternate buffer resting place around the prepared rail stacks.',
+        );
+        s.revision++;
+      }
     }
   } else if (r.phase === 'buffer-lower-aside') {
     const b = r.buffer!;
@@ -1463,7 +1624,7 @@ export function tickRailWork(s: State, j: Job, dt: number, api: RailWorkAPI): bo
   } else if (r.phase === 'panel-rig') {
     r.clock += dt;
     r.lifting = 'panel';
-    e.lift = 0;
+    e.lift = r.panel.y - (e.y || 0);
     w.status = 'Attaching rail panel lifting slings';
     if (
       r.clock >= 2.5 &&
