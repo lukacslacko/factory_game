@@ -6,7 +6,7 @@ The world uses a true perspective 3D camera, with a meter grid, dimensional stoc
 
 ## Native Godot visual proof
 
-An independent [Godot visual study](native-proof/README.md) recreates the concept C yard composition in true perspective, with detailed machinery, layered vegetation, daylight and dusk. Double-click `native-proof/Open visual proof.command` on the creator's Mac, or import `native-proof/project.godot` into Godot 4.7.2. It is an interactive rendering checkpoint; it does not yet run the factory simulation or import browser saves. Actual screenshots, controls, asset credits and measured native validation are included.
+An independent [Godot visual study](native-proof/README.md) recreates the concept C yard composition in true perspective, with polished rails, rounded machinery, layered vegetation, brighter daylight, dusk lighting, and smooth Retina rendering. Double-click `native-proof/Open visual proof.command` on the creator's Mac, or import `native-proof/project.godot` into Godot 4.7.2. It is an interactive rendering checkpoint; it does not yet run the factory simulation or import browser saves. Actual screenshots, controls, asset credits and measured native validation are included.
 
 ## Play
 

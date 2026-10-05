@@ -6,21 +6,21 @@ const Machines = preload("res://scripts/machines.gd")
 
 var camera := Camera3D.new()
 var environment := Environment.new()
-var sky_material := ProceduralSkyMaterial.new()
+var sky_material := ShaderMaterial.new()
 var sun := DirectionalLight3D.new()
 var target := Vector3(0.0,0.0,-1.0)
 var camera_target := target
 var yaw: float = 0.035
 var camera_yaw: float = yaw
-var pitch: float = deg_to_rad(51.0)
+var pitch: float = deg_to_rad(57.0)
 var camera_pitch: float = pitch
-var distance: float = 61.0
+var distance: float = 69.0
 var camera_distance: float = distance
 var drag_point := Vector3.ZERO
 var dragging: bool = false
 var orbiting: bool = false
 var dusk: bool = false
-var grid: bool = false
+var grid: bool = true
 var ui := CanvasLayer.new()
 var hud_status := Label.new()
 var day_button: Button
@@ -38,6 +38,7 @@ var capture_directory: String = "res://captures"
 var first_frame: bool = true
 var last_frame_us: int = 0
 var mode_reports: Array[Dictionary] = []
+var last_capture_size := Vector2i.ZERO
 
 func _ready() -> void:
 	Engine.max_fps = 60
@@ -46,24 +47,38 @@ func _ready() -> void:
 	ground_data = Ground.build(self)
 	yard_data = RailYard.build(self)
 	machine_data = Machines.build(self)
-	(machine_data["excavator"] as Node3D).rotation.y = PI/2.0
+	(machine_data["excavator"] as Node3D).rotation.y = -PI/2.0
+	(machine_data["excavator"] as Node3D).position.y = 0.0
+	(machine_data["workers"][0] as Node3D).position.y = 0.0
 	(machine_data["forklift"] as Node3D).rotation.y = PI/2.0
+	(machine_data["forklift"] as Node3D).position.z -= 4.0
+	for worker_index in [1,4]:
+		(machine_data["workers"][worker_index] as Node3D).position.z -= 4.0
 	if "--plain-materials" in OS.get_cmdline_user_args():
 		_plain_materials(self)
 	_setup_environment()
 	add_child(camera)
 	camera.current = true
-	camera.fov = 40.0
+	camera.fov = 33.0
 	camera.near = 0.2
 	camera.far = 220.0
+	_preset("yard")
 	_update_camera(1.0, true)
 	_setup_ui()
 	_set_lighting(false)
-	print("PROOF_READY ", JSON.stringify({"engine": Engine.get_version_info().string,"renderer":RenderingServer.get_current_rendering_method(),"device":RenderingServer.get_video_adapter_name(),"build_ms":Time.get_ticks_msec()-startup,"nodes":get_tree().get_node_count(),"ground":ground_data.get("stats",{})}))
+	(ground_data["ground_material"] as ShaderMaterial).set_shader_parameter("show_grid",grid)
+	grid_button.set_pressed_no_signal(grid)
+	print("PROOF_READY ", JSON.stringify({"engine": Engine.get_version_info().string,"renderer":RenderingServer.get_current_rendering_method(),"device":RenderingServer.get_video_adapter_name(),"build_ms":Time.get_ticks_msec()-startup,"nodes":get_tree().get_node_count(),"ground":{"slabs":ground_data.get("slab_count",0),"vegetation":ground_data.get("vegetation_instances",0)}}))
 	var args: PackedStringArray = OS.get_cmdline_user_args()
 	print("PROOF_ARGUMENTS ",args)
 	if "--capture-suite" in args:
 		_run_capture_suite.call_deferred()
+	elif "--shadow-study" in args:
+		_run_shadow_study.call_deferred()
+	elif "--look-study" in args:
+		_run_look_study.call_deferred()
+	elif "--review-capture" in args or "--dusk-review" in args:
+		_run_review_capture.call_deferred()
 	elif "--self-test" in args:
 		_self_test.call_deferred()
 
@@ -72,31 +87,34 @@ func _setup_environment() -> void:
 	add_child(world)
 	world.environment = environment
 	var sky := Sky.new()
+	sky_material.shader = preload("res://shaders/daylight_sky.gdshader")
 	sky.sky_material = sky_material
-	sky.process_mode = Sky.PROCESS_MODE_REALTIME
+	sky.process_mode = Sky.PROCESS_MODE_QUALITY
+	sky.radiance_size = Sky.RADIANCE_SIZE_256
 	environment.sky = sky
 	environment.background_mode = Environment.BG_SKY
 	environment.ambient_light_source = Environment.AMBIENT_SOURCE_SKY
-	environment.ambient_light_sky_contribution = 0.75
-	environment.tonemap_mode = Environment.TONE_MAPPER_AGX
+	environment.ambient_light_sky_contribution = 0.60
+	environment.reflected_light_source = Environment.REFLECTION_SOURCE_SKY
+	environment.tonemap_mode = Environment.TONE_MAPPER_ACES
 	environment.tonemap_exposure = 1.0
-	environment.tonemap_agx_contrast = 1.15
+	environment.tonemap_white = 4.0
 	environment.ssao_enabled = true
 	environment.ssao_radius = 0.8
-	environment.ssao_intensity = 1.4
+	environment.ssao_intensity = 1.65
 	environment.ssao_detail = 0.5
-	environment.ssao_light_affect = 0.15
+	environment.ssao_light_affect = 0.0
 	environment.ssil_enabled = true
 	environment.ssil_radius = 2.0
-	environment.ssil_intensity = 0.65
+	environment.ssil_intensity = 0.40
 	environment.glow_enabled = true
 	environment.glow_intensity = 0.18
 	environment.glow_bloom = 0.0
 	environment.glow_hdr_threshold = 1.5
 	environment.adjustment_enabled = true
-	environment.adjustment_saturation = 1.08
-	environment.adjustment_contrast = 1.02
-	environment.fog_enabled = true
+	environment.adjustment_saturation = 1.06
+	environment.adjustment_contrast = 1.10
+	environment.fog_enabled = false
 	environment.fog_density = 0.00065
 	environment.fog_light_color = Color("a6b7b5")
 	environment.fog_sky_affect = 0.0
@@ -107,7 +125,7 @@ func _setup_environment() -> void:
 	sun.directional_shadow_max_distance = 100.0
 	sun.directional_shadow_mode = DirectionalLight3D.SHADOW_PARALLEL_4_SPLITS
 	sun.directional_shadow_blend_splits = true
-	sun.light_angular_distance = 0.8
+	sun.light_angular_distance = 0.55
 
 func _plain_materials(parent: Node) -> void:
 	for child: Node in parent.get_children():
@@ -126,26 +144,18 @@ func _set_lighting(value: bool) -> void:
 		sun.rotation_degrees = Vector3(-13,-62,0)
 		sun.light_energy = 0.65
 		sun.light_color = Color("ffd098")
-		sky_material.sky_top_color = Color("172b4c")
-		sky_material.sky_horizon_color = Color("b6897a")
-		sky_material.ground_bottom_color = Color("27343e")
-		sky_material.ground_horizon_color = Color("9b7971")
-		sky_material.sky_energy_multiplier = 0.9
-		environment.ambient_light_energy = 0.8
-		environment.tonemap_exposure = 1.35
+		sky_material.set_shader_parameter("dusk",true)
+		environment.ambient_light_energy = 0.65
+		environment.tonemap_exposure = 1.12
 	else:
 		sun.shadow_bias = 0.025
 		sun.shadow_normal_bias = 0.55
-		sun.rotation_degrees = Vector3(-54,-40,0)
-		sun.light_energy = 1.75
-		sun.light_color = Color("fff0d6")
-		sky_material.sky_top_color = Color("5184b6")
-		sky_material.sky_horizon_color = Color("d9e1db")
-		sky_material.ground_bottom_color = Color("777661")
-		sky_material.ground_horizon_color = Color("c8d0c4")
-		sky_material.sky_energy_multiplier = 0.85
-		environment.ambient_light_energy = 0.65
-		environment.tonemap_exposure = 1.0
+		sun.rotation_degrees = Vector3(-48,-144,0)
+		sun.light_energy = 1.65
+		sun.light_color = Color("fff1d9")
+		sky_material.set_shader_parameter("dusk",false)
+		environment.ambient_light_energy = 0.32
+		environment.tonemap_exposure = 0.90
 	for light: OmniLight3D in yard_data.get("lamps",[]):
 		light.light_energy = 10.0 if value else 0.0
 	for light: OmniLight3D in yard_data.get("lamps",[]):
@@ -196,18 +206,18 @@ func _setup_ui() -> void:
 	add_child(ui)
 	var top := PanelContainer.new()
 	top.set_anchors_and_offsets_preset(Control.PRESET_TOP_WIDE)
-	top.offset_bottom = 64
+	top.offset_bottom = 48
 	top.add_theme_stylebox_override("panel",_style(Color("f4f3eb"),Color("a8b4a0"),20))
 	ui.add_child(top)
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation",12)
 	top.add_child(row)
-	row.add_child(_text("P₀₁",30,Color("305747")))
+	row.add_child(_text("P₀₁",25,Color("305747")))
 	var heading := VBoxContainer.new()
 	heading.add_theme_constant_override("separation",-2)
 	row.add_child(heading)
-	heading.add_child(_text("PLANT 01",20))
-	heading.add_child(_text("NATIVE VISUAL STUDY",11,Color("7a8b78")))
+	heading.add_child(_text("PLANT 01",17))
+	heading.add_child(_text("NATIVE VISUAL STUDY",10,Color("7a8b78")))
 	var space := Control.new()
 	space.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	row.add_child(space)
@@ -240,6 +250,7 @@ func _setup_ui() -> void:
 	info.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	info.add_theme_stylebox_override("panel",_style(Color(0.95,0.96,0.92,0.85),Color(0.5,0.6,0.5,0.3),14))
 	ui.add_child(info)
+	info.visible = false
 	var info_text := _text("Concept C · native rendering\n1 m grid · 1,435 mm gauge · visual proof",13)
 	info.add_child(info_text)
 
@@ -253,10 +264,10 @@ func _toggle_grid() -> void:
 func _preset(name: String) -> void:
 	match name:
 		"yard":
-			target = Vector3(0,0,-1)
-			distance = 61
-			pitch = deg_to_rad(51)
-			yaw = 0.035
+			target = Vector3(-1,0,-5.0)
+			distance = 72
+			pitch = deg_to_rad(52)
+			yaw = 0.0
 		"equipment":
 			target = Vector3(2,1.2,0)
 			distance = 22
@@ -377,7 +388,9 @@ func _save_capture(filename: String) -> void:
 	RenderingServer.force_draw(false)
 	var path: String = ProjectSettings.globalize_path(capture_directory.path_join(filename))
 	DirAccess.make_dir_recursive_absolute(path.get_base_dir())
-	var error: Error = get_viewport().get_texture().get_image().save_png(path)
+	var captured_image: Image = get_viewport().get_texture().get_image()
+	last_capture_size = captured_image.get_size()
+	var error: Error = captured_image.save_png(path)
 	if error != OK:
 		push_error("Capture failed: %s (%s)" % [path,error_string(error)])
 	else:
@@ -386,6 +399,54 @@ func _save_capture(filename: String) -> void:
 func _capture_manual() -> void:
 	var filename: String = "plant01-%s-%s.png" % ["dusk" if dusk else "day",Time.get_datetime_string_from_system().replace(":","-")]
 	_save_capture(filename)
+
+func _run_review_capture() -> void:
+	_set_lighting("--dusk-review" in OS.get_cmdline_user_args())
+	capturing = true
+	Engine.max_fps = 60
+	await get_tree().create_timer(4.0).timeout
+	_preset("yard")
+	_update_camera(0,true)
+	await get_tree().create_timer(2.0).timeout
+	await _save_capture("review-dusk.png" if dusk else "review-daylight.png")
+	_preset("equipment")
+	_update_camera(0,true)
+	await get_tree().create_timer(2.0).timeout
+	await _save_capture("review-dusk-equipment.png" if dusk else "review-equipment.png")
+	_write_performance()
+	get_tree().quit()
+
+func _run_shadow_study() -> void:
+	capturing = true
+	_preset("equipment")
+	_update_camera(0,true)
+	_set_lighting(true)
+	await get_tree().create_timer(4.0).timeout
+	await _save_capture("shadow-original.png")
+	sun.shadow_enabled = false
+	await get_tree().create_timer(2.0).timeout
+	await _save_capture("shadow-no-sun.png")
+	sun.shadow_enabled = true
+	for lamp: OmniLight3D in yard_data.get("lamps",[]):
+		lamp.shadow_enabled = false
+	await get_tree().create_timer(2.0).timeout
+	await _save_capture("shadow-no-lamp.png")
+	get_tree().quit()
+
+func _run_look_study() -> void:
+	capturing = true
+	Engine.max_fps = 60
+	await get_tree().create_timer(4.0).timeout
+	_preset("yard")
+	_update_camera(0,true)
+	var modes := [Environment.TONE_MAPPER_ACES,Environment.TONE_MAPPER_AGX,Environment.TONE_MAPPER_FILMIC]
+	for index in range(modes.size()):
+		environment.tonemap_mode = modes[index]
+		environment.tonemap_exposure = 0.90 if index < 2 else 1.6
+		environment.tonemap_agx_contrast = 1.35
+		await get_tree().create_timer(2.0).timeout
+		await _save_capture("look-%d.png"%index)
+	get_tree().quit()
 
 func _run_capture_suite() -> void:
 	print("CAPTURE_SUITE_START")
@@ -422,6 +483,15 @@ func _run_capture_suite() -> void:
 	await get_tree().create_timer(2.0).timeout
 	await _save_capture("04-trackside.png")
 	_collect_mode_report("trackside")
+	_preset("equipment")
+	_set_lighting(true)
+	_update_camera(0,true)
+	await get_tree().create_timer(2.0).timeout
+	frame_samples.clear()
+	await get_tree().create_timer(2.0).timeout
+	await _save_capture("06-dusk-equipment.png")
+	_collect_mode_report("dusk-equipment")
+	_set_lighting(false)
 	_preset("yard")
 	_update_camera(0,true)
 	ui.visible = false
@@ -432,7 +502,7 @@ func _run_capture_suite() -> void:
 
 func _write_performance() -> void:
 	frame_samples.sort()
-	var report: Dictionary = {"engine":Engine.get_version_info().string,"renderer":RenderingServer.get_current_rendering_method(),"gpu":RenderingServer.get_video_adapter_name(),"sample_count":frame_samples.size(),"viewport":str(get_viewport().get_visible_rect().size),"draw_calls":Performance.get_monitor(Performance.RENDER_TOTAL_DRAW_CALLS_IN_FRAME),"objects":Performance.get_monitor(Performance.RENDER_TOTAL_OBJECTS_IN_FRAME),"nodes":get_tree().get_node_count(),"static_memory_bytes":Performance.get_monitor(Performance.MEMORY_STATIC),"video_memory_bytes":Performance.get_monitor(Performance.RENDER_VIDEO_MEM_USED),"ground":{"slabs":ground_data.get("slab_count",0),"vegetation_instances":ground_data.get("vegetation_instances",0)}}
+	var report: Dictionary = {"engine":Engine.get_version_info().string,"renderer":RenderingServer.get_current_rendering_method(),"gpu":RenderingServer.get_video_adapter_name(),"sample_count":frame_samples.size(),"viewport":str(get_viewport().get_visible_rect().size),"output_size":str(last_capture_size),"stretched_viewport_size":str(get_viewport().get_texture().get_size()),"native_window_size":str(DisplayServer.window_get_size()),"hidpi_allowed":ProjectSettings.get_setting("display/window/dpi/allow_hidpi"),"taa":get_viewport().use_taa,"msaa":get_viewport().msaa_3d,"draw_calls":Performance.get_monitor(Performance.RENDER_TOTAL_DRAW_CALLS_IN_FRAME),"objects":Performance.get_monitor(Performance.RENDER_TOTAL_OBJECTS_IN_FRAME),"nodes":get_tree().get_node_count(),"static_memory_bytes":Performance.get_monitor(Performance.MEMORY_STATIC),"video_memory_bytes":Performance.get_monitor(Performance.RENDER_VIDEO_MEM_USED),"ground":{"slabs":ground_data.get("slab_count",0),"vegetation_instances":ground_data.get("vegetation_instances",0)}}
 	if not frame_samples.is_empty():
 		report["median_frame_ms"] = frame_samples[frame_samples.size()/2]
 		report["p95_frame_ms"] = frame_samples[int(frame_samples.size()*0.95)]
@@ -451,6 +521,7 @@ func _collect_mode_report(name: String) -> void:
 func _self_test() -> void:
 	await get_tree().process_frame
 	await get_tree().process_frame
+	if grid: _toggle_grid()
 	assert(camera.projection == Camera3D.PROJECTION_PERSPECTIVE)
 	assert(not yard_data.get("lamps",[]).is_empty())
 	assert(ground_data.get("ground_material") is ShaderMaterial)
@@ -542,9 +613,13 @@ func _click_ui(button: Button) -> void:
 func _verify_faces(parent: Node, seen: Dictionary) -> Dictionary:
 	var report: Dictionary = {"triangles":0,"failures":0}
 	for child: Node in parent.get_children():
-		if child is MeshInstance3D and child.mesh is ArrayMesh and not seen.has(child.mesh):
-			seen[child.mesh] = true
-			var mesh: ArrayMesh = child.mesh
+		var mesh: Mesh = null
+		if child is MeshInstance3D:
+			mesh = child.mesh
+		elif child is MultiMeshInstance3D and child.multimesh:
+			mesh = child.multimesh.mesh
+		if mesh is ArrayMesh and not seen.has(mesh):
+			seen[mesh] = true
 			for surface: int in range(mesh.get_surface_count()):
 				var arrays: Array = mesh.surface_get_arrays(surface)
 				var vertices: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]

@@ -440,3 +440,21 @@ Verified Godot 4.7.2 / Forward+ / Vulkan on the creator's Apple M2 Pro. Headless
 Corrected shadow acne at dusk, lamp self-occlusion, custom mesh winding, texture mipmaps and foliage color space. A covered macOS window suppressed normal drawing and originally stalled screenshot waits; explicit offscreen draws corrected the harness. No browser was launched for native proof testing. Actual screenshots and reproducible validation are saved with the project.
 
 The native window is left open in the daylight yard view for the creator. This is a visual proof with static example assets; the tested browser simulation, saves and Site are unchanged. The models, ground and foliage are still a first art pass with a visible gap to the generated reference. Review this result before integrating the simulation, file saves and background clock. Native migration issue #19 stays open.
+
+
+## October 5, 2026 — concept C fidelity revision
+
+The creator rejects the first Godot proof as weaker than the newly supplied concept C reference: too little brightness and contrast, unpolished rails without highlights, pixelated edges, bland materials and insufficient detail. Their instruction is to continue improving actual native renders until they look similar. The supplied image is retained as `C-native-target.png`, alongside the original C and accepted A/B studies.
+
+Revise the scene itself, rather than supplying new generated art. Add true rounded machinery edges, reflective glass and polished pistons, curved rail crowns with smooth normals, concrete panel sleepers and fittings, physically layered slab stock with recessed lifting sockets, container fasteners/gutters, a supported truck load and six grounded workers. Improve sun/shade separation and cloud-sky reflections; enable Retina output, temporal antialiasing, 4× MSAA and 16× anisotropic filtering.
+
+Compare repeated native captures against the target. Correct the first revision's excessive exposure, lime foliage, white grid, flat ballast and cropped foreground. Tighten the practical yard layout while preserving meter-scaled assets, standard gauge and grid alignment. Layer olive shrubs, short curved dry/green tufts, stones and granular sandy soil. Avoid broad grassy blotches and dominant paving. Thin power wires retain their geometry but stop casting stippled subpixel shadow artifacts. No browser is needed for the native tests.
+
+Keep this checkpoint a static visual proof; native gameplay, save import and background simulation remain the separately approved future migration work. The playable web game is unchanged. Final render and verification results are recorded below when complete.
+
+
+Outcome — October 6: the revised native scene and six unedited Godot captures are complete. Daylight has stronger light/shade separation, continuous steel and hydraulic highlights, rounded machinery, aged stock, layered olive crowns, short curved grass and clustered stones. Capture-guided shadow diagnosis found PCSS bands at dusk lamps; fixed filtered lamp shadows corrected them, and the equipment view at dusk was added to verification.
+
+Godot 4.7.2 / Forward+ / Vulkan on Apple M2 Pro rendered six 1920×1080 views in 30.16 seconds without engine errors or watchdog intervention. Yard daylight/dusk measured 60 FPS; equipment/trackside/close dusk measured 54–55 FPS. Median per-view frame times 16.66–18.39 ms, p95 below 19.34 ms, sampled peak resident memory 671.9 MB. These short static-scene checks do not establish large-factory scalability. Geometry and native input checks pass: 118,126 custom/instanced triangles with zero winding/normal failures, and 22 herb triangles. Actual launcher, camera presets, daylight/dusk, floor drag and Grid were reviewed in the native window, which is left open at daylight Yard. Tests used one guarded 3D process at a time and no browser.
+
+The target is preserved for later comparisons; the scene is an engine-rendered interpretation and remains a visual proof. The browser game, saves and 350 simulation tests were not modified; gameplay migration and file saves remain future work under #19. Source, screenshots and measured verification are included in the public project.

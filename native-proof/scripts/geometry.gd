@@ -75,3 +75,74 @@ static func label(parent: Node3D, text: String, position: Vector3, font_size: in
 	result.position = position
 	parent.add_child(result)
 	return result
+
+# A real rounded cuboid, not an outline shader. Planar panels retain broad faces;
+# edge fillets and spherical corners catch continuous highlights with shared normals.
+# All generated surfaces are deindexed and use Godot's clockwise winding.
+static func beveled_box(parent: Node3D, position: Vector3, size: Vector3, material: Material, radius: float = 0.035) -> MeshInstance3D:
+	var smallest: float = minf(size.x, minf(size.y, size.z))
+	if smallest < 0.055:
+		return box(parent, position, size, material)
+	var actual_radius: float = minf(radius, smallest * 0.23)
+	var key: String = "rounded/%s/%.5f" % [str(size), actual_radius]
+	if not meshes.has(key):
+		meshes[key] = _rounded_box_mesh(size, actual_radius)
+	return instance(parent, meshes[key] as Mesh, material, position)
+
+static func triangle(vertices: Array[Vector3], normals: Array[Vector3], a: Vector3, b: Vector3, c: Vector3, na: Vector3, nb: Vector3, nc: Vector3) -> void:
+	if (b-a).cross(c-a).dot(na+nb+nc) > 0.0:
+		vertices.append(a)
+		vertices.append(c)
+		vertices.append(b)
+		normals.append(na)
+		normals.append(nc)
+		normals.append(nb)
+	else:
+		vertices.append(a)
+		vertices.append(b)
+		vertices.append(c)
+		normals.append(na)
+		normals.append(nb)
+		normals.append(nc)
+
+static func surface(vertices: Array[Vector3], normals: Array[Vector3]) -> ArrayMesh:
+	var arrays: Array = []
+	arrays.resize(Mesh.ARRAY_MAX)
+	arrays[Mesh.ARRAY_VERTEX] = PackedVector3Array(vertices)
+	arrays[Mesh.ARRAY_NORMAL] = PackedVector3Array(normals)
+	var mesh: ArrayMesh = ArrayMesh.new()
+	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
+	return mesh
+
+static func _rounded_box_mesh(size: Vector3, radius: float) -> ArrayMesh:
+	var vertices: Array[Vector3] = []
+	var normals: Array[Vector3] = []
+	var half: Vector3 = size * 0.5
+	var core: Vector3 = half - Vector3.ONE * radius
+	for axis: int in range(3):
+		var u_axis: int = (axis + 1) % 3
+		var v_axis: int = (axis + 2) % 3
+		var hu: float = half[u_axis]
+		var hv: float = half[v_axis]
+		var cu: float = core[u_axis]
+		var cv: float = core[v_axis]
+		# 22.5-degree edge samples provide four segments around each 90-degree fillet.
+		var u_values: PackedFloat32Array = PackedFloat32Array([-hu, -cu-radius*0.41421356, -cu, cu, cu+radius*0.41421356, hu])
+		var v_values: PackedFloat32Array = PackedFloat32Array([-hv, -cv-radius*0.41421356, -cv, cv, cv+radius*0.41421356, hv])
+		for face_sign: int in [-1, 1]:
+			for ui: int in range(5):
+				for vi: int in range(5):
+					var corners: Array[Vector3] = []
+					var corner_normals: Array[Vector3] = []
+					for ij: Vector2i in [Vector2i(ui,vi),Vector2i(ui+1,vi),Vector2i(ui+1,vi+1),Vector2i(ui,vi+1)]:
+						var p: Vector3 = Vector3.ZERO
+						p[axis] = face_sign * half[axis]
+						p[u_axis] = u_values[ij.x]
+						p[v_axis] = v_values[ij.y]
+						var q: Vector3 = p.clamp(-core,core)
+						var normal: Vector3 = (p-q).normalized()
+						corners.append(q+normal*radius)
+						corner_normals.append(normal)
+					triangle(vertices,normals,corners[0],corners[1],corners[2],corner_normals[0],corner_normals[1],corner_normals[2])
+					triangle(vertices,normals,corners[0],corners[2],corners[3],corner_normals[0],corner_normals[2],corner_normals[3])
+	return surface(vertices,normals)

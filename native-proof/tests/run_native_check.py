@@ -25,6 +25,10 @@ with output.open("w") as log:
     process = subprocess.Popen(command, stdout=log, stderr=subprocess.STDOUT)
     print("Native check PID", process.pid, flush=True)
     while process.poll() is None:
+        text = output.read_text(errors="replace")
+        if "SCRIPT ERROR:" in text or "ERROR:" in text:
+            reason = "engine or script error; see log"
+            break
         if time.monotonic() - start > args.timeout:
             reason = "timeout"
             break

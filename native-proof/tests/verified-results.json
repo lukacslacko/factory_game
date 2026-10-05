@@ -1,78 +1,106 @@
 {
-  "checked_on": "2026-10-05",
+  "checked_on": "2026-10-06",
   "engine": "4.7.2.stable.official.ed1daf0bf",
   "system": "macOS 14.5, Apple M2 Pro",
-  "geometry_triangles_verified": 32020,
+  "geometry_triangles_verified": 118126,
   "geometry_normal_failures": 0,
   "vegetation_triangles_verified": 22,
   "vegetation_normal_failures": 0,
   "input_smoke": "passed: actual viewport dispatch to Daylight, Dusk, Grid, floor drag, toolbar release, view-relative W",
-  "native_ui_review": "passed: launcher, actual Daylight/Dusk and Equipment buttons, floor drag and Grid, reset to daylight Yard",
+  "native_ui_review": "passed: macOS launcher, actual Equipment and Dusk buttons, Grid off/on, floor drag, restored daylight Yard; preview left open",
+  "art_review": "Actual native images compared against C-native-target.png. Revised light/shade contrast, metallic highlights, smooth edges, soil/foliage detail and composition. Dusk PCSS bands corrected with fixed filtered lamp shadows.",
   "render": {
-    "draw_calls": 784.0,
+    "draw_calls": 767.0,
     "engine": "4.7.2-stable (official)",
     "gpu": "Apple M2 Pro",
     "ground": {
-      "slabs": 516,
-      "vegetation_instances": 11577
+      "slabs": 309,
+      "vegetation_instances": 4683
     },
-    "median_frame_ms": 16.659,
+    "hidpi_allowed": true,
+    "median_frame_ms": 18.282,
     "modes": [
       {
-        "draw_calls": 806.0,
-        "forced_offscreen_draws": true,
-        "fps_counter": 60.0,
-        "frames": 121,
-        "median_wall_frame_ms": 16.663,
-        "name": "daylight",
-        "native_window_drawable": false,
-        "p95_wall_frame_ms": 17.027
-      },
-      {
-        "draw_calls": 881.0,
-        "forced_offscreen_draws": true,
+        "draw_calls": 787.0,
+        "forced_offscreen_draws": false,
         "fps_counter": 60.0,
         "frames": 121,
         "median_wall_frame_ms": 16.662,
+        "name": "daylight",
+        "native_window_drawable": true,
+        "p95_wall_frame_ms": 18.43
+      },
+      {
+        "draw_calls": 805.0,
+        "forced_offscreen_draws": false,
+        "fps_counter": 60.0,
+        "frames": 121,
+        "median_wall_frame_ms": 16.671,
         "name": "dusk",
-        "native_window_drawable": false,
-        "p95_wall_frame_ms": 17.382
+        "native_window_drawable": true,
+        "p95_wall_frame_ms": 18.425
       },
       {
-        "draw_calls": 733.0,
-        "forced_offscreen_draws": true,
-        "fps_counter": 60.0,
-        "frames": 121,
-        "median_wall_frame_ms": 16.66,
+        "draw_calls": 706.0,
+        "forced_offscreen_draws": false,
+        "fps_counter": 55.0,
+        "frames": 111,
+        "median_wall_frame_ms": 18.092,
         "name": "equipment",
-        "native_window_drawable": false,
-        "p95_wall_frame_ms": 16.949
+        "native_window_drawable": true,
+        "p95_wall_frame_ms": 18.45
       },
       {
-        "draw_calls": 806.0,
-        "forced_offscreen_draws": true,
-        "fps_counter": 60.0,
-        "frames": 121,
-        "median_wall_frame_ms": 16.658,
+        "draw_calls": 722.0,
+        "forced_offscreen_draws": false,
+        "fps_counter": 55.0,
+        "frames": 110,
+        "median_wall_frame_ms": 18.181,
         "name": "trackside",
-        "native_window_drawable": false,
-        "p95_wall_frame_ms": 17.291
+        "native_window_drawable": true,
+        "p95_wall_frame_ms": 19.077
+      },
+      {
+        "draw_calls": 935.0,
+        "forced_offscreen_draws": false,
+        "fps_counter": 54.0,
+        "frames": 109,
+        "median_wall_frame_ms": 18.386,
+        "name": "dusk-equipment",
+        "native_window_drawable": true,
+        "p95_wall_frame_ms": 19.337
       }
     ],
-    "nodes": 1353,
-    "objects": 2578.0,
-    "p95_frame_ms": 17.442,
+    "msaa": 2,
+    "native_window_size": "(1920, 1080)",
+    "nodes": 1522,
+    "objects": 2740.0,
+    "output_size": "(1920, 1080)",
+    "p95_frame_ms": 19.284,
     "renderer": "forward_plus",
-    "sample_count": 173,
-    "static_memory_bytes": 85249662.0,
-    "video_memory_bytes": 435092832.0,
-    "viewport": "(1600.0, 1000.0)"
+    "sample_count": 163,
+    "static_memory_bytes": 122934392.0,
+    "stretched_viewport_size": "(2195.0, 1235.0)",
+    "taa": true,
+    "video_memory_bytes": 635173776.0,
+    "viewport": "(1680.0, 945.0)"
   },
   "resources": {
-    "name": "release-proof",
-    "elapsed_seconds": 23.89,
-    "peak_resident_bytes": 386580480,
+    "name": "final-verified-render",
+    "elapsed_seconds": 30.16,
+    "peak_resident_bytes": 671907840,
     "returncode": 0,
     "stopped_reason": null
+  },
+  "source_sha256": {
+    "project.godot": "559fb54f79e47ea162aab5c6e701a43c25fb8b02476cdc7ca34842f9208599cf",
+    "main.tscn": "8fd7b6ce0597f2460cd11d7b31e748e8cfc234600daaf7e3ec1550a902182b39",
+    "scripts/geometry.gd": "995426aadfd0079e3050f91e3c8d7009b7d94a4f77c4815d3af9e73a0f4639a6",
+    "scripts/ground.gd": "0080760c1908d863ccc0a4011ff6eb941c28de9205452bb32095c90cd8d5fe35",
+    "scripts/machines.gd": "efb27771b031b2e32891e2d4bfa0c5d1997986453e899473f13a140dea95f397",
+    "scripts/main.gd": "311b40ed29ae47f1cd184d0b0fda10d4bcc8e6b383fecbd586d81115362ec202",
+    "scripts/rail_yard.gd": "0b5eb53f60a31de964396b0f8d30593b215d33dc2309f10f44c1ad8cd09d1a72",
+    "shaders/daylight_sky.gdshader": "fd6b0d62b96ad92a09c5fa4e54879018f678882b157d333ccc9f5f4b603b306a",
+    "shaders/ground.gdshader": "37eeb27942539af2587e6c9f93fa59c0eec7f28737cac7827f43bc3e8e94efc3"
   }
 }
