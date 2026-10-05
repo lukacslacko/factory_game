@@ -1,0 +1,78 @@
+{
+  "checked_on": "2026-10-05",
+  "engine": "4.7.2.stable.official.ed1daf0bf",
+  "system": "macOS 14.5, Apple M2 Pro",
+  "geometry_triangles_verified": 32020,
+  "geometry_normal_failures": 0,
+  "vegetation_triangles_verified": 22,
+  "vegetation_normal_failures": 0,
+  "input_smoke": "passed: actual viewport dispatch to Daylight, Dusk, Grid, floor drag, toolbar release, view-relative W",
+  "native_ui_review": "passed: launcher, actual Daylight/Dusk and Equipment buttons, floor drag and Grid, reset to daylight Yard",
+  "render": {
+    "draw_calls": 784.0,
+    "engine": "4.7.2-stable (official)",
+    "gpu": "Apple M2 Pro",
+    "ground": {
+      "slabs": 516,
+      "vegetation_instances": 11577
+    },
+    "median_frame_ms": 16.659,
+    "modes": [
+      {
+        "draw_calls": 806.0,
+        "forced_offscreen_draws": true,
+        "fps_counter": 60.0,
+        "frames": 121,
+        "median_wall_frame_ms": 16.663,
+        "name": "daylight",
+        "native_window_drawable": false,
+        "p95_wall_frame_ms": 17.027
+      },
+      {
+        "draw_calls": 881.0,
+        "forced_offscreen_draws": true,
+        "fps_counter": 60.0,
+        "frames": 121,
+        "median_wall_frame_ms": 16.662,
+        "name": "dusk",
+        "native_window_drawable": false,
+        "p95_wall_frame_ms": 17.382
+      },
+      {
+        "draw_calls": 733.0,
+        "forced_offscreen_draws": true,
+        "fps_counter": 60.0,
+        "frames": 121,
+        "median_wall_frame_ms": 16.66,
+        "name": "equipment",
+        "native_window_drawable": false,
+        "p95_wall_frame_ms": 16.949
+      },
+      {
+        "draw_calls": 806.0,
+        "forced_offscreen_draws": true,
+        "fps_counter": 60.0,
+        "frames": 121,
+        "median_wall_frame_ms": 16.658,
+        "name": "trackside",
+        "native_window_drawable": false,
+        "p95_wall_frame_ms": 17.291
+      }
+    ],
+    "nodes": 1353,
+    "objects": 2578.0,
+    "p95_frame_ms": 17.442,
+    "renderer": "forward_plus",
+    "sample_count": 173,
+    "static_memory_bytes": 85249662.0,
+    "video_memory_bytes": 435092832.0,
+    "viewport": "(1600.0, 1000.0)"
+  },
+  "resources": {
+    "name": "release-proof",
+    "elapsed_seconds": 23.89,
+    "peak_resident_bytes": 386580480,
+    "returncode": 0,
+    "stopped_reason": null
+  }
+}

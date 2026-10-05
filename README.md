@@ -4,6 +4,10 @@ A playable first version of the fantasy chemistry plant game. Build and operate 
 
 The world uses a true perspective 3D camera, with a meter grid, dimensional stock, angled lighting, and grid-aligned parked equipment. The records use the approved Condensed direction. The visual target is the latest **80% A / 20% B** selection, rather than the earlier rejected flat world studies.
 
+## Native Godot visual proof
+
+An independent [Godot visual study](native-proof/README.md) recreates the concept C yard composition in true perspective, with detailed machinery, layered vegetation, daylight and dusk. Double-click `native-proof/Open visual proof.command` on the creator's Mac, or import `native-proof/project.godot` into Godot 4.7.2. It is an interactive rendering checkpoint; it does not yet run the factory simulation or import browser saves. Actual screenshots, controls, asset credits and measured native validation are included.
+
 ## Play
 
 The private game Site is **https://plant-01-starter-yard.lukacslacko.chatgpt.site**. This package documents version **0.18.0**; deployment status is recorded in `docs/publishing.md`. Sign in with the account that owns the Site. Local and hosted browser saves are separate; use Export save / Import save to transfer a yard.
