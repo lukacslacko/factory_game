@@ -1,3 +1,10 @@
+import { trackGeometry, trackSections, railCells, railFootprint, trackOpenPorts } from './track';
+import type { TrackPiece } from './track';
+import {
+  assignTurnoutOperation,
+  queueTurnoutOperation,
+  tickTurnoutOperation,
+} from './turnout-operation';
 import { packPurchase, orderLines, orderDescription } from './procurement';
 export { packPurchase as planPurchaseBatch } from './procurement';
 import { tickWorkforce, workerAvailable } from './workforce';
@@ -60,6 +67,7 @@ import type {
   Order,
   BuildKind,
   Stack,
+  JobGroup,
 } from './types';
 import {
   MATERIALS,
@@ -285,7 +293,12 @@ export function addZone(s: State, r: Rect, name = 'Stockyard') {
   if (
     s.zones.some((z) => overlap(z, r)) ||
     s.buildings.some((b) => overlap(b, r)) ||
-    s.jobs.some((j) => j.status !== 'canceled' && j.status !== 'done' && overlap(j, r))
+    s.jobs.some(
+      (j) =>
+        j.status !== 'canceled' &&
+        j.status !== 'done' &&
+        (j.track ? railCells(j).some((p) => overlap({ ...p, w: 1, d: 1 }, r)) : overlap(j, r)),
+    )
   )
     return 'That area overlaps another zone, building, or plan.';
   s.zones.push({ ...r, id: id(s, 'zone'), name });
@@ -426,11 +439,7 @@ export function validPlan(s: State, kind: string, r: Rect, ignoreJobs = false): 
     return 'This is a storage zone. Place the structure outside its marked boundary.';
   if (s.stacks.some((t) => (t.qty > 0 || t.item === 'diesel') && overlap(t, r)))
     return 'Stored material occupies the construction area.';
-  if (
-    s.rails.some((t) =>
-      overlap(r, { x: t.x, z: t.z, w: t.rotation % 2 ? 2 : 5, d: t.rotation % 2 ? 5 : 2 }),
-    )
-  )
+  if (s.rails.some((t) => railCells(t).some((p) => overlap(r, { ...p, w: 1, d: 1 }))))
     return 'Existing track occupies this area.';
   if (
     !ignoreJobs &&
@@ -439,8 +448,8 @@ export function validPlan(s: State, kind: string, r: Rect, ignoreJobs = false): 
         j.status !== 'done' &&
         j.status !== 'canceled' &&
         j.kind !== 'refuel' &&
-        overlap(j, r) &&
-        !(kind === 'slab' && j.kind !== 'slab'),
+        (j.track ? railCells(j).some((p) => overlap({ ...p, w: 1, d: 1 }, r)) : overlap(j, r)) &&
+        !(kind === 'slab' && j.kind !== 'slab' && j.kind !== 'rail'),
     )
   )
     return 'Another plan occupies this area.';
@@ -448,7 +457,7 @@ export function validPlan(s: State, kind: string, r: Rect, ignoreJobs = false): 
 }
 function newJob(
   s: State,
-  kind: BuildKind | 'refuel' | 'remove',
+  kind: BuildKind | 'refuel' | 'remove' | 'throwSwitch',
   r: Rect,
   rotation = 0,
   target?: string,
@@ -548,6 +557,227 @@ export function plan(
   s.revision++;
   return { job, error: '' };
 }
+export const TURNOUT_ITEMS: Item[] = ['railPoints', 'railFrog', 'railClosure', 'railExit'];
+export function trackItem(piece: TrackPiece): Item {
+  return piece.layout === 'curve'
+    ? 'railCurve'
+    : piece.layout === 'turnout' && piece.route !== 'straight'
+      ? TURNOUT_ITEMS[piece.section]
+      : 'rail';
+}
+export function validRailLayout(
+  s: State,
+  layout: TrackPiece['layout'],
+  origin: Point,
+  heading: TrackPiece['heading'] = 0,
+  hand: TrackPiece['hand'] = 1,
+): string {
+  if (
+    !['straight', 'curve', 'turnout'].includes(layout) ||
+    ![0, 1, 2, 3].includes(heading) ||
+    ![1, -1].includes(hand) ||
+    !origin ||
+    !Number.isInteger(origin.x) ||
+    !Number.isInteger(origin.z) ||
+    Math.abs(origin.x) >= 10000 ||
+    Math.abs(origin.z) >= 10000
+  )
+    return 'Choose a grid-aligned track endpoint and direction.';
+  const pieces = trackSections(layout, origin, heading, hand),
+    geometries = pieces.map(trackGeometry);
+  const entryYaw = (heading * Math.PI) / 2;
+  // An endpoint is a real rail joint, not a visual crossing or a nearby cell.
+  const ports = trackOpenPorts(s, true);
+  const joint = ports.find(
+    (p) => dist(p, origin) < 0.02 && Math.abs(angleDelta(p.yaw, entryYaw)) < 0.02,
+  );
+  if (!joint)
+    return 'Connect to an open track endpoint facing the indicated direction. Use Rail end to start at the siding.';
+  const cells = [
+    ...new Map(geometries.flatMap((g) => g.cells).map((p) => [key(p.x, p.z), p])).values(),
+  ];
+  for (const p of cells) {
+    const cell = { ...p, w: 1, d: 1 };
+    if (p.x < -12 || p.x + 1 > 220 || p.z < 4 || p.z + 1 > 110)
+      return 'Track extends outside the buildable yard or into the protected transport corridor.';
+    if (p.x < -3 && p.z < 25) return 'Keep the crossing and receiving access lane clear.';
+    if (s.buildings.some((b) => overlap(b, cell))) return 'A structure occupies the track bed.';
+    if (s.zones.some((z) => overlap(z, cell)))
+      return 'The track crosses a designated stockyard. Move or remove its designation first.';
+    if (s.stacks.some((t) => (t.qty > 0 || t.item === 'diesel') && overlap(t, cell)))
+      return 'Stored material occupies the track bed.';
+    const nearJoint = dist({ x: p.x + 0.5, z: p.z + 0.5 }, origin) < 2;
+    const predecessor = (asset: Parameters<typeof trackGeometry>[0]) =>
+      nearJoint &&
+      trackGeometry(asset).ends.some(
+        (q) => dist(q, origin) < 0.02 && Math.abs(angleDelta(q.yaw, entryYaw)) < 0.02,
+      );
+    if (
+      s.rails.some((r) => !predecessor(r) && railCells(r).some((q) => q.x === p.x && q.z === p.z))
+    )
+      return 'Existing track crosses this layout. Connections are made at endpoints; crossings are not junctions.';
+    if (
+      s.jobs.some(
+        (j) =>
+          !['done', 'canceled'].includes(j.status) &&
+          j.kind !== 'refuel' &&
+          j.kind !== 'remove' &&
+          !(j.kind === 'rail' && predecessor(j)) &&
+          (j.track ? railCells(j).some((q) => q.x === p.x && q.z === p.z) : overlap(j, cell)),
+      )
+    )
+      return 'Another construction plan occupies the track bed.';
+  }
+  return '';
+}
+export function planRailLayout(
+  s: State,
+  layout: TrackPiece['layout'],
+  origin: Point,
+  heading: TrackPiece['heading'] = 0,
+  hand: TrackPiece['hand'] = 1,
+): { jobs: Job[]; group?: JobGroup; error: string } {
+  const error = validRailLayout(s, layout, origin, heading, hand);
+  if (error) return { jobs: [], error };
+  const pieces = trackSections(layout, origin, heading, hand),
+    geometries = pieces.map(trackGeometry);
+  const minX = Math.min(...geometries.map((g) => g.rect.x)),
+    minZ = Math.min(...geometries.map((g) => g.rect.z));
+  const rect = {
+    x: minX,
+    z: minZ,
+    w: Math.max(...geometries.map((g) => g.rect.x + g.rect.w)) - minX,
+    d: Math.max(...geometries.map((g) => g.rect.z + g.rect.d)) - minZ,
+  };
+  const group = createJobGroup(
+    s,
+    layout === 'curve'
+      ? 'Build 90° rail curve · R20 m'
+      : layout === 'turnout'
+        ? 'Build 20 m turnout'
+        : 'Extend rail · 5 m',
+    rect,
+  );
+  group.track = { layout, origin: { ...origin }, heading, hand };
+  const occupied = [
+    ...new Map(geometries.flatMap((g) => g.cells).map((p) => [key(p.x, p.z), p])).values(),
+  ];
+  for (const p of occupied)
+    if (s.paving[key(p.x, p.z)]) {
+      const target = 'pave:' + key(p.x, p.z);
+      removeBuilding(s, target);
+      const job = s.jobs.find((j) => j.target === target && j.status === 'todo');
+      if (job) job.parentId = group.id;
+    }
+  const jobs = pieces.map((piece) => {
+    const g = trackGeometry(piece),
+      j = newJob(s, 'rail', g.rect, heading % 2, undefined, group.id);
+    j.track = { ...piece, groupId: group.id };
+    j.item = trackItem(piece);
+    return j;
+  });
+  event(
+    s,
+    'Planning',
+    group.id,
+    `Planned ${group.label}: ${jobs.length} independently delivered and installed panels at E${origin.x}, S${origin.z}.`,
+  );
+  s.revision++;
+  return { jobs, group, error: '' };
+}
+export function resumeTrackWork(s: State, workId: string): string {
+  const own = s.jobs.find((j) => j.id === workId);
+  const leaves = own ? [own] : s.jobs.filter((j) => j.track?.groupId === workId);
+  if (!leaves.length || leaves.some((j) => !j.track))
+    return 'Select a curved or modular track work order.';
+  if (leaves.some((j) => j.status === 'doing' && j.cancel))
+    return 'Wait until the crew secures the current panel and buffer.';
+  for (const j of leaves.filter((j) => j.status === 'canceled' && !j.delivered))
+    for (const p of railCells(j)) {
+      const cell = { ...p, w: 1, d: 1 };
+      if (
+        s.buildings.some((b) => overlap(b, cell)) ||
+        s.zones.some((z) => overlap(z, cell)) ||
+        s.stacks.some((t) => t.qty > 0 && t.source !== j.id && overlap(t, cell)) ||
+        s.rails.some(
+          (r) =>
+            r.track?.groupId !== j.track!.groupId &&
+            railCells(r).some((q) => q.x === p.x && q.z === p.z),
+        ) ||
+        s.jobs.some(
+          (other) =>
+            other.id !== j.id &&
+            other.track?.groupId !== j.track!.groupId &&
+            !['done', 'canceled'].includes(other.status) &&
+            !['refuel', 'remove'].includes(other.kind) &&
+            (other.track
+              ? railCells(other).some((q) => q.x === p.x && q.z === p.z)
+              : overlap(other, cell)),
+        )
+      )
+        return 'A new asset, stockyard, or plan occupies the canceled track bed. Clear it before resuming.';
+    }
+  let count = 0;
+  for (const j of leaves.filter((j) => j.status === 'canceled')) {
+    if (j.delivered && j.railWork?.panel.state === 'installed') {
+      j.status = 'done';
+      j.phase = 'Complete';
+      j.cancel = undefined;
+      j.reason = '';
+      count++;
+      continue;
+    }
+    const staged = s.stacks.find(
+      (t) => t.id === j.railWork?.panel.stackId && t.qty > 0 && t.source === j.id,
+    );
+    j.legacyRailHandoff = staged ? 'staged' : undefined;
+    j.railWork = undefined;
+    j.status = 'todo';
+    j.phase = 'Waiting';
+    j.reason = '';
+    j.cancel = undefined;
+    j.finished = undefined;
+    j.progress = 0;
+    j.retryAt = undefined;
+    j.retryRevision = undefined;
+    count++;
+  }
+  if (!count) return 'There are no safely canceled panels to resume.';
+  event(
+    s,
+    'Planning',
+    workId,
+    `Resumed ${count} track panel records, retaining installed panels and real staged stock.`,
+  );
+  s.revision++;
+  return '';
+}
+export function setTurnoutRoute(s: State, railId: string, route: 'straight' | 'branch'): string {
+  const rail = s.rails.find((r) => r.id === railId);
+  if (!rail?.track || rail.track.layout !== 'turnout' || rail.track.section !== 0)
+    return 'Select the turnout points module.';
+  const jobs = s.jobs.filter((j) => j.track?.groupId === rail.track!.groupId);
+  const installed = s.rails.filter((r) => r.track?.groupId === rail.track!.groupId);
+  const expected = trackSections('turnout', rail.track.origin, rail.track.heading, rail.track.hand);
+  if (
+    jobs.length !== 7 ||
+    jobs.some((j) => j.status !== 'done') ||
+    installed.length !== 7 ||
+    expected.some(
+      (p) => !installed.some((r) => r.track!.section === p.section && r.track!.route === p.route),
+    )
+  )
+    return 'Finish all seven panels and rail joints before changing the turnout.';
+  if (!['straight', 'branch'].includes(route)) return 'Choose Straight or Branch.';
+  return queueTurnoutOperation(s, rail, route, {
+    createJob: (yard, rect, target) => newJob(yard, 'throwSwitch', rect, 0, target),
+    obstacles,
+    event,
+    complete,
+    release: finishRelease,
+  });
+}
+
 export function pave(s: State, r: Rect) {
   let count = 0;
   let parentId: string | undefined;
@@ -988,8 +1218,7 @@ function recoveryTarget(s: State, target?: string) {
     return {
       ...rail,
       kind: 'rail' as BuildKind,
-      w: rail.rotation % 2 ? 2 : 5,
-      d: rail.rotation % 2 ? 5 : 2,
+      ...railFootprint(rail),
       source: rail.id,
     };
   return s.buildings.find((b) => b.id === target);
@@ -997,14 +1226,14 @@ function recoveryTarget(s: State, target?: string) {
 export function removeBuilding(s: State, bid: string) {
   const b = recoveryTarget(s, bid);
   if (!b) return 'Structure or paving not found.';
+  if ('track' in b && b.track)
+    return 'Recovery of these new track assemblies will be added with owned railway operation. Canceling unfinished work retains its real installed and staged panels.';
   if (!(b.kind in MATERIALS))
     return 'Utility service connections cannot be removed in this version.';
   if (
     b.kind === 'slab' &&
     (s.buildings.some((t) => overlap(t, b)) ||
-      s.rails.some((r) =>
-        overlap({ x: r.x, z: r.z, w: r.rotation % 2 ? 2 : 5, d: r.rotation % 2 ? 5 : 2 }, b),
-      ))
+      s.rails.some((r) => railCells(r).some((p) => overlap({ ...p, w: 1, d: 1 }, b))))
   )
     return 'Recover the structure above this paving first.';
   if (
@@ -1022,9 +1251,7 @@ export function recoverAt(s: State, p: Point) {
   const cell = { x: Math.floor(p.x), z: Math.floor(p.z), w: 1, d: 1 };
   const b = s.buildings.find((b) => overlap(b, cell));
   if (b) return removeBuilding(s, b.id);
-  const rail = s.rails.find((r) =>
-    overlap({ x: r.x, z: r.z, w: r.rotation % 2 ? 2 : 5, d: r.rotation % 2 ? 5 : 2 }, cell),
-  );
+  const rail = s.rails.find((r) => railCells(r).some((p) => overlap({ ...p, w: 1, d: 1 }, cell)));
   if (rail) return removeBuilding(s, rail.id);
   if (s.paving[key(p.x, p.z)]) return removeBuilding(s, 'pave:' + key(p.x, p.z));
   return 'There is no recoverable structure, player-built rail, or paving in this cell.';
@@ -1033,6 +1260,13 @@ export function recoverAt(s: State, p: Point) {
 export function cancelJob(s: State, jid: string) {
   const j = s.jobs.find((j) => j.id === jid);
   if (!j || j.status === 'done' || j.status === 'canceled') return;
+  if (j.kind === 'throwSwitch' && j.status === 'doing' && j.elapsed > 0) {
+    j.cancel = true;
+    j.phase = 'Return lever to original route';
+    j.reason = 'The worker will return the manual lever before stopping';
+    s.revision++;
+    return;
+  }
   if (j.handling?.state === 'placed' && j.status === 'doing') {
     j.cancel = true;
     j.reason = 'Cancel requested; leave the supported slab safely in place.';
@@ -1119,6 +1353,7 @@ function foundationReady(s: State, j: Job) {
 function assign(s: State, j: Job) {
   if (j.status !== 'todo') return;
   if (j.retryRevision === s.revision && (j.retryAt || 0) > s.elapsed) return;
+  if (assignTurnoutOperation(s, j, { obstacles, event, complete, release: finishRelease })) return;
   if (j.kind === 'refuel') {
     const e = s.equipment.find((e) => e.id === j.target);
     if (!e) {
@@ -1190,7 +1425,43 @@ function assign(s: State, j: Job) {
     }
     j.qty = 1;
   }
-  if (j.kind === 'rail') {
+  if (j.kind === 'rail' && j.track?.groupId) {
+    const pieces = trackSections(j.track.layout, j.track.origin, j.track.heading, j.track.hand);
+    const ordinal = (job: Job) =>
+      pieces.findIndex((p) => p.section === job.track?.section && p.route === job.track?.route);
+    if (ordinal(j) === 0) {
+      const entry = trackGeometry(j).entry,
+        predecessor = trackOpenPorts(s, false).find(
+          (p) =>
+            dist(p, entry) < 0.02 &&
+            Math.abs(Math.abs(angleDelta(p.yaw, entry.yaw)) - Math.PI) < 0.02,
+        );
+      if (!predecessor) {
+        j.reason = 'Waiting for the connecting track work order to finish at this endpoint';
+        return;
+      }
+      if (
+        s.jobs.some((p) => p.status === 'doing' && p.railWork?.panel.railId === predecessor.assetId)
+      ) {
+        j.reason = 'Waiting for the preceding crew to secure the buffer and finish the rail joint';
+        return;
+      }
+    }
+    const preceding = s.jobs.filter(
+      (p) => p.track?.groupId === j.track!.groupId && ordinal(p) < ordinal(j),
+    );
+    const prior = preceding.find((p) => p.status !== 'done' && p.status !== 'canceled');
+    if (prior) {
+      j.reason = `Waiting for preceding panel ${prior.id} and safe buffer placement`;
+      return;
+    }
+    const gap = preceding.find((p) => p.status === 'canceled' && !p.delivered);
+    if (gap) {
+      j.reason = `Preceding panel ${gap.id} was canceled; cancel and replan this assembly`;
+      return;
+    }
+  }
+  if (j.kind === 'rail' && !j.track) {
     const previous = s.jobs.find(
       (p) =>
         p.kind === 'rail' &&
@@ -1209,7 +1480,9 @@ function assign(s: State, j: Job) {
     j.kind === 'rail' &&
     Object.keys(s.paving).some((k) => {
       const [x, z] = k.split(',').map(Number);
-      return overlap(j, { x, z, w: 1, d: 1 });
+      return (j.track ? railCells(j) : [{ x: j.x, z: j.z }]).some((p) =>
+        j.track ? p.x === x && p.z === z : overlap(j, { x, z, w: 1, d: 1 }),
+      );
     })
   ) {
     j.reason = 'Waiting for existing paving to be recovered';
@@ -1545,6 +1818,8 @@ function recoveryDestination(s: State, j: Job, e: Equipment) {
 }
 function tickJob(s: State, j: Job, dt: number) {
   if (j.status !== 'doing') return;
+  if (tickTurnoutOperation(s, j, dt, { obstacles, event, complete, release: finishRelease }))
+    return;
   let w = s.workers.find((w) => w.id === j.worker);
   const op = s.workers.find((w) => w.id === j.operator),
     e = s.equipment.find((e) => e.id === j.equipment),
@@ -2145,8 +2420,10 @@ export function totals(s: State, item: Item) {
       item === 'slab'
         ? Object.values(s.paving).filter((v) => v !== 'EXISTING').length
         : item === 'rail'
-          ? s.rails.length
-          : s.buildings.filter((b) => b.kind === item && b.source !== 'opening').length,
+          ? s.rails.filter((r) => !r.item || r.item === 'rail').length
+          : item.startsWith('rail')
+            ? s.rails.filter((r) => r.item === item).length
+            : s.buildings.filter((b) => b.kind === item && b.source !== 'opening').length,
   };
 }
 export function save(s: State) {

@@ -1,3 +1,4 @@
+import { validTrackPiece, trackGeometry } from './track';
 import {
   FREIGHT_CAPACITY,
   FREIGHT_DECK_LENGTH,
@@ -21,6 +22,12 @@ const motion = (p: any) =>
     (k) => p[k] === undefined || finite(p[k]),
   );
 const path = (p: any) => Array.isArray(p) && p.length < 50000 && p.every(point);
+const trackItem = (t: any) =>
+  t.layout === 'curve'
+    ? 'railCurve'
+    : t.layout === 'turnout' && t.route !== 'straight'
+      ? ['railPoints', 'railFrog', 'railClosure', 'railExit'][t.section]
+      : 'rail';
 export function validateState(value: any): asserts value is State {
   const s = value;
   if (!s || ![1, 2, 3, 4].includes(s.version)) fail('unsupported format or version');
@@ -261,6 +268,11 @@ export function validateState(value: any): asserts value is State {
   }
   for (const t of s.stacks) {
     if (
+      t.trackHand !== undefined &&
+      (![1, -1].includes(t.trackHand) || !t.item?.startsWith('rail'))
+    )
+      fail('invalid stored track handedness');
+    if (
       !point(t) ||
       !(t.item in MATERIALS) ||
       !Number.isInteger(t.qty) ||
@@ -286,9 +298,91 @@ export function validateState(value: any): asserts value is State {
   for (const b of [...s.buildings, ...s.zones, ...s.jobs])
     if (!point(b) || !finite(b.w) || !finite(b.d) || b.w <= 0 || b.d <= 0)
       fail('invalid footprint');
-  for (const r of s.rails)
-    if (!point(r) || ![0, 1].includes(r.rotation) || r.length !== 5) fail('invalid track panel');
+  for (const r of s.rails) {
+    if (!point(r) || ![0, 1].includes(r.rotation) || !finite(r.length)) fail('invalid track panel');
+    if (r.track) {
+      if (!validTrackPiece(r.track)) fail('invalid track geometry');
+      const g = trackGeometry(r);
+      if (
+        Math.abs(r.length - g.length) > 1e-5 ||
+        Math.abs(r.x - g.rect.x) > 1e-5 ||
+        Math.abs(r.z - g.rect.z) > 1e-5 ||
+        r.item !== trackItem(r.track) ||
+        r.rotation !== r.track.heading % 2
+      )
+        fail('track panel disagrees with its geometry or material');
+      if (r.track.groupId && !groups.has(r.track.groupId)) fail('track work order missing');
+    } else if (r.length !== 5 || (r.item !== undefined && r.item !== 'rail'))
+      fail('invalid legacy track panel');
+    if (
+      r.selectedRoute !== undefined &&
+      (!['straight', 'branch'].includes(r.selectedRoute) ||
+        r.track?.layout !== 'turnout' ||
+        r.track?.section !== 0)
+    )
+      fail('invalid turnout route');
+  }
+  for (const g of s.jobGroups || [])
+    if (
+      g.track &&
+      (!validTrackPiece({ ...g.track, section: 0 }) ||
+        !['straight', 'curve', 'turnout'].includes(g.track.layout))
+    )
+      fail('invalid track work order layout');
   for (const j of s.jobs) {
+    if (j.kind === 'throwSwitch') {
+      const points = s.rails.find((r: any) => r.id === j.target);
+      if (
+        !['straight', 'branch'].includes(j.requestedRoute) ||
+        !points?.track ||
+        points.track.layout !== 'turnout' ||
+        points.track.section !== 0 ||
+        j.qty !== 0 ||
+        j.item !== undefined ||
+        j.track !== undefined ||
+        j.operator !== undefined ||
+        j.equipment !== undefined ||
+        j.stack !== undefined ||
+        j.preferredEquipment !== undefined ||
+        !finite(j.elapsed) ||
+        j.elapsed < 0 ||
+        j.elapsed > 4 ||
+        !finite(j.progress) ||
+        j.progress < 0 ||
+        j.progress > 1
+      )
+        fail('invalid manual turnout operation');
+      if (
+        j.status === 'doing' &&
+        !s.workers.some((w: any) => w.id === j.worker && w.job === j.id && !w.vehicle)
+      )
+        fail('manual turnout operation has no worker on foot');
+    } else if (j.requestedRoute !== undefined)
+      fail('turnout route request belongs to a manual turnout operation');
+    if (j.track) {
+      if (
+        j.kind !== 'rail' ||
+        !validTrackPiece(j.track) ||
+        j.item !== trackItem(j.track) ||
+        j.track.groupId !== j.parentId ||
+        j.qty !== 1 ||
+        j.rotation !== j.track.heading % 2
+      )
+        fail('invalid track construction geometry or material');
+      const macro = groups.get(j.parentId)?.track;
+      if (
+        !macro ||
+        ['layout', 'heading', 'hand'].some((k) => macro[k] !== j.track[k]) ||
+        macro.origin.x !== j.track.origin.x ||
+        macro.origin.z !== j.track.origin.z
+      )
+        fail('track panel disagrees with work order layout');
+      const g = trackGeometry(j);
+      if (
+        ['x', 'z', 'w', 'd'].some((k) => Math.abs(j[k] - g.rect[k as keyof typeof g.rect]) > 1e-5)
+      )
+        fail('track construction footprint disagrees with geometry');
+    }
     if (
       j.legacyRailHandoff !== undefined &&
       (j.kind !== 'rail' || !['carried', 'staged', 'installed'].includes(j.legacyRailHandoff))
@@ -317,6 +411,7 @@ export function validateState(value: any): asserts value is State {
               j.handling.clock === 0))
         )) ||
         (!s.equipment.some((e: any) => e.id === j.equipment) &&
+          j.kind !== 'throwSwitch' &&
           !(
             j.kind === 'slab' &&
             j.handling?.equipmentReleased === true &&
@@ -480,6 +575,7 @@ export function validateState(value: any): asserts value is State {
     if (j.railWork) {
       const r = j.railWork;
       const phases = [
+        'configure-staged-panel',
         'source-approach',
         'source-rig',
         'source-lift',
@@ -514,6 +610,15 @@ export function validateState(value: any): asserts value is State {
         'complete',
       ];
       const pose = (p: any) => point(p) && finite(p.y) && finite(p.yaw);
+      if (['entryYaw', 'endYaw', 'stageYaw'].some((k) => r[k] !== undefined && !finite(r[k])))
+        fail('invalid track construction orientation');
+      if (r.configuredHand !== undefined && ![1, -1].includes(r.configuredHand))
+        fail('invalid staged turnout hand');
+      if (
+        r.configureProgress !== undefined &&
+        (!finite(r.configureProgress) || r.configureProgress < 0 || r.configureProgress > 1)
+      )
+        fail('invalid turnout configuration progress');
       if (r.legacyForkYaw !== undefined && !finite(r.legacyForkYaw))
         fail('invalid imported panel orientation');
       if (
@@ -555,7 +660,7 @@ export function validateState(value: any): asserts value is State {
           !s.stacks.some(
             (t: any) =>
               t.id === (r.panel.state === 'stored' ? r.source?.stackId : r.panel.stackId) &&
-              t.item === 'rail' &&
+              t.item === (j.item || 'rail') &&
               t.qty > 0 &&
               t.reserved > 0,
           )
@@ -564,7 +669,8 @@ export function validateState(value: any): asserts value is State {
         if (
           ['carried', 'placed'].includes(r.panel.state) &&
           !s.equipment.some(
-            (e: any) => e.id === j.equipment && e.cargo?.item === 'rail' && e.cargo.qty === 1,
+            (e: any) =>
+              e.id === j.equipment && e.cargo?.item === (j.item || 'rail') && e.cargo.qty === 1,
           )
         )
           fail('suspended rail panel is missing');

@@ -1,3 +1,6 @@
+import { turnoutIsComplete } from './turnout-operation';
+import { trackGeometry, trackSections, trackOpenPorts, trackNetwork, railFootprint } from './track';
+import type { TrackPiece } from './track';
 import './styles.css';
 import { World } from './world';
 import { orderLines, orderDescription, orderMass } from './procurement';
@@ -77,6 +80,9 @@ try {
 } catch (e) {
   saveError = String(e);
 }
+let railLayout: TrackPiece['layout'] = 'straight';
+let railHand: TrackPiece['hand'] = 1;
+let railPreviewKey = '';
 let state = saved || Sim.createState(),
   tab = 'site',
   tool = 'select',
@@ -168,6 +174,7 @@ try {
 }
 const tabs = [
   ['site', 'Yard'],
+  ['railways', 'Railway'],
   ['materials', 'Materials'],
   ['workers', 'Workers'],
   ['equipment', 'Equipment'],
@@ -228,7 +235,38 @@ function download(name: string, contents: string, type = 'application/json') {
   a.click();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
+function railOrigin(p: Point): Point {
+  const ports = trackOpenPorts(state, true).filter(
+    (q) =>
+      Math.hypot(q.x - p.x, q.z - p.z) < 3 &&
+      Math.abs(
+        Math.atan2(
+          Math.sin(q.yaw - (rotation * Math.PI) / 2),
+          Math.cos(q.yaw - (rotation * Math.PI) / 2),
+        ),
+      ) < 0.01,
+  );
+  ports.sort((a, b) => Math.hypot(a.x - p.x, a.z - p.z) - Math.hypot(b.x - p.x, b.z - p.z));
+  return ports.length
+    ? { x: ports[0].x, z: ports[0].z }
+    : { x: Math.round(p.x), z: Math.round(p.z) };
+}
+function railPieces(p = hover) {
+  return trackSections(railLayout, railOrigin(p), rotation as TrackPiece['heading'], railHand);
+}
+function railRect(p: Point): Rect {
+  const rects = railPieces(p).map((q) => trackGeometry(q).rect),
+    x = Math.min(...rects.map((r) => r.x)),
+    z = Math.min(...rects.map((r) => r.z));
+  return {
+    x,
+    z,
+    w: Math.max(...rects.map((r) => r.x + r.w)) - x,
+    d: Math.max(...rects.map((r) => r.z + r.d)) - z,
+  };
+}
 function rectFor(kind: string, p: Point): Rect {
+  if (kind === 'rail') return railRect(p);
   let x = Math.floor(p.x),
     z = Math.floor(p.z);
   if (kind === 'rail') {
@@ -260,6 +298,8 @@ function currentRect() {
 }
 function setTool(t: string) {
   tool = t;
+  if (t !== 'rail' && t !== 'parking') rotation %= 2;
+  railPreviewKey = '';
   world.dragMode = t === 'slab' || t === 'zone';
   world.panMode = t === 'select';
   world.preview(undefined);
@@ -285,6 +325,21 @@ function renderBuildbar() {
 }
 function renderHint() {
   const el = $('#mode-hint');
+  if (tool === 'rail' && !controlled) {
+    const pieces = railPieces(),
+      bill = new Map<Item, number>();
+    for (const p of pieces) {
+      const item = Sim.trackItem(p);
+      bill.set(item, (bill.get(item) || 0) + 1);
+    }
+    const mass = [...bill].reduce((n, [i, q]) => n + MATERIALS[i].mass * q, 0),
+      price = [...bill].reduce((n, [i, q]) => n + MATERIALS[i].price * q, 0);
+    stableHTML(
+      el,
+      `<div class="rail-options"><b>RAILWAY</b>${(['straight', 'curve', 'turnout'] as const).map((k) => btn('rail-layout:' + k, k === 'straight' ? 'Straight · 5 m' : k === 'curve' ? 'Curve · 90° R20' : 'Turnout · 20 m', railLayout === k ? 'active' : '')).join('')}${railLayout === 'straight' ? '' : btn('rail-hand', railHand === 1 ? 'Right bend' : 'Left bend')}<span>Facing ${['east', 'south', 'west', 'north'][rotation]} · R rotate</span></div><div class="rail-bill">${[...bill].map(([i, q]) => `${q} × ${esc(label(i))}`).join(' · ')} · ${massLabel(mass)} · ${money(price)} before transport. Click an open endpoint; Esc cancels the tool.</div>`,
+    );
+    return;
+  }
   if (tool === 'parking') {
     stableHTML(
       el,
@@ -312,6 +367,22 @@ function updatePreview() {
     world.preview(undefined);
     return;
   }
+  if (tool === 'rail') {
+    const origin = railOrigin(hover),
+      stamp = JSON.stringify([origin, rotation, railHand, railLayout, state.revision]);
+    if (stamp === railPreviewKey) return;
+    railPreviewKey = stamp;
+    const error = Sim.validRailLayout(
+      state,
+      railLayout,
+      origin,
+      rotation as TrackPiece['heading'],
+      railHand,
+    );
+    world.previewTrack(railPieces(), !error);
+    renderHint();
+    return;
+  }
   const r = currentRect();
   const valid =
     tool === 'parking' || tool === 'zone' || tool === 'recover' || !Sim.validPlan(state, tool, r);
@@ -319,6 +390,36 @@ function updatePreview() {
 }
 function doBuild(r: Rect) {
   recorder.record(state, 'plan', { tool, rect: r, rotation });
+  if (tool === 'rail') {
+    const origin = railOrigin(hover),
+      result = Sim.planRailLayout(
+        state,
+        railLayout,
+        origin,
+        rotation as TrackPiece['heading'],
+        railHand,
+      );
+    recorder.record(state, 'rail-plan', {
+      layout: railLayout,
+      origin,
+      heading: rotation,
+      hand: railHand,
+      error: result.error,
+    });
+    toast(
+      result.error ||
+        `${result.group!.label}: ${result.jobs.length} physical panel jobs queued. Buy missing orders their actual materials.`,
+      !!result.error,
+    );
+    if (result.group) {
+      selection = { type: 'jobGroup', id: result.group.id };
+      renderInspector();
+    }
+    persist(true);
+    railPreviewKey = '';
+    updatePreview();
+    return;
+  }
   if (tool === 'recover') {
     const error = Sim.recoverAt(state, r);
     toast(
@@ -399,6 +500,7 @@ world.onPick = (picked, p) => {
     return;
   }
   if (tool !== 'select') {
+    hover = p;
     doBuild(
       tool === 'zone' ? { x: Math.floor(p.x), z: Math.floor(p.z), w: 12, d: 12 } : rectFor(tool, p),
     );
@@ -547,6 +649,8 @@ function updateEquipmentWork(eid: string, activities: EquipmentActivity[]) {
 function assignmentControl(id: string) {
   const a = equipmentAssignment(state, id),
     own = state.jobs.find((j) => j.id === id) || state.jobGroups?.find((g) => g.id === id);
+  if (own && 'kind' in own && own.kind === 'throwSwitch')
+    return 'Worker on foot · no equipment required';
   if (own && 'kind' in own && own.kind === 'refuel')
     return `${reference(own.target || 'Equipment')}<small class="role-pending">Refueling target · serviced by a worker</small>`;
   const done = !workLeaves(state, id).some((j) => ['todo', 'doing'].includes(j.status));
@@ -586,7 +690,8 @@ function renderInspector(force = false) {
   )
     return;
   panel.hidden = false;
-  const r = e.w ? e : { x: e.x - 1, z: e.z - 1, w: 2, d: 2 };
+  const r =
+    e.track && e.length ? railFootprint(e) : e.w ? e : { x: e.x - 1, z: e.z - 1, w: 2, d: 2 };
   world.highlight(selection.type === 'order' ? undefined : r);
   let title =
       e.name || e.label || (e.length ? 'Rail panel' : label(e.kind || e.item || selection.type)),
@@ -677,7 +782,20 @@ function renderInspector(force = false) {
         ['Parent work', esc(j.parentId || 'Standalone job')],
         ['Operator', esc(j.operator || 'Unassigned')],
         ['Reserved stock', esc(j.stack || 'None')],
-        ['Material', j.item ? `${j.qty} × ${label(j.item)}` : 'Service'],
+        [
+          'Material',
+          j.item
+            ? `${j.qty} × ${label(j.item)}`
+            : j.kind === 'throwSwitch'
+              ? 'None · worker operation'
+              : 'Service',
+        ],
+        ...(j.kind === 'throwSwitch'
+          ? ([
+              ['Turnout', j.target],
+              ['Requested route', j.requestedRoute],
+            ] as [string, unknown][])
+          : []),
         ...(j.shedAssembly
           ? ([
               ['Shed assembly', esc(j.shedAssembly.phase)],
@@ -700,7 +818,7 @@ function renderInspector(force = false) {
         ['Footprint', `${j.w} × ${j.d} m`],
       ]) +
       (j.reason ? `<div class="blocked">${esc(j.reason)}</div>` : '') +
-      `<div class="button-stack">${controlled && j.status === 'todo' ? btn(`assign:${j.id}`, 'Work with controlled worker', 'primary') : ''}${j.status === 'todo' ? btn(`priority:${j.id}`, 'Move to front of queue') : ''}${['todo', 'doing'].includes(j.status) ? btn(`cancel:${j.id}`, 'Cancel plan', 'danger') : ''}${btn('buy-missing', 'Order missing materials')}</div>`;
+      `<div class="button-stack">${j.track && j.status === 'canceled' ? btn('resume-track:' + j.id, 'Resume this panel', 'primary') : ''}${controlled && j.status === 'todo' ? btn(`assign:${j.id}`, 'Work with controlled worker', 'primary') : ''}${j.status === 'todo' ? btn(`priority:${j.id}`, 'Move to front of queue') : ''}${['todo', 'doing'].includes(j.status) ? btn(`cancel:${j.id}`, 'Cancel plan', 'danger') : ''}${btn('buy-missing', 'Order missing materials')}</div>`;
   }
   if (selection.type === 'jobGroup') {
     const row = jobRows(state).find((r) => r.id === e.id)!;
@@ -727,7 +845,47 @@ function renderInspector(force = false) {
         )
         .join('')}`;
   }
-  if (selection.type === 'building') {
+  if (
+    selection.type === 'jobGroup' &&
+    e.track &&
+    state.jobs.some((j) => j.track?.groupId === e.id && j.status === 'canceled')
+  )
+    body += btn('resume-track:' + e.id, 'Resume canceled panels', 'primary');
+  if (selection.type === 'building' && e.length) {
+    const g = trackGeometry(e),
+      points = e.track?.layout === 'turnout' && e.track.section === 0;
+    const groupJobs = e.track?.groupId
+      ? state.jobs.filter((j) => j.track?.groupId === e.track.groupId)
+      : [];
+    const complete = points && turnoutIsComplete(state, e);
+    const pending =
+      points &&
+      state.jobs.find(
+        (j) =>
+          j.kind === 'throwSwitch' && j.target === e.id && ['todo', 'doing'].includes(j.status),
+      );
+    const network = trackNetwork(state),
+      connected = network.panels.find((p) => p.id === e.id)?.connected;
+    title = label(e.item || 'rail');
+    body =
+      details([
+        ['Gauge', '1,435 mm'],
+        ['Track length', `${g.length.toFixed(3)} m`],
+        ['Connection', connected ? 'Connected to starter siding' : 'Disconnected'],
+        ['Work order', e.track?.groupId || 'Legacy track'],
+        ['Entry', `E${g.entry.x.toFixed(2)}, S${g.entry.z.toFixed(2)}`],
+        ['Exit', g.ends.map((p) => `E${p.x.toFixed(2)}, S${p.z.toFixed(2)}`).join(' / ')],
+        ...(points
+          ? ([
+              ['Turnout', complete ? 'Complete' : 'Assembly unfinished'],
+              ['Selected route', e.selectedRoute || 'straight'],
+              ['Lever operation', pending ? `${pending.id} · ${pending.phase}` : 'None'],
+            ] as [string, unknown][])
+          : []),
+      ]) +
+      `<div class="button-stack">${points ? btn('turnout:' + e.id + ':straight', 'Set straight route', e.selectedRoute !== 'branch' ? 'active' : '', complete && !pending ? '' : 'disabled') + btn('turnout:' + e.id + ':branch', 'Set branch route', e.selectedRoute === 'branch' ? 'active' : '', complete && !pending ? '' : 'disabled') : ''}${!e.track ? btn('remove:' + e.id, 'Recover rail panel', 'danger') : ''}${btn('tab:railways', 'Railway register')}</div><p class="note">${points ? 'The extra exit needs a connected continuation or another physical buffer before owned train operation. ' : ''}Supplier trains still use the original siding; shunter, driver and engine shed are the next review chunk.</p>`;
+  }
+  if (selection.type === 'building' && !e.length) {
     body =
       details([
         ['Footprint', `${e.w || 5} × ${e.d || 3} m`],
@@ -887,6 +1045,44 @@ function renderRecords(force = false) {
     actions = btn('shop', '+ Purchase', 'primary');
   const matches = (o: any) =>
     !search || JSON.stringify(o).toLowerCase().includes(search.toLowerCase());
+  if (tab === 'railways') {
+    const network = trackNetwork(state),
+      ports = trackOpenPorts(state, false);
+    subtitle =
+      'Connected track panels, real endpoints and manual turnout state. Owned shunting is the next approval checkpoint.';
+    actions = btn('rail-end', 'Build from siding end') + actions;
+    body =
+      `<div class="summary-strip"><span><b>${state.rails.length}</b> installed panels</span><span><b>${ports.length}</b> exposed endpoints</span><span>Supplier route: original siding</span></div>` +
+      table(
+        ['Track ID', 'Panel', 'Work order', 'Length', 'Connected', 'Turnout route', ''],
+        state.rails
+          .filter(matches)
+          .map((r) => [
+            r.id,
+            label(r.item || 'rail'),
+            r.track?.groupId || '—',
+            `${trackGeometry(r).length.toFixed(3)} m`,
+            network.panels.find((p) => p.id === r.id)?.connected ? 'Yes' : 'No',
+            r.track?.layout === 'turnout' && r.track.section === 0
+              ? r.selectedRoute || 'straight'
+              : '—',
+            loc('building', r.id),
+          ]),
+      ) +
+      '<h3>Open endpoints</h3>' +
+      table(
+        ['Track ID', 'Endpoint', 'Facing', 'Protection'],
+        ports.map((p) => [
+          p.assetId,
+          `E${p.x.toFixed(2)}, S${p.z.toFixed(2)}`,
+          ['East', 'South', 'West', 'North'][(Math.round(p.yaw / (Math.PI / 2)) + 4) % 4],
+          Math.hypot(p.x - state.buffer.x, p.z - state.buffer.z) < 0.1
+            ? 'BUFFER-001'
+            : 'Uncapped · connect a continuation; terminal buffers come next',
+        ]),
+      ) +
+      '<p class="note">A geometric crossing does not join tracks. Turnouts become selectable only after all seven physical panels are installed. The extra branch is not ready for owned rail traffic until protected by a buffer or continuation.</p>';
+  }
   if (tab === 'materials') {
     subtitle = 'Physical stock, reservations, in-transit cargo, and installation totals.';
     body =
@@ -1278,16 +1474,16 @@ function openModal(which: string) {
   const root = $('#modal-root');
   let content = '';
   if (which === 'start') {
-    content = `<div class="start-title"><span class="eyebrow">A PHYSICAL FACTORY SANDBOX</span><h1>Every piece<br>has a place.</h1><p>Start with an open yard and a rail connection.<br>Bring people and materials. Build what comes next.</p></div><div class="start-choices">${btn('new:starter', '<b>Start a new yard</b><span>Empty ground, with a starter supply order on its way.</span>', 'start-choice recommended')}${btn('new:empty', '<b>Start completely empty</b><span>Choose every worker, machine, and material yourself.</span>', 'start-choice')}${btn('new:demo', '<b>Explore Birch Junction</b><span>A small working base, stocked and ready to expand.</span>', 'start-choice')}</div><p class="note">No budget limit · construction and logistics · local saves · version 0.11</p>`;
+    content = `<div class="start-title"><span class="eyebrow">A PHYSICAL FACTORY SANDBOX</span><h1>Every piece<br>has a place.</h1><p>Start with an open yard and a rail connection.<br>Bring people and materials. Build what comes next.</p></div><div class="start-choices">${btn('new:starter', '<b>Start a new yard</b><span>Empty ground, with a starter supply order on its way.</span>', 'start-choice recommended')}${btn('new:empty', '<b>Start completely empty</b><span>Choose every worker, machine, and material yourself.</span>', 'start-choice')}${btn('new:demo', '<b>Explore Birch Junction</b><span>A small working base, stocked and ready to expand.</span>', 'start-choice')}</div><p class="note">No budget limit · construction and logistics · local saves · version 0.12</p>`;
   }
   if (which === 'menu') {
-    content = `<h1>${esc(state.name)}</h1><p class="subtitle">Starter Yard · version 0.11.0</p><div class="menu-grid">${btn('save', 'Save to browser', 'primary')}${btn('export-save', 'Export save file')}${btn('export-diagnostics', 'Export diagnostic history')}${btn('source-code', 'Source code · MIT')}${btn('import-save', 'Import save file')}${btn('restore-backup', 'Restore previous yard')}${btn('help', 'Controls and guide')}${btn('new-confirm', 'Start a new yard')}${btn('close-modal', 'Return to yard')}</div><p class="note">Autosaves every 20 seconds. Export a file for a portable backup. Your game stays on this computer.</p>`;
+    content = `<h1>${esc(state.name)}</h1><p class="subtitle">Starter Yard · version 0.12.0</p><div class="menu-grid">${btn('save', 'Save to browser', 'primary')}${btn('export-save', 'Export save file')}${btn('export-diagnostics', 'Export diagnostic history')}${btn('source-code', 'Source code · MIT')}${btn('import-save', 'Import save file')}${btn('restore-backup', 'Restore previous yard')}${btn('help', 'Controls and guide')}${btn('new-confirm', 'Start a new yard')}${btn('close-modal', 'Return to yard')}</div><p class="note">Autosaves every 20 seconds. Export a file for a portable backup. Your game stays on this computer.</p>`;
   }
   if (which === 'new-confirm') {
     content = `<h1>Start another yard</h1><p>Your current yard will be saved as a browser backup before the new yard is created.</p><div class="button-stack">${btn('new:starter', 'New yard + starter supplies', 'primary')}${btn('new:empty', 'Completely empty yard')}${btn('new:demo', 'Birch Junction example')}${btn('close-modal', 'Keep current yard')}</div>`;
   }
   if (which === 'help') {
-    content = `<span class="eyebrow">FIELD GUIDE</span><h1>Build a working starter yard</h1><div class="help-grid"><section><h3>Getting started</h3><p>Use <b>Purchase</b> to hire a builder and an operator, buy an excavator, and order slabs. The <b>starter order</b> includes a useful first set.</p><p>An empty yard has no storage assigned. Choose <b>Stockyard</b> and drag an area before deliveries arrive. Your operator drives purchased equipment down the lowloader ramps, then uses it to unload freight. Slabs stack up to 12 high in neighboring 1 m² cells. Keep the loading face and travel aisles accessible.</p><p><b>Drag with Pave</b> to lay out an area. Click Office, WC, Shed, or Stores to place a plan. Required foundations are added automatically. <b>Buy missing</b> orders supplies for your plans. <b>Recover</b> dismantles buildings, lifts player-built rail, or recovers a paving slab and hauls it back to storage.</p><p>For the existing siding, choose <b>Rail end</b>, then Rail. Start at E125, S5. Each panel extends 5 m. The crew stages the panel beside the track, releases and lifts the buffer aside, lays and fastens the panel, then reinstalls the same buffer. Leave clear space beside the extension for these lifts.</p><h3>Direct control</h3><p>Select a worker and click <b>Take direct control</b>. Click clear ground to walk. With an operator controlled, select equipment and click <b>Board</b>. Then click to drive. Select a waiting delivery and choose <b>Unload with controlled operator</b> to give that operator the handling assignment.</p><p>Select a queued construction plan and click <b>Work with controlled worker</b>. A builder and operator perform the same physical handling sequence used in automatic mode. <b>Return to automatic</b> releases control.</p></section><section><h3>Controls</h3>${details(
+    content = `<span class="eyebrow">FIELD GUIDE</span><h1>Build a working starter yard</h1><div class="help-grid"><section><h3>Getting started</h3><p>Use <b>Purchase</b> to hire a builder and an operator, buy an excavator, and order slabs. The <b>starter order</b> includes a useful first set.</p><p>An empty yard has no storage assigned. Choose <b>Stockyard</b> and drag an area before deliveries arrive. Your operator drives purchased equipment down the lowloader ramps, then uses it to unload freight. Slabs stack up to 12 high in neighboring 1 m² cells. Keep the loading face and travel aisles accessible.</p><p><b>Drag with Pave</b> to lay out an area. Click Office, WC, Shed, or Stores to place a plan. Required foundations are added automatically. <b>Buy missing</b> orders supplies for your plans. <b>Recover</b> dismantles buildings, lifts player-built rail, or recovers a paving slab and hauls it back to storage.</p><p>Choose <b>Rail end</b>, then Straight, Curve, or Turnout in the Railway toolbar. Start at E125, S5 facing east. R chooses a cardinal direction; Left/Right changes the bend. A curve has six 15° panels at 20 m radius; a turnout has seven panels at four stations and two parallel exits 5 m apart. The toolbar shows quantities, weight and material cost. Use <b>Buy missing</b> after planning. Each straight panel extends 5 m. The crew stages the panel beside the track, releases and lifts the buffer aside, lays and fastens the panel, then reinstalls the same buffer. Leave clear space beside the extension for these lifts.</p><h3>Direct control</h3><p>Select a worker and click <b>Take direct control</b>. Click clear ground to walk. With an operator controlled, select equipment and click <b>Board</b>. Then click to drive. Select a waiting delivery and choose <b>Unload with controlled operator</b> to give that operator the handling assignment.</p><p>Select a queued construction plan and click <b>Work with controlled worker</b>. A builder and operator perform the same physical handling sequence used in automatic mode. <b>Return to automatic</b> releases control.</p></section><section><h3>Controls</h3>${details(
       [
         ['Pan', 'Left drag empty ground / W A S D relative to view'],
         ['Orbit', 'Right mouse drag'],
@@ -1302,7 +1498,7 @@ function openModal(which: string) {
         ['Purchase', 'B'],
         ['Save', 'Ctrl / Cmd + S'],
       ],
-    )}<h3>Physical constraints</h3><p>Leave <b>3 m clear aisles</b> for machines. Offices need the 6 t excavator; the forklift cannot lift them. Diesel drums contain 200 L and stay in place when empty. Request refueling from Equipment.</p><p>The <b>Work</b> register explains blocked assignments. Canceling rail work first places its load safely and secures the buffer. A rail panel already installed stays in place. Other loaded jobs deposit their kits at the site. Finished buildings can be dismantled and recovered.</p><h3>Vehicle work roles</h3><p>Open <b>Equipment</b> and change a machine’s <b>Automatic work</b> selector, or select it in the yard. For parallel receiving and paving, check only <b>Receiving deliveries</b> for the forklift and only <b>Paving</b> for the excavator, with an operator for each. The dropdown lets you check several job kinds together. Automatic dispatch keeps one machine on each work order or delivery across its individual tasks and lifts. Separate work orders can run in parallel. Changes finish the current job or unloading batch before switching. <b>All</b> restores shared assignments; <b>None</b> holds new work while leaving driving and refueling available.</p><h3>Work orders, parking, and shifts</h3><p><b>Work</b> starts with active orders. Expand a building or paving order; assign equipment to a parent or child. Explicit assignments override automatic roles after current work finishes. Click asset IDs to inspect assigned people, stock, or equipment. Click table headers to sort; use Column filters to narrow records.</p><p>Select equipment to choose a parking bay in the yard or enter its coordinates. Workers have Always on, daily, overnight, and custom schedules. They finish current work, park, exit, walk to the actual bus, and return next shift. Chartered trips appear in Costs.</p><p>Use <b>Activity → Export diagnostic history</b> after a problem. The local rolling record includes positions, routes, blockers, phases, and recent full yard checkpoints.</p><h3>Traffic</h3><p>Road traffic keeps right. Buses continue forward after their stop; delivery trucks back clear of their berth before departing forward. Machines yield to people and route around obstructions. Keep receiving and turning areas clear; the equipment inspector identifies any actor blocking a route.</p><h3>First-version boundaries</h3><p>A 232 × 98 m buildable yard, straight rail panels, owned-equipment freight handling and simplified utility services. No chemical production, seasons, maintenance failures, full rail dispatch yet.</p></section></div>`;
+    )}<h3>Physical constraints</h3><p>Leave <b>3 m clear aisles</b> for machines. Offices need the 6 t excavator; the forklift cannot lift them. Diesel drums contain 200 L and stay in place when empty. Request refueling from Equipment.</p><p>The <b>Work</b> register explains blocked assignments. Canceling rail work first places its load safely and secures the buffer. A rail panel already installed stays in place. Other loaded jobs deposit their kits at the site. Finished buildings can be dismantled and recovered.</p><h3>Vehicle work roles</h3><p>Open <b>Equipment</b> and change a machine’s <b>Automatic work</b> selector, or select it in the yard. For parallel receiving and paving, check only <b>Receiving deliveries</b> for the forklift and only <b>Paving</b> for the excavator, with an operator for each. The dropdown lets you check several job kinds together. Automatic dispatch keeps one machine on each work order or delivery across its individual tasks and lifts. Separate work orders can run in parallel. Changes finish the current job or unloading batch before switching. <b>All</b> restores shared assignments; <b>None</b> holds new work while leaving driving and refueling available.</p><h3>Work orders, parking, and shifts</h3><p><b>Work</b> starts with active orders. Expand a building or paving order; assign equipment to a parent or child. Explicit assignments override automatic roles after current work finishes. Click asset IDs to inspect assigned people, stock, or equipment. Click table headers to sort; use Column filters to narrow records.</p><p>Select equipment to choose a parking bay in the yard or enter its coordinates. Workers have Always on, daily, overnight, and custom schedules. They finish current work, park, exit, walk to the actual bus, and return next shift. Chartered trips appear in Costs.</p><p>Use <b>Activity → Export diagnostic history</b> after a problem. The local rolling record includes positions, routes, blockers, phases, and recent full yard checkpoints.</p><h3>Traffic</h3><p>Road traffic keeps right. Buses continue forward after their stop; delivery trucks back clear of their berth before departing forward. Machines yield to people and route around obstructions. Keep receiving and turning areas clear; the equipment inspector identifies any actor blocking a route.</p><h3>First-version boundaries</h3><p>A 232 × 98 m buildable yard, straight, curved and turnout rail panels, owned-equipment freight handling and simplified utility services. Request a route in a complete turnout inspector; a real worker walks to its manual lever and throws it. The Railway register lists physical endpoints and uncapped branches. New train dispatch, an owned shunter, additional terminal buffers, and chemistry are later approval checkpoints. New curved/turnout assembly recovery is deferred; canceled panels can resume from their work inspector.</p></section></div>`;
   }
   if (which === 'shop') {
     content = `<div class="shop-head"><div><span class="eyebrow">PROCUREMENT</span><h1>People, machines & materials</h1><p>Order freely. Costs are recorded; there is no spending limit.</p></div>${btn('starter-order', 'Order starter supplies')}</div><div class="shop-options"><label>Material transport <select id="transport"><option value="road" ${purchaseTransport === 'road' ? 'selected' : ''}>Truck · 12 t loads</option><option value="rail" ${purchaseTransport === 'rail' ? 'selected' : ''}>Rail · 48 t loads</option></select></label><span>Your equipment unloads · $90 / road load · $240 / rail load</span></div><div id="purchase-cart" class="purchase-cart"></div><div class="catalog-head"><span>Item</span><span>Unit cost</span><span>Unit weight</span><span>Qty</span><span>Line weight</span><span>Order / batch</span></div>${[
@@ -1438,10 +1634,40 @@ async function action(value: string) {
     case 'tool':
       setTool(b);
       break;
-    case 'rotate':
-      rotation = (rotation + 1) % (tool === 'parking' ? 4 : 2);
+    case 'rail-layout':
+      railLayout = b as TrackPiece['layout'];
+      railPreviewKey = '';
       updatePreview();
-      toast(`Placement ${rotation ? 'north–south' : 'east–west'}.`);
+      renderHint();
+      break;
+    case 'rail-hand':
+      railHand = railHand === 1 ? -1 : 1;
+      railPreviewKey = '';
+      updatePreview();
+      renderHint();
+      break;
+    case 'resume-track': {
+      const error = Sim.resumeTrackWork(state, b);
+      toast(error || 'Track work resumed with its real remaining panels.', !!error);
+      persist(true);
+      renderInspector(true);
+      break;
+    }
+    case 'turnout': {
+      const error = Sim.setTurnoutRoute(state, b, c as 'straight' | 'branch');
+      toast(
+        error || `Turnout crew requested for the ${c} route. Follow its worker job in Work.`,
+        !!error,
+      );
+      persist(true);
+      renderInspector(true);
+      break;
+    }
+    case 'rotate':
+      rotation = (rotation + 1) % (tool === 'parking' || tool === 'rail' ? 4 : 2);
+      renderHint();
+      updatePreview();
+      toast(`Placement faces ${['east', 'south', 'west', 'north'][rotation]}.`);
       break;
     case 'pause':
       state.paused = !state.paused;
@@ -1454,7 +1680,15 @@ async function action(value: string) {
       world.focus({ x: 28, z: 25 }, 1.7);
       break;
     case 'rail-end':
-      world.focus({ x: state.buffer.x, z: 12 }, 1.6);
+      world.focus(state.buffer, 1.6);
+      rotation =
+        Math.round(
+          trackOpenPorts(state, false).find(
+            (p) => Math.hypot(p.x - state.buffer.x, p.z - state.buffer.z) < 0.1,
+          )?.yaw! /
+            (Math.PI / 2),
+        ) || 0;
+      rotation = (rotation + 4) % 4;
       setTool('rail');
       break;
     case 'overview':

@@ -64,7 +64,7 @@ export interface DeliveryAPI {
 export const parcelPitch = (item: Item) =>
   item === 'slab'
     ? 0.18
-    : item === 'rail'
+    : item === 'rail' || item.startsWith('rail')
       ? RAIL_PANEL_PITCH
       : item === 'lamp'
         ? 0.16
@@ -74,7 +74,7 @@ export const parcelPitch = (item: Item) =>
 export const stackHeight = (item: Item, qty: number) =>
   item === 'slab'
     ? 0.02 + qty * 0.18
-    : item === 'rail'
+    : item === 'rail' || item.startsWith('rail')
       ? (qty - 1) * RAIL_PANEL_PITCH + 0.325
       : item === 'office' || item === 'sanitary'
         ? 3

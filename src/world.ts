@@ -46,6 +46,14 @@ import {
 } from './motion';
 import { shipmentLots, stackHeight, parcelPitch } from './delivery';
 import { RAIL_PANEL_PITCH } from './railwork';
+import { trackGeometry, railCells, type TrackPiece } from './track';
+import {
+  animateTurnout,
+  isRailMaterial,
+  stockRailModel,
+  trackLiftPoints,
+  trackPanelModel,
+} from './track-visuals';
 
 type RenderPose = Point &
   Required<Pick<Motion, 'y' | 'yaw' | 'travel'>> & {
@@ -233,6 +241,7 @@ export class World {
     { pose: RailWorkPose; toolLift: number; toolReach: number; phase: string; clock: number }
   >();
   private previousShedWork = new Map<string, { phase: string; clock: number }>();
+  private previousSwitchWork = new Map<string, { phase: string; elapsed: number }>();
   private previousShedParts = new Map<
     string,
     { pose: RailWorkPose; kind: ShedPartKind; index: number }
@@ -247,6 +256,10 @@ export class World {
     this.previousHandling.clear();
     this.previousShedParts.clear();
     this.previousShedWork.clear();
+    this.previousSwitchWork.clear();
+    for (const j of s.jobs)
+      if (j.kind === 'throwSwitch')
+        this.previousSwitchWork.set(j.id, { phase: j.phase, elapsed: j.elapsed });
     for (const j of s.jobs)
       if (j.shedAssembly)
         this.previousShedWork.set(j.id, {
@@ -770,13 +783,10 @@ export class World {
     const occupied = [
       ...s.zones,
       ...s.buildings,
-      ...s.rails.map((r) => ({
-        x: r.x,
-        z: r.z,
-        w: r.rotation % 2 ? 2 : 5,
-        d: r.rotation % 2 ? 5 : 2,
-      })),
-      ...s.jobs.filter((j) => j.status === 'doing'),
+      ...s.rails.flatMap((r) => railCells(r).map((cell) => ({ ...cell, w: 1, d: 1 }))),
+      ...s.jobs
+        .filter((j) => j.status === 'doing')
+        .flatMap((j) => (j.track ? railCells(j).map((cell) => ({ ...cell, w: 1, d: 1 })) : [j])),
     ];
     const clear = (x: number, z: number) => {
       if (
@@ -928,7 +938,7 @@ export class World {
       for (const z of [-0.82, 0.82]) box(g, x, height / 2, z, 0.22, height, 0.17, 0x766b50);
     return g;
   }
-  stockModel(item: string, qty: number, spacers = true) {
+  stockModel(item: string, qty: number, spacers = true, hand: 1 | -1 = 1) {
     const g = new THREE.Group();
     const m = MATERIALS[item as keyof typeof MATERIALS];
     if (item === 'slab') {
@@ -943,6 +953,8 @@ export class World {
       }
     } else if (item === 'rail') {
       g.add(this.railPanelModel(qty));
+    } else if (isRailMaterial(item)) {
+      g.add(stockRailModel(item, qty, hand));
     } else if (item === 'diesel') {
       cylinder(g, 0, 0.46, 0, 0.3, 0.9, 0x9d4938);
       for (const y of [0.13, 0.72]) cylinder(g, 0, y, 0, 0.307, 0.03, 0x555b5e);
@@ -969,6 +981,7 @@ export class World {
         o instanceof THREE.Mesh &&
         !(o instanceof THREE.InstancedMesh) &&
         o.geometry === boxGeo &&
+        !o.userData.movable &&
         !Array.isArray(o.material)
       ) {
         const a = groups.get(o.material) || [];
@@ -1082,16 +1095,19 @@ export class World {
         s.jobs.some(
           (j) =>
             j.status === 'doing' &&
-            j.handling?.state === 'placed' &&
-            j.handling.placedStack === t.id,
+            ((j.handling?.state === 'placed' && j.handling.placedStack === t.id) ||
+              (j.railWork?.phase === 'configure-staged-panel' &&
+                j.railWork.panel.stackId === t.id)),
         )
       )
         continue;
       const baseHeight = t.baseHeight || 0;
       if (t.qty <= 0 && t.item !== 'diesel' && !baseHeight) continue;
       const g =
-        t.qty > 0 || t.item === 'diesel' ? this.stockModel(t.item, t.qty) : new THREE.Group();
-      if (t.item === 'rail' && baseHeight) {
+        t.qty > 0 || t.item === 'diesel'
+          ? this.stockModel(t.item, t.qty, true, t.trackHand ?? 1)
+          : new THREE.Group();
+      if (isRailMaterial(t.item) && baseHeight) {
         const supports = this.railSupports(baseHeight);
         supports.position.y = -baseHeight;
         g.add(supports);
@@ -1103,9 +1119,26 @@ export class World {
     }
     for (const t of s.rails) {
       // Joining transfers the same physical panel into installed track; it adds no unpurchased ballast.
-      const g = this.railPanelModel();
-      g.position.set(t.rotation % 2 ? t.x + 1 : t.x + 2.5, 0, t.rotation % 2 ? t.z + 2.5 : t.z + 1);
-      g.rotation.y = t.rotation % 2 ? -Math.PI / 2 : 0;
+      const geometry = trackGeometry(t);
+      const paired =
+        t.track?.layout === 'turnout' &&
+        t.track.section === 1 &&
+        s.rails.some(
+          (other) =>
+            other.id !== t.id &&
+            other.track?.layout === 'turnout' &&
+            other.track.section === 1 &&
+            other.track.origin.x === t.track!.origin.x &&
+            other.track.origin.z === t.track!.origin.z &&
+            other.track.heading === t.track!.heading &&
+            other.track.hand === t.track!.hand &&
+            other.track.route !== t.track!.route,
+        );
+      const g = t.track
+        ? trackPanelModel(t.track, 1, t.selectedRoute ?? 'straight', paired)
+        : this.railPanelModel();
+      g.position.set(geometry.pose.x, 0, geometry.pose.z);
+      g.rotation.y = -geometry.pose.yaw;
       g.userData.selection = { type: 'building', id: t.id };
       this.staticGroup.add(g);
     }
@@ -1118,6 +1151,30 @@ export class World {
       )
         continue;
       const g = new THREE.Group();
+      if (j.track) {
+        const color = j.status === 'doing' ? 0xd4a448 : 0x56a38d;
+        for (const cell of railCells(j)) {
+          this.outline(g, { ...cell, w: 1, d: 1 }, color, 0.15, true);
+        }
+        const panel = trackPanelModel(j.track),
+          pose = trackGeometry(j).pose;
+        panel.position.set(pose.x, 0.025, pose.z);
+        panel.rotation.y = -pose.yaw;
+        panel.traverse((part) => {
+          if (!(part instanceof THREE.Mesh)) return;
+          const mat = (part.material as THREE.MeshStandardMaterial).clone();
+          mat.color.setHex(color);
+          mat.transparent = true;
+          mat.opacity = 0.28;
+          mat.depthWrite = false;
+          mat.userData.owned = true;
+          part.material = mat;
+        });
+        g.add(panel);
+        g.userData.selection = { type: 'job', id: j.id };
+        this.planGroup.add(g);
+        continue;
+      }
       this.outline(g, j, j.status === 'doing' ? 0xd49b35 : 0x4c9284, 0.15, true);
       const fill = new THREE.Mesh(
         new THREE.BoxGeometry(j.w, 0.025, j.d),
@@ -1166,6 +1223,10 @@ export class World {
       this.previousHandling.clear();
       this.previousShedParts.clear();
       this.previousShedWork.clear();
+      this.previousSwitchWork.clear();
+      for (const j of s.jobs)
+        if (j.kind === 'throwSwitch')
+          this.previousSwitchWork.set(j.id, { phase: j.phase, elapsed: j.elapsed });
       for (const j of s.jobs)
         if (j.shedAssembly)
           this.previousShedWork.set(j.id, {
@@ -1194,6 +1255,41 @@ export class World {
     }
     alpha = Math.max(0, Math.min(1, alpha));
     this.sync(s);
+    for (const rail of s.rails) {
+      if (rail.track?.layout !== 'turnout' || rail.track.section !== 0) continue;
+      const model = this.staticGroup.children.find((g) => g.userData.selection?.id === rail.id);
+      if (!model) continue;
+      const job = s.jobs.find(
+        (j) =>
+          j.kind === 'throwSwitch' &&
+          j.target === rail.id &&
+          j.status === 'doing' &&
+          ['Throw manual turnout lever', 'Return lever to original route'].includes(j.phase),
+      );
+      if (job) {
+        const previous = this.previousSwitchWork.get(job.id);
+        const elapsed = lerp(
+          previous?.phase === job.phase ? previous.elapsed : 0,
+          job.elapsed,
+          alpha,
+        );
+        animateTurnout(
+          model,
+          rail.selectedRoute ?? 'straight',
+          job.requestedRoute!,
+          smoothstep(elapsed / 4),
+        );
+        model.userData.switchAnimation = true;
+      } else if (model.userData.switchAnimation) {
+        animateTurnout(
+          model,
+          rail.selectedRoute ?? 'straight',
+          rail.selectedRoute ?? 'straight',
+          0,
+        );
+        model.userData.switchAnimation = false;
+      }
+    }
     this.frame += dt;
     const live = new Set<string>();
     const ensure = (id: string, make: () => THREE.Group, selection: Selection) => {
@@ -1238,7 +1334,10 @@ export class World {
       const railTask = s.jobs.find((j) => j.status === 'doing' && j.worker === w.id && j.railWork);
       const railPhase = railTask?.railWork?.phase;
       const fastening =
-        !!railPhase && ['unbolt-buffer', 'join-panel', 'fasten-buffer'].includes(railPhase);
+        !!railPhase &&
+        ['unbolt-buffer', 'join-panel', 'fasten-buffer', 'configure-staged-panel'].includes(
+          railPhase,
+        );
       const rigging =
         !!railPhase &&
         ['source-rig', 'panel-rig', 'buffer-rig', 'buffer-rig-return'].includes(railPhase);
@@ -1314,6 +1413,21 @@ export class World {
         if (arm) arm.rotation.z = 0.82 + Math.sin(phase) * 0.2;
         const other = g.getObjectByName('arm-left');
         if (other) other.rotation.z = 0.72 - Math.sin(phase) * 0.12;
+      }
+      const switchJob = s.jobs.find(
+        (j) =>
+          j.kind === 'throwSwitch' &&
+          j.worker === w.id &&
+          j.status === 'doing' &&
+          ['Throw manual turnout lever', 'Return lever to original route'].includes(j.phase),
+      );
+      if (switchJob && !w.path.length) {
+        const previous = this.previousSwitchWork.get(switchJob.id);
+        const elapsed = lerp(previous?.elapsed ?? switchJob.elapsed, switchJob.elapsed, alpha);
+        if (arm) arm.rotation.z = 0.75 + smoothstep(elapsed / 4) * 0.45;
+        const other = g.getObjectByName('arm-left');
+        if (other) other.rotation.z = 0.62 + smoothstep(elapsed / 4) * 0.25;
+        if (tool) tool.visible = false;
       }
     }
     for (const e of s.equipment) {
@@ -1610,14 +1724,13 @@ export class World {
       const upper = g.getObjectByName('upper');
       if (upper) upper.rotation.y = upperYaw;
       if (e.kind === 'forklift' && load && !handling && (renderedCargo || e.cargo)) {
-        lift +=
-          load.item === 'rail'
-            ? 0.015
-            : load.item === 'slab'
-              ? 0.08
-              : load.item === 'diesel'
-                ? 0.01
-                : 0.04;
+        lift += isRailMaterial(load.item)
+          ? 0.015
+          : load.item === 'slab'
+            ? 0.08
+            : load.item === 'diesel'
+              ? 0.01
+              : 0.04;
       }
       animateMachine(
         g,
@@ -1691,19 +1804,27 @@ export class World {
         if (tip) {
           const top = tip.getWorldPosition(new THREE.Vector3());
           let line = 0;
-          for (const x of railWork.lifting === 'buffer' ? [0, 0.95] : [-1.75, 1.75])
-            for (const z of [-RAIL_CENTER_OFFSET, RAIL_CENTER_OFFSET]) {
-              const p = localPoint(railLoad, x, z),
-                height = railWork.lifting === 'buffer' ? (x === 0 ? 1.02 : 0.26) : 0.325;
-              updateBeam(
-                rig,
-                line++,
-                top,
-                new THREE.Vector3(p.x, railLoad.y + height, p.z),
-                0.023,
-                0x424b4d,
-              );
-            }
+          const anchors =
+            railWork.lifting === 'buffer'
+              ? [0, 0.95].flatMap((x) =>
+                  [-RAIL_CENTER_OFFSET, RAIL_CENTER_OFFSET].map((z) => ({
+                    x,
+                    z,
+                    y: x === 0 ? 1.02 : 0.26,
+                  })),
+                )
+              : trackLiftPoints(railJob.item || 'rail', railWork.configuredHand ?? 1);
+          for (const anchor of anchors) {
+            const p = localPoint(railLoad, anchor.x, anchor.z);
+            updateBeam(
+              rig,
+              line++,
+              top,
+              new THREE.Vector3(p.x, railLoad.y + anchor.y, p.z),
+              0.023,
+              0x424b4d,
+            );
+          }
         }
       }
       if (
@@ -1771,7 +1892,12 @@ export class World {
     }
     for (const j of s.jobs) {
       const r = j.railWork;
-      if (j.status !== 'doing' || !r || !['carried', 'placed'].includes(r.panel.state)) continue;
+      if (
+        j.status !== 'doing' ||
+        !r ||
+        (!['carried', 'placed'].includes(r.panel.state) && r.phase !== 'configure-staged-panel')
+      )
+        continue;
       if (j.legacyRailHandoff === 'carried') {
         const supports = ensure(`${j.id}-rail-supports`, () => this.railSupports(0.06), {
           type: 'job',
@@ -1779,13 +1905,69 @@ export class World {
         });
         const p = center(r.stage);
         supports.position.set(p.x, this.surface(s, p), p.z);
-        supports.rotation.y = -r.axisYaw;
+        supports.rotation.y = -(r.stageYaw ?? r.axisYaw);
       }
       const p = interpolateWorkPose(this.previousRailWork.get(j.id)?.panel, r.panel, alpha);
-      const g = ensure(`${j.id}-rail-panel`, () => this.railPanelModel(), {
+      const g = ensure(`${j.id}-rail-panel`, () => new THREE.Group(), {
         type: 'job',
         id: j.id,
       });
+      const hand = j.track?.layout === 'turnout' ? (r.configuredHand ?? 1) : 1;
+      const configuring = r.phase === 'configure-staged-panel';
+      replaceContents(
+        g,
+        'panel-parts',
+        `${j.item || 'rail'}/${hand}/${configuring ? j.track?.hand : ''}`,
+        () => {
+          if (!configuring)
+            return j.item === 'rail'
+              ? this.railPanelModel()
+              : stockRailModel(j.item || 'rail', 1, hand);
+          const assembly = new THREE.Group();
+          for (const [name, variant] of [
+            ['supplied', hand],
+            ['configured', j.track!.hand],
+          ] as const) {
+            const parts = stockRailModel(j.item!, 1, variant);
+            parts.name = `configuration-${name}`;
+            parts.traverse((part) => {
+              if (!(part instanceof THREE.Mesh)) return;
+              const mat = (part.material as THREE.Material).clone();
+              mat.transparent = true;
+              mat.userData.owned = true;
+              part.material = mat;
+            });
+            assembly.add(parts);
+          }
+          return assembly;
+        },
+      );
+      if (configuring) {
+        const previous = this.previousRailWork.get(j.id);
+        const clock = lerp(previous?.phase === r.phase ? previous.clock : 0, r.clock, alpha);
+        const f = smoothstep(clock / 6);
+        for (const [name, incoming] of [
+          ['supplied', false],
+          ['configured', true],
+        ] as const) {
+          const parts = g.getObjectByName(`configuration-${name}`)!;
+          // Parts retain their rigid steel profile during reconfiguration;
+          // staged supports remain beneath the kit throughout the assembly.
+          parts.rotation.y = incoming ? Math.PI * (f - 1) : Math.PI * f;
+          parts.position.y = Math.sin(f * Math.PI) * 0.12;
+          parts.traverse((part) => {
+            if (part instanceof THREE.Mesh)
+              (part.material as THREE.Material).opacity = incoming ? f : 1 - f;
+          });
+        }
+        const supports = ensure(
+          `${j.id}-configuration-supports`,
+          () => this.railSupports(Math.max(0.06, p.y)),
+          { type: 'job', id: j.id },
+        );
+        supports.position.set(p.x, 0, p.z);
+        supports.rotation.y = -p.yaw;
+      }
       this.positionModel(g, p);
     }
     for (const j of s.jobs) {
@@ -2143,6 +2325,35 @@ export class World {
     );
     mesh.position.set(r.x + r.w / 2, 0.13, r.z + r.d / 2);
     this.hover.add(mesh);
+  }
+  previewTrack(pieces: TrackPiece[] | undefined, valid = true) {
+    this.disposeGroup(this.hover);
+    if (!pieces) return;
+    const color = valid ? 0xe8d984 : 0xe06c54;
+    const cells = new Set<string>();
+    for (const piece of pieces) {
+      const geometry = trackGeometry(piece),
+        panel = trackPanelModel(piece);
+      panel.position.set(geometry.pose.x, 0.04, geometry.pose.z);
+      panel.rotation.y = -geometry.pose.yaw;
+      panel.traverse((part) => {
+        if (!(part instanceof THREE.Mesh)) return;
+        const mat = (part.material as THREE.MeshStandardMaterial).clone();
+        mat.color.setHex(color);
+        mat.transparent = true;
+        mat.opacity = 0.42;
+        mat.depthWrite = false;
+        mat.userData.owned = true;
+        part.material = mat;
+      });
+      this.hover.add(panel);
+      for (const cell of geometry.cells) {
+        const key = `${cell.x},${cell.z}`;
+        if (cells.has(key)) continue;
+        cells.add(key);
+        this.outline(this.hover, { ...cell, w: 1, d: 1 }, color, 0.21);
+      }
+    }
   }
   highlight(r: Rect | undefined) {
     this.disposeGroup(this.selected);

@@ -232,7 +232,7 @@
         ><a href="#limits">Version boundaries</a>
       </nav>
       <article>
-        <small>PLAYER GUIDE · VERSION 0.11.0 · OCTOBER 5, 2026</small>
+        <small>PLAYER GUIDE · VERSION 0.12.0 · OCTOBER 5, 2026</small>
         <h1>Build the starter yard</h1>
         <p class="lead">
           Bring people, equipment, and materials to an open industrial site. Give every piece a
@@ -311,9 +311,10 @@
             jobs, followed by installation.
           </li>
           <li>
-            <b>Pave a working area.</b> Choose Pave and drag a rectangle. One automatically assigned machine handles that work order across its cells. Separate orders can run in parallel. Every square meter
-            consumes one delivered slab and a real hauling cycle. Plans remain outlines until the
-            work is done.
+            <b>Pave a working area.</b> Choose Pave and drag a rectangle. One automatically assigned
+            machine handles that work order across its cells. Separate orders can run in parallel.
+            Every square meter consumes one delivered slab and a real hauling cycle. Plans remain
+            outlines until the work is done.
           </li>
           <li>
             <b>Build welfare and shelter.</b> Place the WC/showers and an equipment shed.
@@ -715,12 +716,40 @@
           Actual rail construction: the panel is being lowered, with the original buffer resting
           beside the track. Both remain physical assets throughout the operation.
         </p>
+        <h2>Build curves and turnouts</h2>
+        <p>
+          Choose <b>Rail end</b>, then <b>Straight</b>, <b>Curve</b> or <b>Turnout</b> above the
+          build bar. Start at E125, S5 facing east. Press <b>R</b> for a cardinal direction and use
+          Left/Right for the bend. Click a connected endpoint; the preview shows actual track and
+          occupied grid cells. Its bill lists quantities, weight and material cost before transport.
+        </p>
+        <p>
+          A 20 m radius quarter-turn uses six separately delivered 15° curved panels. A turnout is
+          20 m long with parallel exits 5 m apart: one points assembly, three through panels and
+          three diverging panels, seven lifts in total. <b>Buy missing</b> orders the exact
+          materials. The excavator and builder rig, stage, lay and fasten every piece, physically
+          relocating the same buffer as needed. Leave ample access and staging space alongside.
+        </p>
+        <p>
+          Inspect a finished turnout's points module to request its manual Straight/Branch lever. An
+          available worker walks to the lever and throws it; the route changes after the operation.
+          <b>Railway</b> lists installed panels, endpoint connections and buffer protection.
+          Canceled work can resume from its inspector while retaining its real installed and staged
+          parts. Clear any new obstruction from its bed first.
+        </p>
+        <p>
+          The extra turnout exit is explicitly uncapped. Supplier trains continue on the original
+          route. Test this railway construction checkpoint before approving the next chunk: a
+          shunter, driver, engine shed and additional physical buffers; then tanks, tanker pumps,
+          pipes, valves and gauges. New track assembly recovery remains a todo.
+        </p>
         <h2 id="limits">What comes after this version</h2>
         <p>
-          This first version is a construction sandbox with a 232 × 98 m structure area and straight
-          buildable rail. Chemical production is intentionally absent. New switches, train driving
-          and shunting, individual utility networks, weather, seasons, machinery and component wear,
-          repairs, kitchens, and emergency services remain future work.
+          This first version is a construction sandbox with a 232 × 98 m structure area and
+          straight, curved and turnout buildable rail. Chemical production is intentionally absent.
+          Owned shunters, train driving and shunting, individual utility networks, weather, seasons,
+          machinery and component wear, repairs, kitchens, and emergency services remain future
+          work.
         </p>
         <p>
           Automatic jobs include lifting and fastening time, but individual boom joints and bolts
@@ -737,7 +766,7 @@
           design vision recorded in the project documents.
         </p>
         <div class="footer">
-          Plant 01 · Starter Yard 0.11.0 · Built locally with Three.js and sql.js · See the included
+          Plant 01 · Starter Yard 0.12.0 · Built locally with Three.js and sql.js · See the included
           README, architecture notes, and test record for technical details.
         </div>
       </article>

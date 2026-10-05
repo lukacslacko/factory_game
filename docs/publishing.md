@@ -1,10 +1,10 @@
 # Publication
 
-Version 0.11.0 is published privately at https://plant-01-starter-yard.lukacslacko.chatgpt.site.
+Version 0.12.0 is published privately at https://plant-01-starter-yard.lukacslacko.chatgpt.site.
 
 The editable game lives in this starter-yard directory. The Site repository is a separate, build-only checkout at `../../work/plant01-publish` relative to this directory, with its own `.openai/hosting.json` and Git metadata. It contains only `dist/` and the hosting manifest. Do not upload the full game project or the private design documents when updating that Site.
 
-The Site identity is `appgprj_6ac1ff4c01388191b1d9d0dba709095e`. Reuse it; do not create a replacement. The successful build-only source commit for version 0.11.0 is `30198869bcc5f2e7c08f0d04e444dba225286ea2`.
+The Site identity is `appgprj_6ac1ff4c01388191b1d9d0dba709095e`. Reuse it; do not create a replacement. The successful build-only source commit for version 0.12.0 is `d871c3d1771581c189b5610ff8fcec615faf9a38`.
 
 For an update, follow the Sites hosting skill to open the existing build-only checkout, build and test the editable game, replace the checkout's `dist/` with that build, inspect its file list, and publish through the same private Site workflow. Keep credentials in process memory/stdin only. The game requires no server secrets, cloud database, or external connectors.
 
@@ -75,3 +75,13 @@ Version 0.11.0 deployed successfully on October 5, 2026 at 12:57 CEST, on the sa
 A whole construction work order now keeps one automatic machine across its child tasks. A freight carrier similarly keeps one machine across receiving lifts. Independent orders stay parallel; safe handoffs and explicit assignments remain available. Saved ownership and legacy active tasks are preserved, and linked work inspectors identify the machine. Inspector assignment controls no longer push IDs outside the panel.
 
 All 204 sequential simulation tests, integrated browser checks, TypeScript/build and independent production checks pass. The existing compatible example remains a verified prior-release save rather than a newly generated yard. Source, documentation, gameplay captures and validation records are updated separately in the public MIT repository and downloadable package.
+
+## Version 0.12 railway construction checkpoint
+
+Version 0.12.0 deployed successfully on October 5, 2026 at 15:21 CEST, preserving the existing private Site and origin. Deployment ID: `appgdep_6ac3a42abdd8819197f50ff07e6fbf3e`. Build-only source commit: `d871c3d1771581c189b5610ff8fcec615faf9a38`. The nine verified production assets and hosting manifest match the final locally tested build. Source, design notes, examples, saved yards, diagnostics and credentials remain excluded from the Site payload.
+
+The release adds physically procured six-panel quarter-turns and seven-panel turnouts, grid-connected endpoint planning, material/weight previews, canonical construction sequencing, safe canceled-work resumption, a linked Railway register and SQL topology, and worker-operated manual switch levers. Gauge is measured from the rendered inner rail-head faces. Real end-to-end procurement found and corrected loaded stock-face withdrawal and final-turn obstructions without disabling collisions.
+
+All 246 sequential regressions, integrated browser checks, TypeScript/build and independent production checks pass. The real browser playtest constructs thirteen connected panels, relocates the original buffer, operates a switch with a worker and preserves it through Save/reload. Actual gameplay and isolated geometry-fixture captures are distinguished in the documentation. The compatible prior-release example is retained and checked in production. The complete source and validation records are updated separately in the public MIT repository and downloadable package.
+
+This completes only checkpoint 1. The creator will test it before authorizing further work. Shunter, driver, engine shed, additional terminal buffers, tanker handling, tanks, pumps, piping, gauges and valves remain gated todos. Supplier trains retain their original route, the additional turnout exit is labeled uncapped, and recovery of the new track assemblies remains a todo.

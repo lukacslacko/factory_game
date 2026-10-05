@@ -1,3 +1,4 @@
+import { trackGeometry, trackNetwork } from './track';
 import initSqlJs from 'sql.js';
 import wasmUrl from 'sql.js/dist/sql-wasm.wasm?url';
 import type { State } from './types';
@@ -94,7 +95,33 @@ export async function query(s: State, sql: string) {
     movements: s.movements.map(({ from, to, ...m }) => ({ ...m, source: from, destination: to })),
     stacks: s.stacks.map((t) => ({ ...t })),
     buildings: s.buildings.map((b) => ({ ...b })),
-    rails: s.rails.map((r) => ({ ...r })),
+    rails: s.rails.map((r) => ({
+      ...r,
+      material: r.item || 'rail',
+      layout: r.track?.layout || 'straight',
+      heading: r.track?.heading ?? r.rotation,
+      hand: r.track?.hand ?? 1,
+      section: r.track?.section ?? 0,
+      work_order: r.track?.groupId,
+      entry_x: trackGeometry(r).entry.x,
+      entry_z: trackGeometry(r).entry.z,
+      exit_x: trackGeometry(r).end.x,
+      exit_z: trackGeometry(r).end.z,
+      selected_route: r.selectedRoute || null,
+    })),
+    track_ports: trackNetwork(s).panels.flatMap((p) =>
+      p.ports.map((port) => ({
+        asset_id: p.id,
+        port: port.portIndex,
+        x: port.x,
+        z: port.z,
+        yaw: port.yaw,
+        route: port.route,
+        connected: port.connected,
+        network_connected: p.connected,
+        buffer: Math.hypot(port.x - s.buffer.x, port.z - s.buffer.z) < 0.1 ? 'BUFFER-001' : null,
+      })),
+    ),
     zones: s.zones.map((z) => ({ ...z })),
   };
   const defaultCols: Record<string, string[]> = {
@@ -110,7 +137,32 @@ export async function query(s: State, sql: string) {
       'incoming',
     ],
     order_lines: ['order_id', 'line', 'item', 'qty', 'arrived', 'mass_kg'],
-    rails: ['id', 'x', 'z', 'rotation', 'length'],
+    rails: [
+      'id',
+      'x',
+      'z',
+      'rotation',
+      'length',
+      'material',
+      'layout',
+      'work_order',
+      'entry_x',
+      'entry_z',
+      'exit_x',
+      'exit_z',
+      'selected_route',
+    ],
+    track_ports: [
+      'asset_id',
+      'port',
+      'x',
+      'z',
+      'yaw',
+      'route',
+      'connected',
+      'network_connected',
+      'buffer',
+    ],
     zones: ['id', 'name', 'x', 'z', 'w', 'd'],
     job_groups: ['id', 'label', 'parentId', 'preferredEquipment', 'automaticEquipment', 'created'],
     work_orders: [

@@ -43,6 +43,70 @@ export const MATERIALS: Record<
     description:
       '5 m panel; 1,435 mm gauge. Two-cell track footprint; 5 × 3 m storage slots include handling clearance.',
   },
+  railCurve: {
+    name: 'Curved rail panel · 15°',
+    unit: 'panels',
+    price: 1120,
+    mass: 1520,
+    w: 6,
+    d: 3,
+    max: 4,
+    work: 9,
+    color: 0x676c68,
+    description:
+      '20 m radius; 5.236 m arc, 1,435 mm gauge. Six separately lifted panels make a 90° curve. 6 × 3 m storage slot.',
+  },
+  railPoints: {
+    name: 'Turnout points module',
+    unit: 'modules',
+    price: 3100,
+    mass: 1750,
+    w: 6,
+    d: 3,
+    max: 1,
+    work: 12,
+    color: 0x676c68,
+    description:
+      'First 5 m of a 20 m modular turnout: stock rails, movable blades, sleepers, and a manual lever.',
+  },
+  railFrog: {
+    name: 'Turnout frog module',
+    unit: 'modules',
+    price: 2450,
+    mass: 1520,
+    w: 6,
+    d: 3,
+    max: 1,
+    work: 12,
+    color: 0x676c68,
+    description:
+      'Second diverging panel: crossing frog and guard rails. Lay a separate straight panel alongside.',
+  },
+  railClosure: {
+    name: 'Turnout closure module',
+    unit: 'modules',
+    price: 2100,
+    mass: 1520,
+    w: 6,
+    d: 3,
+    max: 1,
+    work: 12,
+    color: 0x676c68,
+    description: 'Third diverging panel: closure rails. Lay a separate straight panel alongside.',
+  },
+  railExit: {
+    name: 'Turnout exit module',
+    unit: 'modules',
+    price: 1950,
+    mass: 1520,
+    w: 6,
+    d: 3,
+    max: 1,
+    work: 12,
+    color: 0x676c68,
+    description:
+      'Fourth diverging panel: grid-aligned exit 5 m from the through track. Lay a separate straight panel alongside.',
+  },
   office: {
     name: 'Office container',
     unit: 'units',
@@ -215,7 +279,7 @@ export const label = (key: string) =>
   (EQUIPMENT as any)[key]?.name ||
   (ROLES as any)[key]?.name ||
   (SERVICES as any)[key]?.name ||
-  ({ remove: 'Recovery', refuel: 'Refueling' } as any)[key] ||
+  ({ remove: 'Recovery', refuel: 'Refueling', throwSwitch: 'Operate turnout lever' } as any)[key] ||
   key;
 export const bounds = { minX: -14, maxX: 220, minZ: 10, maxZ: 110 };
 export function footprint(kind: BuildKind | string, x: number, z: number, r = 0) {

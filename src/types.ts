@@ -1,7 +1,21 @@
+import type { TrackPiece } from './track';
 export type Point = { x: number; z: number };
 export type Rect = Point & { w: number; d: number };
 export type Item =
-  'slab' | 'rail' | 'office' | 'sanitary' | 'shed' | 'store' | 'lamp' | 'diesel' | 'fence';
+  | 'slab'
+  | 'rail'
+  | 'railCurve'
+  | 'railPoints'
+  | 'railFrog'
+  | 'railClosure'
+  | 'railExit'
+  | 'office'
+  | 'sanitary'
+  | 'shed'
+  | 'store'
+  | 'lamp'
+  | 'diesel'
+  | 'fence';
 export type BuildKind = Item | 'power' | 'water';
 export type Role = 'builder' | 'operator' | 'engineer';
 export type EquipmentKind = 'excavator' | 'forklift';
@@ -84,6 +98,7 @@ export interface Equipment extends Point, Move, Motion {
   reach?: number;
 }
 export interface Stack extends Rect {
+  trackHand?: 1 | -1;
   baseHeight?: number;
   yaw?: number;
   id: string;
@@ -103,6 +118,9 @@ export interface Building extends Rect {
   source?: string;
 }
 export interface Rail extends Point {
+  track?: TrackPiece;
+  item?: Item;
+  selectedRoute?: 'straight' | 'branch';
   id: string;
   rotation: number;
   length: number;
@@ -119,6 +137,7 @@ export type RailWorkPhase =
   | 'stage-travel'
   | 'stage-align'
   | 'stage-lower'
+  | 'configure-staged-panel'
   | 'legacy-fork-withdraw'
   | 'unbolt-buffer'
   | 'buffer-rig'
@@ -146,12 +165,17 @@ export type RailWorkPhase =
   | 'complete';
 export type RailWorkPose = Point & { y: number; yaw: number };
 export interface RailWork {
+  configuredHand?: 1 | -1;
+  configureProgress?: number;
   legacyForkYaw?: number;
   phase: RailWorkPhase;
   clock: number;
   start: Point;
   end: Point;
   axisYaw: number;
+  stageYaw?: number;
+  entryYaw?: number;
+  endYaw?: number;
   side: Point;
   stage: Rect;
   stageDock: Point;
@@ -200,6 +224,7 @@ export interface ConstructionHandling {
   from?: RailWorkPose;
 }
 export interface JobGroup extends Rect {
+  track?: Omit<TrackPiece, 'section' | 'groupId'>;
   id: string;
   label: string;
   parentId?: string;
@@ -245,12 +270,14 @@ export interface ShedAssembly {
   };
 }
 export interface Job extends Rect {
+  track?: TrackPiece;
   parentId?: string;
   preferredEquipment?: string;
   equipmentPriority?: number;
   legacyRailHandoff?: 'carried' | 'staged' | 'installed';
   id: string;
-  kind: BuildKind | 'refuel' | 'remove';
+  kind: BuildKind | 'refuel' | 'remove' | 'throwSwitch';
+  requestedRoute?: 'straight' | 'branch';
   rotation: number;
   item?: Item;
   qty: number;

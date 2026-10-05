@@ -1,3 +1,5 @@
+import { checkTrackRendering } from './track-rendering.mjs';
+import { checkTrackUI } from './track-ui.mjs';
 import { chromium } from 'playwright';
 import { checkNavigation, checkFloorDrag } from './navigation.mjs';
 import { checkPhysicalRendering } from './physical-rendering.mjs';
@@ -190,7 +192,7 @@ async function ready() {
   await page.waitForFunction(() =>
     document.querySelector('#sql-status')?.textContent.includes('rows'),
   );
-  assert.equal(await page.locator('#sql-results tbody tr').count(), 9);
+  assert.equal(await page.locator('#sql-results tbody tr').count(), 14);
   await page.locator('[data-action="sql-example:1"]').click();
   await page.locator('[data-action="sql-run"]').click();
   await page.waitForFunction(() =>
@@ -232,10 +234,20 @@ async function ready() {
   const forkLoadRendering = await checkForkLoadRendering(page, base);
   const shedRendering = await checkShedRendering(page, base);
   const automaticWork = await checkAutomaticWork(page, base);
+  const trackRendering = await checkTrackRendering(page, base);
+  const trackUI = await checkTrackUI(page, base);
   const layouts = [];
   for (const width of [1440, 1024, 768]) {
     await page.setViewportSize({ width, height: 900 });
-    for (const t of ['workers', 'equipment', 'deliveries', 'jobs', 'activity', 'costs']) {
+    for (const t of [
+      'workers',
+      'equipment',
+      'deliveries',
+      'jobs',
+      'activity',
+      'costs',
+      'railways',
+    ]) {
       await page.locator(`#tabs [data-action="tab:${t}"]`).click();
       const metrics = await page.evaluate(() => ({
         width: innerWidth,
@@ -264,6 +276,8 @@ async function ready() {
         forkLoadRendering,
         shedRendering,
         automaticWork,
+        trackRendering,
+        trackUI,
         checks: [
           'perspective depth and view-relative WASD after orbit',
           'floor grab-pan without click or worker commands',

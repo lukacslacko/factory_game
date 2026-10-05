@@ -6,7 +6,7 @@ The world uses a true perspective 3D camera, with a meter grid, dimensional stoc
 
 ## Play
 
-The private game Site is **https://plant-01-starter-yard.lukacslacko.chatgpt.site**. This package documents version **0.11.0**; deployment status is recorded in `docs/publishing.md`. Sign in with the account that owns the Site. Local and hosted browser saves are separate; use Export save / Import save to transfer a yard.
+The private game Site is **https://plant-01-starter-yard.lukacslacko.chatgpt.site**. This package documents version **0.12.0**; deployment status is recorded in `docs/publishing.md`. Sign in with the account that owns the Site. Local and hosted browser saves are separate; use Export save / Import save to transfer a yard.
 
 On this Mac, double-click **Start Plant 01.command**. It starts the included local server and opens the game at **http://127.0.0.1:4173/**. Keep its Terminal window open while playing; Control-C stops the server.
 
@@ -29,16 +29,26 @@ Open **manual.html** through the local server for the illustrated player guide, 
 - Hire builders, equipment operators, and site engineers, named Worker #1, Worker #2, and so on. Buy a 6 t excavator or a 2.5 t forklift. Your own operator walks to its lowloader, boards, and drives it down the ramps.
 - Combine different material types on one truck or train, or different worker roles on one bus. Purchase shows unit and line weights, batch cargo weight, and the planned carrier count before ordering. Loads split by weight and available deck length. Freight waits for your own suitable machine, qualified operator, fuel, and reachable storage. Excavator lifts also require a builder or engineer to rig the load. Every batch moves from carrier to machine to its physical stack.
 - Designate storage areas. Slabs stack up to 12 high in neighboring 1 m² cells; incoming batches top up partial stacks first. A forklift lifts at most eight 280 kg slabs per trip. Full-length rail panels, containers, kits, poles, fence panels, and diesel drums retain their dimensions and stack limits. Keep a reachable loading face and travel aisles.
-- Drag paving plans; place offices, WC/showers, sheds, stores, lights, fences, and straight 5 m rail panels. Required foundations become ordinary construction jobs.
+- Drag paving plans; place offices, WC/showers, sheds, stores, lights, fences, and straight, curved, or turnout rail panels. Required foundations become ordinary construction jobs.
 - Builders and operators board equipment, collect material, carry it, place it, and install it. The work register explains missing resources and access problems.
 - Select a worker to walk cell to cell, board equipment, drive, or take a particular job. Hand control back without resetting the person or machine.
-- Recover buildings, paving, and player-built rail into storage. Recovered prefab containers retain their asset IDs. Track plans recover existing paving first. Extending the initial siding relocates the same buffer.
+- Recover buildings and paving into storage; existing straight-panel rail recovery remains available. Recovered prefab containers retain their asset IDs. Track plans recover existing paving first. Extending the initial siding relocates the same buffer.
 - Road traffic keeps right on an 8.4 m road, queues behind stopped vehicles, and yields at the crossing. Carriers take turns through the connecting yard maneuver, while parked deliveries release it for other arrivals. Buses continue forward; freight and utility trucks back clear inside the yard before departing forward; lowloaders use a forward turning loop. Machinery yields to workers and routes around obstructions.
 - Rail construction stages the panel beside the track, unbolts and lifts the existing buffer aside, lowers and joins the panel, then lifts and refastens that same buffer at the new end. Keep space beside the extension for staging and lifting.
 - Consume diesel, receive low-fuel notices, and refuel through a worker carrying a 20 L service can. Fuel held in a can survives saving and loading.
 - Order electrical and water/sewer services. Utility crews arrive and commission the service. Connected lights illuminate the yard at night.
 - Inspect materials, workers, equipment, structures, deliveries, jobs, events, material movements, actual costs, and outstanding commitments. Track notifications in To do / Doing / Done.
 - Query a fresh SQLite reporting snapshot and export costs as CSV. Autosave locally, export/import a portable save, and restore the previous yard backup.
+
+## Version 0.12 railway construction checkpoint
+
+Choose **Rail end**, then **Straight**, **Curve**, or **Turnout** above the build bar. The siding starts at E125, S5 facing east. **R** rotates through east/south/west/north; **Left/Right** changes the bend. Click a connected endpoint. The preview follows the occupied cells and shows actual rails, a bill of materials, cargo weight, and material cost before transport. **Buy missing** orders those parts through normal deliveries. Keep clear staging and machine access beside every panel.
+
+A 20 m radius quarter-turn uses six separately handled 15° curved panels. A 20 m turnout uses a points assembly plus three through panels and three diverging panels: seven real lifts at four stations. Neither appears as one complete kit. The excavator and builder rig, stage, lay and fasten each piece; the existing buffer moves through its physical sequence and faces the new endpoint tangent. Left-hand turnout kits are reconfigured by the worker while supported, using schematic component animation. A completed turnout's inspector offers **Set straight route** / **Set branch route**. Each request queues a real worker to walk to the lever and throw it; the selected route changes after that operation. The **Railway** register shows installed panel IDs, connected endpoints and buffer protection; SQL adds `track_ports` and geometry fields in `rails`.
+
+This is the first bounded chemical-plant checkpoint. **Test it before the next chunk starts.** Supplier trains still use the original route. The extra branch is uncapped; an owned shunter, driver, engine shed and additional physical buffers are next todos, requiring your approval. Tanks, tanker pumps, pipes, gauges and valves are subsequent todos. New track assembly recovery is deferred; canceling work retains real installed/staged parts, and **Resume canceled panels** safely continues the same work order after its bed is clear. Legacy straight-panel recovery remains available.
+
+The actual completed browser-playtest yard is shown in [railway-construction-preview.png](railway-construction-preview.png). The separate curve/turnout preview images are rendering fixtures used for geometry checks.
 
 ## Version 0.11 automatic work ownership
 
@@ -135,7 +145,7 @@ The game does not advance while closed. Clearing browser data removes browser sa
 
 ## Deliberate first-version boundaries
 
-This is a construction sandbox, with **no chemical production yet**. The buildable structure area is 232 × 98 m; the surrounding landscape and public transport lines are visual context. Buildable rail is straight; only the supplied turnout curves. There is no train driving, shunting, dispatch system, or builder for new switches yet.
+This is a construction sandbox, with **no chemical production yet**. The buildable structure area is 232 × 98 m; the surrounding landscape and public transport lines are visual context. Buildable rail includes straight panels, R20 quarter-turns and modular turnouts. Owned train driving, shunting and dispatch remain gated todos. Supplier trains use their fixed starter route. Extra terminal buffers and recovery of the new track assemblies arrive with the next approved railway checkpoint.
 
 Workers default to Always on. Assign daily or overnight shifts to use recurring charter buses: workers finish their current work, park equipment in assigned bays, leave the cab, walk to the bus, and return for their next shift. Labor is recorded while workers are on site; each charter is recorded separately. Food and welfare simulation are future work. Office and shed interiors are not simulated. Weather, seasons, tire wear, component failures, and repairs are not implemented.
 

@@ -1,6 +1,6 @@
 # Starter Yard architecture
 
-Version 0.11.0 separates serializable simulation, physical delivery sequences, motion, rendering, and the Condensed interface. The simulation is deterministic for a given sequence of commands and time steps and runs without a browser.
+Version 0.12.0 separates serializable simulation, physical delivery sequences, motion, rendering, and the Condensed interface. The simulation is deterministic for a given sequence of commands and time steps and runs without a browser.
 
 ## Files
 
@@ -154,3 +154,15 @@ Equipment's optional `allowedWork` array stores checked automatic job kinds. Old
 `JobGroup.automaticEquipment` records the outer work-order machine separately from `preferredEquipment`. Scheduler reconciliation adopts existing active machines from older saves, waits for competing physical work to finish, and reuses its owner for following leaves. Qualification and operator checks can release future ownership without interrupting current work; explicit assignments still take priority. Group ownership does not blanket-reserve equipment away from receiving missing materials.
 
 `Order.automaticEquipment` retains the receiving machine across lifts of that carrier. Automatic construction and other deliveries respect its remaining-freight reservation; manual work can override at a safe boundary. The receiving lock is cleared when its final parcel is lifted clear. Automatic parking avoids sending the machine home between lifts while its operator is on shift. Saves validate machine references; job rows, inspectors, diagnostics and SQL expose the selected owner.
+
+## Railway geometry and construction checkpoint
+
+`track.ts` is the canonical geometry model for legacy straight panels and optional `TrackPiece` descriptors. Macro origins, cardinal headings and handedness determine analytical R20 curve points/tangents, modular turnout paths, rigid placement anchors, occupied cells and ports. Six 15° curve sections share one rigid curved stock profile; seven turnout pieces fit normal freight widths because later through/branch pieces are separate. Immutable geometry results use a bounded 512-entry cache. Turnout branches follow a cubic centerline with horizontal endpoint tangents; this is schematic yard geometry, not certified railway engineering.
+
+Ports point outward and connect only at matching positions with opposing tangents. Crossings never become implicit junctions. Topology includes the protected bootstrap main line and siding. Planning exposes only complete macro descriptors, while construction requires installed and safely completed predecessor ports. Canonical section/route order is independent of UI queue priority. The Railway register queries installed topology; its planned continuation preview is a separate query.
+
+Curved and turnout jobs retain kind `rail` but have explicit catalog material identities. `railwork.ts` uses each piece's rigid anchor, cardinal staging orientation, and separate entry/exit buffer tangents. Saved staged turnout handedness and a worker configuration phase keep reconfigured material reusable. Cancellation preserves physical stock and installed pieces; resuming preflights every canceled footprint before mutating any leaf. The parent macro, leaf geometry, material, rotation and installed length are validated together. Missing descriptors retain the exact old straight-panel geometry and active old rail sequences.
+
+Only the original BUFFER-001 exists in this checkpoint. It follows the through route of a turnout; extra exits are explicitly uncapped. Existing supplier trains remain on their original route. Train movement over player rails, independent buffer assets, engine shed, shunter/driver and fluid networks remain gated todos. New assembly recovery is not claimed as implemented.
+
+`turnout-operation.ts` owns worker-only manual lever requests. A serialized `throwSwitch` job reserves no machine or material. A builder or engineer walks to the handle, faces it, and throws over four seconds before committing the route. Partial saves retain progress; cancellation returns the handle physically to its old setting before releasing the worker. The renderer interpolates lever, point-blade and worker arm motion from the same saved phase/progress. Readiness checks require every canonical installed turnout piece and completed construction record.

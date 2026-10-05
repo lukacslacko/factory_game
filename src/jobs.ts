@@ -30,6 +30,7 @@ export interface WorkRow {
 const unfinished = (j: Job) => j.status !== 'done' && j.status !== 'canceled';
 /** Ownership applies to the outer work order, including foundation subgroups. */
 export function automaticWorkGroup(s: State, work: Job | JobGroup): JobGroup | undefined {
+  if ('kind' in work && work.kind === 'throwSwitch') return undefined;
   let group = s.jobGroups?.find((g) => g.id === ('kind' in work ? work.parentId : work.id));
   const seen = new Set<string>();
   while (group?.parentId && !seen.has(group.id)) {
@@ -45,7 +46,7 @@ export function automaticEquipmentForWork(s: State, work: Job | JobGroup): strin
 export function refreshAutomaticEquipment(s: State, operatorAvailable: (e: Equipment) => boolean) {
   const groups = new Map<string, { group: JobGroup; jobs: Job[] }>();
   for (const j of s.jobs) {
-    if (j.kind === 'refuel') continue;
+    if (j.kind === 'refuel' || j.kind === 'throwSwitch') continue;
     const group = automaticWorkGroup(s, j);
     if (!group) continue;
     let entry = groups.get(group.id);
@@ -108,7 +109,9 @@ export function automaticEquipmentHasWork(s: State, e: Equipment): boolean {
     s.jobGroups?.some(
       (g) =>
         g.automaticEquipment === e.id &&
-        workLeaves(s, g.id).some((j) => unfinished(j) && !j.handling?.equipmentReleased),
+        workLeaves(s, g.id).some(
+          (j) => unfinished(j) && j.kind !== 'throwSwitch' && !j.handling?.equipmentReleased,
+        ),
     ) || false
   );
 }
@@ -148,6 +151,8 @@ export function equipmentAssignment(s: State, workId: string): Assignment {
 }
 /** Scheduler already has the job object; avoid searching its entire job list again. */
 export function jobEquipmentAssignment(s: State, job: Job): Assignment {
+  if (job.kind === 'throwSwitch')
+    return { inherited: false, text: 'Worker on foot · no equipment required' };
   return resolveEquipmentAssignment(s, job, job.id);
 }
 function resolveEquipmentAssignment(
@@ -157,6 +162,8 @@ function resolveEquipmentAssignment(
 ): Assignment {
   const visited = new Set<string>();
   while (work && !visited.has(work.id)) {
+    if ('kind' in work && work.kind === 'throwSwitch')
+      return { inherited: false, text: 'Worker on foot · no equipment required' };
     visited.add(work.id);
     if (work.preferredEquipment) {
       const e = s.equipment.find((e) => e.id === work!.preferredEquipment);
@@ -186,6 +193,7 @@ export function equipmentHasAssignedWork(s: State, e: Equipment): boolean {
   return s.jobs.some(
     (j) =>
       unfinished(j) &&
+      j.kind !== 'throwSwitch' &&
       !j.handling?.equipmentReleased &&
       jobEquipmentAssignment(s, j).equipmentId === e.id,
   );
@@ -195,6 +203,7 @@ export function equipmentReservedForJob(s: State, e: Equipment, j: Job): boolean
   return required ? required === e.id : !equipmentHasAssignedWork(s, e);
 }
 export function equipmentCanDoJob(e: Equipment, j: Job, s?: State): boolean {
+  if (j.kind === 'throwSwitch') return false;
   if (j.kind === 'refuel') return e.id === j.target;
   // A freshly queued recovery resolves its item at scheduling time. Manual
   // assignment must inspect that same existing asset before promising a lift.
@@ -216,6 +225,8 @@ export function equipmentCanDoJob(e: Equipment, j: Job, s?: State): boolean {
 export function setJobEquipment(s: State, workId: string, equipmentId?: string): string {
   const work = s.jobs.find((j) => j.id === workId) || s.jobGroups?.find((g) => g.id === workId);
   if (!work) return 'Work order no longer exists.';
+  if ('kind' in work && work.kind === 'throwSwitch')
+    return equipmentId ? 'The manual turnout lever needs a worker on foot, not equipment.' : '';
   const leaves = workLeaves(s, workId).filter(unfinished);
   if (!leaves.length) return 'This work order has already finished.';
   if (equipmentId) {
@@ -260,7 +271,9 @@ export function jobRows(s: State): WorkRow[] {
       parentId: j.parentId,
       depth,
       group: false,
-      label: label(j.kind),
+      label: j.track
+        ? `${label(j.item || 'rail')} · ${j.track.layout === 'turnout' ? 'station ' : 'panel '}${j.track.section + 1}${j.track.route ? ' · ' + j.track.route : ''}`
+        : label(j.kind),
       status: j.status,
       progress: j.progress,
       reason: j.reason || j.phase,
