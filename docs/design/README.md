@@ -7,3 +7,5 @@ The selected visual references are **80% A / 20% B**, using `A-detailed-grid.png
 The original vision is the long-term anchor. The game README, player guide, architecture, and test record describe exactly what version 0.8.0 implements and where it remains simplified.
 
 These are local snapshots. Some online Pages updates were saved, but later synchronization was blocked by automatic approval review; see the design journal.
+
+The original **C Planning View** concept is preserved in [C-original-planning.png](C-original-planning.png). This is generated concept art, not a gameplay screenshot. Its world depth, contrast, color and vegetation remain a visual reference; its old mandatory work-step panel was rejected. Retain the later accepted true-perspective camera, direct worker control, dismissible guidance, Condensed records and approximately 80% A / 20% B refinements.
