@@ -7,6 +7,7 @@ import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { surfaceMaterial } from './surfaces';
 import { WornPaths } from './worn-paths';
+import { equipmentIntent } from './equipment-intent';
 import { GATE_PADS, groundPad, sceneryRandom } from './terrain-visuals';
 import { assembledShed, shedComponentModel } from './shed-visuals';
 import { shedComponentPose, shedPostPoints } from './shed-geometry';
@@ -215,6 +216,14 @@ export class World {
   grid: THREE.GridHelper;
   hover = new THREE.Group();
   selected = new THREE.Group();
+  equipmentIntentOverlay = new THREE.Group();
+  private intentEquipmentId?: string;
+  private intentKey = '';
+  private intentMarkerKey = '';
+  private intentBlockerKey = '';
+  private intentRoutes = new THREE.Group();
+  private intentMarkers = new THREE.Group();
+  private intentBlockers = new THREE.Group();
   models = new Map<string, THREE.Group>();
   revision = -1;
   sun: THREE.DirectionalLight;
@@ -462,8 +471,10 @@ export class World {
       this.planGroup,
       this.hover,
       this.selected,
+      this.equipmentIntentOverlay,
       this.landscape,
     );
+    this.equipmentIntentOverlay.add(this.intentRoutes, this.intentMarkers, this.intentBlockers);
     this.buildCorridor();
     this.buffer = new THREE.Group();
     for (const z of [-RAIL_CENTER_OFFSET, RAIL_CENTER_OFFSET]) {
@@ -2245,6 +2256,7 @@ export class World {
         this.models.delete(id);
       }
     }
+    this.updateEquipmentIntent(s, alpha);
     const activeBufferJob = s.jobs.find((j) => j.status === 'doing' && j.railWork?.buffer);
     const lastBufferJob =
       activeBufferJob ||
@@ -2358,6 +2370,103 @@ export class World {
   highlight(r: Rect | undefined) {
     this.disposeGroup(this.selected);
     if (r) this.outline(this.selected, r, 0xf9e7a0, 0.27);
+  }
+  showEquipmentIntent(id?: string) {
+    this.intentEquipmentId = id;
+    if (!id) {
+      for (const group of [this.intentRoutes, this.intentMarkers, this.intentBlockers])
+        this.disposeGroup(group);
+      this.intentKey = this.intentMarkerKey = this.intentBlockerKey = '';
+    }
+  }
+  private updateEquipmentIntent(s: State, alpha: number) {
+    const e = s.equipment.find((e) => e.id === this.intentEquipmentId);
+    if (!e) {
+      if (this.intentKey || this.intentMarkerKey || this.intentBlockerKey)
+        this.showEquipmentIntent(undefined);
+      return;
+    }
+    const intent = equipmentIntent(s, e),
+      color = intent.hasRoute ? 0xb9d8bb : 0xe7b96d;
+    const key = JSON.stringify([e.id, intent.target, intent.hasRoute, intent.route]);
+    if (key !== this.intentKey) {
+      this.disposeGroup(this.intentRoutes);
+      this.intentKey = key;
+      if (intent.target) {
+        const points = [{ x: e.x, z: e.z }, ...(intent.hasRoute ? intent.route : [intent.target])];
+        const geometry = new THREE.BufferGeometry().setFromPoints(
+          points.map((p) => new THREE.Vector3(p.x, 0.39, p.z)),
+        );
+        const line = new THREE.Line(
+          geometry,
+          intent.hasRoute
+            ? new THREE.LineBasicMaterial({ color, depthTest: false })
+            : new THREE.LineDashedMaterial({
+                color,
+                dashSize: 0.5,
+                gapSize: 0.3,
+                depthTest: false,
+              }),
+        );
+        line.name = intent.hasRoute ? 'equipment-planned-route' : 'equipment-target-intent';
+        line.renderOrder = 12;
+        line.computeLineDistances();
+        this.intentRoutes.add(line);
+        this.outline(
+          this.intentRoutes,
+          { x: intent.target.x - 0.5, z: intent.target.z - 0.5, w: 1, d: 1 },
+          color,
+          0.4,
+          !intent.hasRoute,
+        );
+      }
+    }
+    const markerKey = JSON.stringify([intent.target, intent.targetLabel, intent.hasRoute]);
+    if (markerKey !== this.intentMarkerKey) {
+      this.disposeGroup(this.intentMarkers);
+      this.intentMarkerKey = markerKey;
+      if (intent.target) {
+        const marker = sign(
+          this.intentMarkers,
+          `${intent.targetLabel}${intent.hasRoute ? '' : ' · TARGET'}`,
+          intent.target.x,
+          1.8,
+          intent.target.z,
+          5,
+        );
+        marker.name = 'equipment-destination-label';
+        marker.renderOrder = 13;
+        (marker.material as THREE.MeshBasicMaterial).depthTest = false;
+      }
+    }
+    // Moving blockers may change every frame; quantized bounds keep redraws bounded
+    // and never recreate the destination's canvas texture during those redraws.
+    const blocker = intent.blocker && {
+      id: intent.blocker.id,
+      rect: {
+        x: Math.floor(intent.blocker.rect.x * 4) / 4,
+        z: Math.floor(intent.blocker.rect.z * 4) / 4,
+        w: Math.ceil(intent.blocker.rect.w * 4 + 1) / 4,
+        d: Math.ceil(intent.blocker.rect.d * 4 + 1) / 4,
+      },
+    };
+    const blockerKey = JSON.stringify(blocker);
+    if (blockerKey !== this.intentBlockerKey) {
+      this.disposeGroup(this.intentBlockers);
+      this.intentBlockerKey = blockerKey;
+      if (blocker) this.outline(this.intentBlockers, blocker.rect, 0xe9755f, 0.43, true);
+    }
+    const pose = this.renderPose(s, e.id, e, alpha),
+      line = this.intentRoutes.children[0];
+    if (line instanceof THREE.Line) {
+      const positions = line.geometry.getAttribute('position');
+      positions.setXYZ(0, pose.x, 0.39, pose.z);
+      positions.needsUpdate = true;
+      line.geometry.computeBoundingSphere();
+      line.computeLineDistances();
+    }
+    const marker = this.intentMarkers.getObjectByName('equipment-destination-label');
+    if (marker) marker.quaternion.copy(this.camera.quaternion);
   }
   followWorker(s: State, workerId: string, alpha: number) {
     const worker = s.workers.find((w) => w.id === workerId);

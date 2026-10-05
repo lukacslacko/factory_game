@@ -1,6 +1,6 @@
 # Starter Yard architecture
 
-Version 0.12.0 separates serializable simulation, physical delivery sequences, motion, rendering, and the Condensed interface. The simulation is deterministic for a given sequence of commands and time steps and runs without a browser.
+Version 0.13.0 separates serializable simulation, physical delivery sequences, motion, rendering, and the Condensed interface. The simulation is deterministic for a given sequence of commands and time steps and runs without a browser.
 
 ## Files
 
@@ -28,6 +28,8 @@ Version 0.12.0 separates serializable simulation, physical delivery sequences, m
 | `server.mjs`                                                                | Dependency-free production server bound to loopback                                                      |
 | `tests/*.test.ts`                                                           | Simulation, delivery, and motion regressions                                                             |
 | `tests/browser.mjs`, `tests/navigation.mjs`, `tests/physical-rendering.mjs` | Browser interaction, navigation, and rendered-geometry checks                                            |
+
+Selected equipment uses `src/equipment-intent.ts` to derive its current approach, accepted path, assignment explanation and related assets directly from live state. No extra intent fields are serialized. The world draws accepted paths as solid lines and unplanned destination hints as dashed lines, with a separate target marker and known blocker outline. Route geometry, marker textures and blocker outlines have independent caches; interpolated machine movement updates the line origin without recreating the marker.
 
 ## Coordinates and time
 

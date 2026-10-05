@@ -6,7 +6,7 @@ The world uses a true perspective 3D camera, with a meter grid, dimensional stoc
 
 ## Play
 
-The private game Site is **https://plant-01-starter-yard.lukacslacko.chatgpt.site**. This package documents version **0.12.0**; deployment status is recorded in `docs/publishing.md`. Sign in with the account that owns the Site. Local and hosted browser saves are separate; use Export save / Import save to transfer a yard.
+The private game Site is **https://plant-01-starter-yard.lukacslacko.chatgpt.site**. This package documents version **0.13.0**; deployment status is recorded in `docs/publishing.md`. Sign in with the account that owns the Site. Local and hosted browser saves are separate; use Export save / Import save to transfer a yard.
 
 On this Mac, double-click **Start Plant 01.command**. It starts the included local server and opens the game at **http://127.0.0.1:4173/**. Keep its Terminal window open while playing; Control-C stops the server.
 
@@ -191,3 +191,5 @@ Repeated actual equipment travel creates persistent worn dirt paths. Comparable 
 Purchase supports mixed batches with a packing preview, displayed unit and quantity weights, and shared buses or material carriers. A mixed carrier retains every manifest line through unloading, costs, diagnostics, reporting, and saves; physical handling still requires owned equipment and hired crew.
 
 Terrain rendering separates overlapping receiving surfaces and corrects depth artifacts in distant ground shadows. Decorative vegetation uses stable world-space candidates: clearing a paved or worn area removes affected plants without moving unrelated plants elsewhere.
+
+In v0.13, long-panel deliveries use the machine’s actual loaded route, including top-ups of partial curved-panel stacks. Select equipment to see its route and destination. A dashed line shows intended travel when no route is currently available; the inspector gives the assignment phase and blockage details. Existing saved deliveries resume without resetting cargo.

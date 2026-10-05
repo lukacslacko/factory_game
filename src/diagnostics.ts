@@ -187,7 +187,7 @@ export class DiagnosticRecorder {
     return copy({
       format: 'plant01-diagnostics',
       version: 1,
-      gameVersion: '0.12.0',
+      gameVersion: '0.13.0',
       started: this.started,
       entries: this.entries,
       checkpoints: this.checkpoints,

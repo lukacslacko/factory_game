@@ -2,7 +2,7 @@ export { orderLines, orderDescription, orderMass, itemMass } from './procurement
 import { orderLines, orderDescription, pendingOrderLine } from './procurement';
 import { workerAvailable, commuteDoor } from './workforce';
 import { equipmentHasAssignedWork } from './jobs';
-import { RAIL_PANEL_PITCH } from './railwork';
+import { RAIL_PANEL_PITCH, railStagingStackOwned } from './railwork';
 import { equipmentAllows } from './equipment-roles';
 import { FORK_LOAD_CENTER } from './fork-geometry';
 import type {
@@ -366,7 +366,12 @@ function chooseStorage(s: State, item: Item, e: Equipment, api: DeliveryAPI) {
   // Partial stacks are useful physical capacity, including when they came on an earlier truck.
   for (const stack of s.stacks
     .filter(
-      (t) => t.item === item && t.qty > 0 && t.qty + incoming(t.id) < m.max && !unavailable(t),
+      (t) =>
+        t.item === item &&
+        t.qty > 0 &&
+        t.qty + incoming(t.id) < m.max &&
+        !railStagingStackOwned(s, t.id) &&
+        !unavailable(t),
     )
     .sort((a, b) => b.qty - a.qty)) {
     const dock = storageDock(s, e, stack, loaded, api, clearance);
@@ -551,6 +556,44 @@ export function syncDeliveryCargo(s: State) {
     if (e?.cargo) cargoFollow(t, e, t.cargo.y);
   }
 }
+function loadedStorageRoute(s: State, e: Equipment, drop: Point, api: DeliveryAPI) {
+  const obstacles = api.obstacles(s);
+  // Keep the established conservative path when it exists. A long load may
+  // falsely exclude its own dock under circular inflation; only then search
+  // the actual machine poses, including a checked reverse approach.
+  const clearance = e.cargo ? Math.max(1.1, MATERIALS[e.cargo.item].w / 2) : 1.1;
+  const conservative = route(e, drop, obstacles, clearance);
+  if (conservative) return { path: conservative, reverse: false };
+  for (const reverse of [false, true]) {
+    const path = machineRoute(s, { ...e, reverse }, drop, obstacles, 250, true);
+    if (path) return { path, reverse };
+  }
+  return null;
+}
+function loadedRouteBlocked(s: State, o: Order, e: Equipment, t: UnloadTask) {
+  const blocker = equipmentMoveBlocked(
+    s,
+    { ...e, reach: dist(t.drop, center(t.destination)) },
+    { ...t.drop, yaw: t.dropYaw },
+  );
+  e.blockedBy = blocker || undefined;
+  // Empty-path searches do not pass through tickMove's retry throttle.
+  // The same timer is safe here: normal movement owns it again once a real
+  // path is accepted, and no physical payload pose is changed by waiting.
+  e.trafficRetry = s.elapsed + 1.5;
+  o.note = `No clear loaded route to ${t.mergeId || 'storage'} at (${t.drop.x.toFixed(1)}, ${t.drop.z.toFixed(1)})${blocker ? `; blocked by ${blocker}` : '; clear the approach aisle'}`;
+}
+function resumeLoadedRoute(
+  e: Equipment,
+  planned: NonNullable<ReturnType<typeof loadedStorageRoute>>,
+) {
+  e.path = planned.path;
+  e.reverse = planned.reverse;
+  e.trafficReverse = planned.reverse || undefined;
+  e.trafficGoal = undefined;
+  e.blockedBy = undefined;
+  e.trafficWait = 0;
+}
 function unloadTick(s: State, o: Order, dt: number, api: DeliveryAPI) {
   if (!o.unload) {
     if (o.arrived >= o.qty) {
@@ -686,15 +729,22 @@ function unloadTick(s: State, o: Order, dt: number, api: DeliveryAPI) {
   } else if (t.phase === 'clear') {
     cargoFollow(t, e, t.sourceY + 0.42);
     e.lift = t.cargo!.y;
-    o.note = 'Backing clear of the carrier';
-    if (e.path.length) return;
-    e.reverse = false;
-    const path = route(e, t.drop, api.obstacles(s), Math.max(1.1, MATERIALS[item].w / 2));
-    if (!path) {
-      o.note = 'Load needs a wider clear route to storage';
+    if (e.path.length) {
+      o.note = 'Backing clear of the carrier';
       return;
     }
-    e.path = path;
+    if (s.elapsed < (e.trafficRetry || 0)) return;
+    e.reverse = false;
+    // A long panel is carried across the machine's heading. Inflating every
+    // obstacle by half its width wrongly blocks the valid top-up dock beside
+    // its own partial stack. Replay the actual chassis, tools, and load instead.
+    const planned = loadedStorageRoute(s, e, t.drop, api);
+    if (!planned) {
+      loadedRouteBlocked(s, o, e, t);
+      return;
+    }
+    resumeLoadedRoute(e, planned);
+    o.note = `${w.name} hauling to storage`;
     set('carry');
   } else if (t.phase === 'carry') {
     const transitHeight = Math.max(0.4, t.destinationY + 0.35);
@@ -716,6 +766,29 @@ function unloadTick(s: State, o: Order, dt: number, api: DeliveryAPI) {
     }
     cargoFollow(t, e, y);
     e.lift = y;
+    if (!e.path.length && dist(e, t.drop) > 0.025) {
+      // Finishing a traffic escape is not arrival at the storage dock. Its
+      // return route may have failed while another actor occupied the dock.
+      // Retry the real loaded trip instead of turning and lowering remotely.
+      if (s.elapsed < (e.trafficRetry || 0)) return;
+      let planned = loadedStorageRoute(s, e, t.drop, api);
+      if (!planned) {
+        const dock = storageDock(s, e, t.destination, e, api);
+        if (dock && dist(dock.p, t.drop) > 0.1) {
+          const alternate = loadedStorageRoute(s, e, dock.p, api);
+          if (alternate) {
+            t.drop = dock.p;
+            t.dropYaw = dock.yaw;
+            planned = alternate;
+          }
+        }
+      }
+      if (planned) {
+        resumeLoadedRoute(e, planned);
+        o.note = `${w.name} resuming the loaded trip to storage`;
+      } else loadedRouteBlocked(s, o, e, t);
+      return;
+    }
     o.note = reachBlocker
       ? `Waiting for ${reachBlocker} to clear the reach carriage`
       : `${w.name} hauling to storage`;
@@ -748,7 +821,13 @@ function unloadTick(s: State, o: Order, dt: number, api: DeliveryAPI) {
     e.yaw = candidate.yaw;
     e.blockedBy = undefined;
     cargoFollow(t, e, y);
-    if (!aligned || reachBlocker || Math.abs((e.reach || 3) - dropReach) > 0.005) return;
+    if (
+      !aligned ||
+      reachBlocker ||
+      Math.abs((e.reach || 3) - dropReach) > 0.005 ||
+      dist(t.cargo!, center(t.destination)) >= 0.025
+    )
+      return;
     e.reach = dist(e, center(t.destination));
     cargoFollow(t, e, y);
     set('lower');

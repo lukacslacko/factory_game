@@ -136,3 +136,7 @@ Railway construction alone does not introduce general train dispatch. Incoming s
 ## GitHub tracking — October 5, 2026
 
 The creator requests individual GitHub issues for the railway and chemical infrastructure breakdown and eight further improvements. The [GitHub request index](github-issues.md) links all twenty issues, their related work and the uploaded original C concept image. Curves/turnouts are recorded as completed; the other nineteen issues are open. Electrical excavation/cabling/backfill, held fuel-can visuals, nearby refueling, distance-aware worker assignments, blocker recovery/notifications, visual fidelity, desktop saves/background operation and sounds are tracked individually. Filing these issues does not start the next implementation checkpoint.
+
+## Authorized playtest repair — version 0.13
+
+Before the next railway checkpoint, repair the creator's eight-curved-panel delivery stall and show selected equipment's accepted route or intended destination. Include blocked-save resumption, continuous supported cargo and clearer linked explanations. Broader checks also require a physical return after interrupted traffic yielding and separation of temporary rail staging supports from receiving/recovery capacity. This work is recorded in issue #21 and does not authorize the shunter or chemical checkpoints.

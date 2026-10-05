@@ -9,7 +9,7 @@ import { packPurchase, orderLines, orderDescription } from './procurement';
 export { packPurchase as planPurchaseBatch } from './procurement';
 import { tickWorkforce, workerAvailable } from './workforce';
 import { recordEquipmentTravel } from './ground-wear';
-import { tickRailWork } from './railwork';
+import { tickRailWork, railStagingStackOwned } from './railwork';
 import { tickShedConstruction } from './shed-construction';
 import {
   constructionSourceBusy,
@@ -1799,6 +1799,7 @@ function recoveryDestination(s: State, j: Job, e: Equipment) {
     (t) =>
       t.item === j.item &&
       t.qty > 0 &&
+      !railStagingStackOwned(s, t.id) &&
       !clearance.some((area) => overlap(area, t)) &&
       t.qty +
         s.orders

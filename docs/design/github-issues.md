@@ -1,6 +1,6 @@
 # GitHub request index — October 5, 2026
 
-Twenty individual issues track the creator's new feedback, the preceding railway/chemical infrastructure request, and two supporting todos already deferred in v0.12.0. Nineteen are open. The curves/turnouts construction record is closed as implemented in v0.12.0; the creator's playtest can identify further defects.
+The first twenty individual issues track the creator's new feedback, the preceding railway/chemical infrastructure request, and two supporting todos already deferred in v0.12.0. Nineteen are open. The curves/turnouts construction record is closed as implemented in v0.12.0; the creator's playtest can identify further defects.
 
 These are tracking records. Further implementation remains subject to the creator's review and approval of a bounded chunk. Open design choices are recorded in the issues rather than silently decided.
 
@@ -44,3 +44,7 @@ The original [C Planning View concept image](C-original-planning.png) is uploade
 - Electrical trenches may be prepared as a complete route, cell by cell, or another coherent sequence. The creator has no strong preference. Excavated spoil occupies neighboring space and must remain physically accounted for.
 - The desktop implementation technology is not selected. Reliable file saves and continuing simulation while unfocused/minimized are the requested outcomes.
 - The sound set, prolonged-blockage notification delay and the first fluid-model specifications require further design decisions.
+
+## Authorized playtest bug fixes
+
+- [#21 — Fix curved-panel stack top-up route rejection and show selected equipment intent](https://github.com/lukacslacko/factory_game/issues/21) — **completed in v0.13.0**; the creator explicitly authorized this fix after the initial issue list. It is separate from the broader blocker auto-clearing design in #17.

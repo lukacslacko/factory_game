@@ -6,6 +6,7 @@ import { angleDelta } from '../src/motion';
 import { trackGeometry, trackSections } from '../src/track';
 import { seedHandlingResources, requestLowFuelService } from './support/yard';
 import { machineRoute } from '../src/traffic';
+import { tickRailWork } from '../src/railwork';
 import type { Item, State, RailWorkPose } from '../src/types';
 
 function fixture(
@@ -340,10 +341,89 @@ test('storage-face preflight checks the loaded turnout panel against a parked re
   assert.equal(s.equipment.find((e) => e.id === 'OPENING-RECEIVING-FORK')!.cargo!.qty, 1);
 });
 
+test('rail pickup changes gear to reach a clear lifting face and throttles blocked initialization', () => {
+  const { s } = fixture('curve');
+  const j = s.jobs[0],
+    e = s.equipment[0];
+  const stock = s.stacks.find((t) => t.item === 'railCurve')!;
+  Object.assign(stock, { x: 24, z: 47, yaw: Math.PI, reserved: 1 });
+  for (const [i, other] of s.stacks.filter((t) => t !== stock).entries())
+    Object.assign(other, i === 0 ? { x: 30, z: 47 } : { x: 50, z: 60 + i * 4 });
+  Object.assign(e, {
+    x: 29.5,
+    z: 43.5,
+    yaw: -1.554286699891982,
+    heading: 3,
+    reverse: true,
+    reach: 4.8,
+    job: j.id,
+  });
+  s.equipment.push({
+    id: 'OPENING-RECEIVING-FORK',
+    kind: 'forklift',
+    x: 33,
+    z: 41.7,
+    yaw: Math.PI / 2,
+    heading: 1,
+    path: [],
+    fuel: 45,
+    tank: 45,
+    used: 0,
+    work: 0,
+    reach: 2.7,
+  });
+  const worker = s.workers.find((w) => w.role === 'builder')!;
+  const operator = s.workers.find((w) => w.role === 'operator')!;
+  Object.assign(j, {
+    status: 'doing',
+    phase: 'Collect material',
+    stack: stock.id,
+    worker: worker.id,
+    operator: operator.id,
+    equipment: e.id,
+  });
+  worker.job = j.id;
+  Object.assign(operator, { job: j.id, vehicle: e.id, x: e.x, z: e.z });
+  e.operator = operator.id;
+  const dock = { x: 27, z: 44.5 };
+  assert.equal(machineRoute(s, e, dock, S.obstacles(s), 450, true), null);
+  assert.ok(machineRoute(s, { ...e, reverse: false }, dock, S.obstacles(s), 450, true));
+  const api = {
+    id: S.id,
+    obstacles: S.obstacles,
+    event: () => {},
+    movement: () => {},
+    complete: () => {},
+    release: () => {},
+  };
+  const blockedAPI = { ...api, obstacles: () => [{ x: -12, z: 7, w: 232, d: 103 }] };
+  tickRailWork(s, j, 0.1, blockedAPI);
+  assert.equal(j.railWork, undefined);
+  assert.equal(e.trafficRetry, s.elapsed + 1.5);
+  j.reason = 'Waiting for the next bounded retry';
+  tickRailWork(s, j, 0.1, api);
+  assert.equal(j.reason, 'Waiting for the next bounded retry');
+  assert.equal(j.railWork, undefined);
+  s.elapsed += 1.5;
+  tickRailWork(s, j, 0.1, api);
+  const initialized = s.jobs.find((q) => q.id === j.id)!.railWork;
+  assert.ok(initialized?.source, 'The physically accessible face initializes using forward gear');
+  assert.deepEqual(initialized.source.dock, dock);
+});
+
 test('demo curve then turnout procurement and construction completes while receiving equipment shares the stockyard', () => {
   const s = S.demoState();
   const audit = () => {
     requestLowFuelService(s);
+    for (const j of s.jobs.filter((j) => j.railWork?.panel.state === 'staged')) {
+      const staged = s.stacks.find((t) => t.id === j.railWork!.panel.stackId)!;
+      assert.equal(staged.qty, 1, `${j.id}: staging supports must hold exactly its one panel`);
+      assert.equal(staged.reserved, 1, `${j.id}: the staged panel retains its job reservation`);
+      assert.ok(
+        s.orders.every((o) => o.unload?.mergeId !== staged.id),
+        `${j.id}: receiving must not select the construction staging stack`,
+      );
+    }
     for (const item of [
       'rail',
       'railCurve',

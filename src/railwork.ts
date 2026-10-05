@@ -35,6 +35,17 @@ export interface RailWorkAPI {
 }
 
 export const RAIL_PANEL_PITCH = 0.36;
+/** Staging supports hold one job-owned panel, not reusable receiving capacity. */
+export function railStagingStackOwned(s: State, stackId: string): boolean {
+  const stack = s.stacks.find((t) => t.id === stackId);
+  return s.jobs.some(
+    (j) =>
+      j.kind === 'rail' &&
+      !['done', 'canceled'].includes(j.status) &&
+      ((j.railWork?.panel.state === 'staged' && j.railWork.panel.stackId === stackId) ||
+        (j.legacyRailHandoff === 'staged' && stack?.source === j.id)),
+  );
+}
 const REACH = 4;
 const surface = (s: State, p: Point) =>
   s.paving[`${Math.floor(p.x)},${Math.floor(p.z)}`] ? 0.105 : 0;
@@ -309,7 +320,8 @@ function initialize(s: State, j: Job, e: Equipment, api: RailWorkAPI) {
             : undefined;
         if (
           !equipmentMoveBlocked(s, e, parked) &&
-          machineRoute(s, e, dock, api.obstacles(s), 450, true) &&
+          (machineRoute(s, e, dock, api.obstacles(s), 450, true) ||
+            machineRoute(s, { ...e, reverse: !e.reverse }, dock, api.obstacles(s), 450, true)) &&
           loadedClear
         ) {
           source = {
@@ -753,7 +765,12 @@ export function tickRailWork(s: State, j: Job, dt: number, api: RailWorkAPI): bo
       e.path.length
     )
       return false;
-    if (!initialize(s, j, e, api)) return true;
+    if (s.elapsed < (e.trafficRetry || 0)) return true;
+    if (!initialize(s, j, e, api)) {
+      // A blocked lifting face needs a physical change, not ten searches per second.
+      e.trafficRetry = s.elapsed + 1.5;
+      return true;
+    }
   }
   const r = j.railWork!;
   if (e.refueling || e.fuel <= 0) {

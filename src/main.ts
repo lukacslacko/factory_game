@@ -3,6 +3,7 @@ import { trackGeometry, trackSections, trackOpenPorts, trackNetwork, railFootpri
 import type { TrackPiece } from './track';
 import './styles.css';
 import { World } from './world';
+import { equipmentIntent } from './equipment-intent';
 import { orderLines, orderDescription, orderMass } from './procurement';
 import * as Sim from './sim';
 import {
@@ -680,8 +681,10 @@ function renderInspector(force = false) {
   if (!e || !selection) {
     panel.hidden = true;
     world.highlight(undefined);
+    world.showEquipmentIntent(undefined);
     return;
   }
+  world.showEquipmentIntent(selection.type === 'equipment' ? selection.id : undefined);
   if (
     !force &&
     (panel.querySelector('details.equipment-role[open]') ||
@@ -714,6 +717,7 @@ function renderInspector(force = false) {
   }
   if (selection.type === 'equipment') {
     const e2 = e as Equipment;
+    const intent = equipmentIntent(state, e2);
     body =
       details([
         ['Automatic work', equipmentRoleControl(e2)],
@@ -737,12 +741,27 @@ function renderInspector(force = false) {
               : e2.deliveryOrder || e2.job || 'Available',
           ),
         ],
+        ['Current step', esc(intent.phase)],
+        ['Current condition', esc(intent.detail)],
         [
-          'Traffic',
+          'Movement',
           esc(
-            e2.blockedBy ? `Waiting for ${e2.blockedBy}` : e2.path.length ? 'Traveling' : 'Clear',
+            e2.blockedBy
+              ? `Waiting for ${e2.blockedBy}`
+              : intent.hasRoute
+                ? 'Following solid planned route'
+                : intent.target
+                  ? 'Dashed destination intent · no active route'
+                  : 'Stationary',
           ),
         ],
+        [
+          'Destination',
+          intent.target
+            ? `${esc(intent.targetLabel)} · E${intent.target.x.toFixed(1)}, S${intent.target.z.toFixed(1)}`
+            : 'None',
+        ],
+        ['References', esc(intent.references.join(' · ') || 'None')],
         ['Cargo', e2.cargo ? `${e2.cargo.qty} × ${label(e2.cargo.item)}` : 'Empty'],
       ]) +
       `<div class="meter"><i style="width:${(e2.fuel / e2.tank) * 100}%"></i></div><p class="note">The current job or unloading batch finishes before a new role takes effect. Direct driving and refueling stay available.</p><div class="button-stack">${controlled ? btn(`enter:${e2.id}`, 'Board with selected operator', 'primary') : ''}${btn(`refuel:${e2.id}`, 'Request refueling')}${btn('tab:equipment', 'Equipment register')}</div><h3>Parking</h3>${parkingControls(e2)}`;
@@ -1477,7 +1496,7 @@ function openModal(which: string) {
     content = `<div class="start-title"><span class="eyebrow">A PHYSICAL FACTORY SANDBOX</span><h1>Every piece<br>has a place.</h1><p>Start with an open yard and a rail connection.<br>Bring people and materials. Build what comes next.</p></div><div class="start-choices">${btn('new:starter', '<b>Start a new yard</b><span>Empty ground, with a starter supply order on its way.</span>', 'start-choice recommended')}${btn('new:empty', '<b>Start completely empty</b><span>Choose every worker, machine, and material yourself.</span>', 'start-choice')}${btn('new:demo', '<b>Explore Birch Junction</b><span>A small working base, stocked and ready to expand.</span>', 'start-choice')}</div><p class="note">No budget limit · construction and logistics · local saves · version 0.12</p>`;
   }
   if (which === 'menu') {
-    content = `<h1>${esc(state.name)}</h1><p class="subtitle">Starter Yard · version 0.12.0</p><div class="menu-grid">${btn('save', 'Save to browser', 'primary')}${btn('export-save', 'Export save file')}${btn('export-diagnostics', 'Export diagnostic history')}${btn('source-code', 'Source code · MIT')}${btn('import-save', 'Import save file')}${btn('restore-backup', 'Restore previous yard')}${btn('help', 'Controls and guide')}${btn('new-confirm', 'Start a new yard')}${btn('close-modal', 'Return to yard')}</div><p class="note">Autosaves every 20 seconds. Export a file for a portable backup. Your game stays on this computer.</p>`;
+    content = `<h1>${esc(state.name)}</h1><p class="subtitle">Starter Yard · version 0.13.0</p><div class="menu-grid">${btn('save', 'Save to browser', 'primary')}${btn('export-save', 'Export save file')}${btn('export-diagnostics', 'Export diagnostic history')}${btn('source-code', 'Source code · MIT')}${btn('import-save', 'Import save file')}${btn('restore-backup', 'Restore previous yard')}${btn('help', 'Controls and guide')}${btn('new-confirm', 'Start a new yard')}${btn('close-modal', 'Return to yard')}</div><p class="note">Autosaves every 20 seconds. Export a file for a portable backup. Your game stays on this computer.</p>`;
   }
   if (which === 'new-confirm') {
     content = `<h1>Start another yard</h1><p>Your current yard will be saved as a browser backup before the new yard is created.</p><div class="button-stack">${btn('new:starter', 'New yard + starter supplies', 'primary')}${btn('new:empty', 'Completely empty yard')}${btn('new:demo', 'Birch Junction example')}${btn('close-modal', 'Keep current yard')}</div>`;

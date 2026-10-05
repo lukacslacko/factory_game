@@ -1,3 +1,4 @@
+import { checkEquipmentIntent } from './equipment-intent.mjs';
 import { checkTrackRendering } from './track-rendering.mjs';
 import { checkTrackUI } from './track-ui.mjs';
 import { chromium } from 'playwright';
@@ -236,6 +237,7 @@ async function ready() {
   const automaticWork = await checkAutomaticWork(page, base);
   const trackRendering = await checkTrackRendering(page, base);
   const trackUI = await checkTrackUI(page, base);
+  const equipmentIntent = await checkEquipmentIntent(page, base);
   const layouts = [];
   for (const width of [1440, 1024, 768]) {
     await page.setViewportSize({ width, height: 900 });
@@ -276,6 +278,7 @@ async function ready() {
         forkLoadRendering,
         shedRendering,
         automaticWork,
+        equipmentIntent,
         trackRendering,
         trackUI,
         checks: [

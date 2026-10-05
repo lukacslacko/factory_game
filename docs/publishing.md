@@ -1,10 +1,10 @@
 # Publication
 
-Version 0.12.0 is published privately at https://plant-01-starter-yard.lukacslacko.chatgpt.site.
+Version 0.13.0 is published privately at https://plant-01-starter-yard.lukacslacko.chatgpt.site.
 
 The editable game lives in this starter-yard directory. The Site repository is a separate, build-only checkout at `../../work/plant01-publish` relative to this directory, with its own `.openai/hosting.json` and Git metadata. It contains only `dist/` and the hosting manifest. Do not upload the full game project or the private design documents when updating that Site.
 
-The Site identity is `appgprj_6ac1ff4c01388191b1d9d0dba709095e`. Reuse it; do not create a replacement. The successful build-only source commit for version 0.12.0 is `d871c3d1771581c189b5610ff8fcec615faf9a38`.
+The Site identity is `appgprj_6ac1ff4c01388191b1d9d0dba709095e`. Reuse it; do not create a replacement. The successful build-only source commit for version 0.13.0 is `a0e217c86ca20616c17d3ed45d0ab46d33720402`.
 
 For an update, follow the Sites hosting skill to open the existing build-only checkout, build and test the editable game, replace the checkout's `dist/` with that build, inspect its file list, and publish through the same private Site workflow. Keep credentials in process memory/stdin only. The game requires no server secrets, cloud database, or external connectors.
 
@@ -85,3 +85,11 @@ The release adds physically procured six-panel quarter-turns and seven-panel tur
 All 246 sequential regressions, integrated browser checks, TypeScript/build and independent production checks pass. The real browser playtest constructs thirteen connected panels, relocates the original buffer, operates a switch with a worker and preserves it through Save/reload. Actual gameplay and isolated geometry-fixture captures are distinguished in the documentation. The compatible prior-release example is retained and checked in production. The complete source and validation records are updated separately in the public MIT repository and downloadable package.
 
 This completes only checkpoint 1. The creator will test it before authorizing further work. Shunter, driver, engine shed, additional terminal buffers, tanker handling, tanks, pumps, piping, gauges and valves remain gated todos. Supplier trains retain their original route, the additional turnout exit is labeled uncapped, and recovery of the new track assemblies remains a todo.
+
+## Version 0.13 loaded delivery routing and equipment intent
+
+Version 0.13.0 deployed successfully on October 5, 2026 at 17:13 CEST, preserving the existing private Site and origin. Deployment ID: `appgdep_6ac3be749f2c8191b209802ffc11c44c`. Build-only source commit: `a0e217c86ca20616c17d3ed45d0ab46d33720402`. The nine verified built assets and hosting manifest match the final locally tested build byte for byte. Source, design notes, examples, saves, diagnostics and credentials remain excluded from the hosted payload.
+
+The reproduced eight-curved-panel rail delivery now completes into two stacks of four, including reload of its blocked top-up state. Actual loaded machine poses correct conservative clearance rejection without bypassing collision checks. Saved detours physically return to storage, active rail staging supports reject unrelated top-ups, and rail pickup entry checks both gears. Selected equipment shows its accepted route, dashed destination intent when no path is active, target marker and known blocker outline; the inspector links related actors and records.
+
+All 257 fresh sequential simulation regressions, integrated browser checks, TypeScript/build and independent production checks pass. The compatible v0.8 example remains a prior-release save verified in production. Source, documentation, actual gameplay previews and validation records are updated separately in the public MIT repository and downloadable project. GitHub issue #21 is closed as completed; further railway and fluid checkpoints remain gated for creator approval.
