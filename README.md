@@ -6,7 +6,7 @@ The world uses a true perspective 3D camera, with a meter grid, dimensional stoc
 
 ## Play
 
-The private game Site is **https://plant-01-starter-yard.lukacslacko.chatgpt.site**. This package documents version **0.17.0**; deployment status is recorded in `docs/publishing.md`. Sign in with the account that owns the Site. Local and hosted browser saves are separate; use Export save / Import save to transfer a yard.
+The private game Site is **https://plant-01-starter-yard.lukacslacko.chatgpt.site**. This package documents version **0.18.0**; deployment status is recorded in `docs/publishing.md`. Sign in with the account that owns the Site. Local and hosted browser saves are separate; use Export save / Import save to transfer a yard.
 
 On this Mac, double-click **Start Plant 01.command**. It starts the included local server and opens the game at **http://127.0.0.1:4173/**. Keep its Terminal window open while playing; Control-C stops the server.
 
@@ -40,6 +40,12 @@ Open **manual.html** through the local server for the illustrated player guide, 
 - Order electrical and water/sewer services. Utility crews arrive and commission the service. Connected lights illuminate the yard at night.
 - Inspect materials, workers, equipment, structures, deliveries, jobs, events, material movements, actual costs, and outstanding commitments. Track notifications in To do / Doing / Done.
 - Query a fresh SQLite reporting snapshot and export costs as CSV. Autosave locally, export/import a portable save, and restore the previous yard backup.
+
+## Version 0.18 rail stock access and relocation
+
+Rail pickup checks real crew access to exposed panel edges, including safe points between corners, and a clear machine approach and loaded withdrawal. Before lifting, a blocked construction pickup can use accessible stock of the same item and handed variant while retaining its assigned machine and helper. New receiving, recovery, and planned stock placements preserve the last exposed lifting/rigging face of nearby rail piles. Slabs still fill adjacent cells and stack to their existing limits.
+
+To open a boxed-in rail pile, select an exposed outer rail stack and choose **Relocate one rail panel**, then click a clear position inside a designated stockyard. The destination retains that panel's original footprint and orientation. A one-panel work order appears in **Work**; assign a spare forklift or excavator, within its lift capacity, and provide an operator and support worker. They physically rig, lift, carry, lower, and withdraw. The relocation neither installs track nor moves its buffer. Repeat for each panel in a blocking stack until access opens. Reserved panels must first be released by canceling their waiting work, or choose another unreserved outer panel.
 
 ## Version 0.17 connected rail construction crews
 

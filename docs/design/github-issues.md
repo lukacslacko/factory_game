@@ -83,3 +83,9 @@ Issue #30 is completed in published v0.16.0 with 301 regressions and integrated 
 - [#33 — Batch and pre-stage rails for the whole connected work run](https://github.com/lukacslacko/factory_game/issues/33), including one crew assignment for connected 5 m plans.
 
 Issues #31–#33 are completed in published v0.17.0, verified by 329 frozen regressions and final browser/production checks. Shared-stock cancellation/resume, one whole-work crew, and full six-curve installation are included. Broader blocker behavior #17 and railway recovery #7 remain open.
+
+## Boxed-in rail stock — October 5, 2026
+
+[#34 — Recover rail pickup blocked by surrounding stock and preserve storage access](https://github.com/lukacslacko/factory_game/issues/34) tracks the screenshot-reported stockyard deadlock, safe exposed-edge rigging, accessible-source selection, physical outer-panel relocation, and prevention of sealed pickup faces. It is a separate fix from broad traffic deadlocks #17 and deferred railway recovery #7.
+
+Issue #34 is implemented in published v0.18.0, validated by 350 regressions and browser/production checks. Remaining general traffic cases in #17 are not claimed complete.

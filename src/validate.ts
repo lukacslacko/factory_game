@@ -137,7 +137,7 @@ export function validateState(value: any): asserts value is State {
   for (const j of s.jobs)
     if (
       j.railStageOnly !== undefined &&
-      (typeof j.railStageOnly !== 'boolean' || j.kind !== 'rail')
+      (typeof j.railStageOnly !== 'boolean' || !['rail', 'moveStock'].includes(j.kind))
     )
       fail('invalid rail staging pass');
   for (const j of s.jobs)
@@ -439,6 +439,26 @@ export function validateState(value: any): asserts value is State {
     }
   }
   for (const j of s.jobs) {
+    if (j.kind === 'moveStock' || j.stockMove !== undefined) {
+      const m = j.stockMove;
+      if (
+        j.kind !== 'moveStock' ||
+        !m ||
+        typeof m.sourceId !== 'string' ||
+        j.target !== m.sourceId ||
+        !j.item?.startsWith('rail') ||
+        !MATERIALS[j.item as keyof typeof MATERIALS] ||
+        j.qty !== 1 ||
+        !finite(m.yaw) ||
+        !point(m.destination) ||
+        ![m.destination.w, m.destination.d].every(finite) ||
+        ['x', 'z', 'w', 'd'].some((k) => j[k] !== m.destination[k]) ||
+        j.track ||
+        j.railStagingBatch ||
+        j.railBufferCleanup
+      )
+        fail('invalid physical stock relocation');
+    }
     if (j.kind === 'throwSwitch') {
       const points = s.rails.find((r: any) => r.id === j.target);
       if (
@@ -760,7 +780,7 @@ export function validateState(value: any): asserts value is State {
       if (r.legacyForkYaw !== undefined && !finite(r.legacyForkYaw))
         fail('invalid imported panel orientation');
       if (
-        j.kind !== 'rail' ||
+        !['rail', 'moveStock'].includes(j.kind) ||
         !phases.includes(r.phase) ||
         !finite(r.clock) ||
         r.clock < 0 ||

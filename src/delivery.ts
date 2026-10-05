@@ -12,12 +12,14 @@ import { RAIL_PANEL_PITCH, railStagingStackOwned } from './railwork';
 import { equipmentAllows } from './equipment-roles';
 import { FORK_LOAD_CENTER } from './fork-geometry';
 import { deliveryBlockageNotice, resetDeliveryBlockage } from './delivery-control';
+import { staticRailPickupFaces } from './rail-pickup';
 import type {
   State,
   Order,
   Point,
   Rect,
   Equipment,
+  EquipmentKind,
   Worker,
   Item,
   Stack,
@@ -368,8 +370,98 @@ function storageDock(
   }
   return null;
 }
+const isRailStock = (item: string) => item === 'rail' || item.startsWith('rail');
+
+/** Screen future storage footprints without running path searches for every
+ * cell. Keep at least one physical lifting face and a place for the rigger. */
+export function createRailStorageAccessCheck(
+  s: State,
+): (item: Item, r: Rect, yaw?: number) => boolean {
+  const pending: Stack[] = [];
+  for (const o of s.orders) {
+    const r = o.allocated || o.unload?.destination;
+    const item = o.unload?.item || pendingOrderLine(o)?.item;
+    if (!r || !item || !MATERIALS[item as Item] || o.status === 'done') continue;
+    pending.push({
+      ...r,
+      id: `${o.id}-storage`,
+      item: item as Item,
+      qty: 1,
+      reserved: 0,
+      source: o.id,
+    });
+  }
+  for (const j of s.jobs) {
+    if (j.recoveryStack) pending.push(j.recoveryStack);
+    if (j.stockMove && (j.status === 'todo' || j.status === 'doing')) {
+      const item = j.item || s.stacks.find((t) => t.id === j.stockMove!.sourceId)?.item;
+      if (item)
+        pending.push({
+          ...j.stockMove.destination,
+          id: `${j.id}-storage`,
+          item,
+          yaw: j.stockMove.yaw,
+          qty: 1,
+          reserved: 0,
+          source: j.id,
+        });
+    }
+  }
+  const solids: Rect[] = [...staticObstacleRects(s), ...pending];
+  const railStacks = [...s.stacks.filter((t) => t.qty > 0), ...pending].filter((t) =>
+    isRailStock(t.item),
+  );
+  const kinds = (stack: Stack): EquipmentKind[] =>
+    (['excavator', 'forklift'] as const).filter(
+      (kind) => EQUIPMENT[kind].capacity >= MATERIALS[stack.item].mass,
+    );
+  const accessible = (stack: Stack, obstacles: Rect[]) =>
+    kinds(stack).some((kind) => staticRailPickupFaces(s, stack, kind, obstacles).length > 0);
+  const exposed = railStacks.filter((stack) => accessible(stack, solids));
+  // Every preview face is within ten meters of its footprint, including the
+  // straight withdrawal and chassis. Unrelated yard stock needs no recheck.
+  const nearby = (a: Rect, b: Rect) =>
+    a.x < b.x + b.w + 10 && a.x + a.w + 10 > b.x && a.z < b.z + b.d + 10 && a.z + a.d + 10 > b.z;
+  return (item, r, yaw) => {
+    // A queued relocation owns its footprint as well as its loading face.
+    // A small parcel must not be dropped inside it before the rail arrives.
+    if (pending.some((p) => overlap(p, r))) return false;
+    if (!isRailStock(item) && !exposed.some((stack) => nearby(stack, r))) return true;
+    const obstacles = [...solids, r];
+    if (
+      isRailStock(item) &&
+      !accessible(
+        {
+          ...r,
+          id: 'storage-preview',
+          item,
+          yaw:
+            yaw ??
+            (r.w === MATERIALS[item].d && r.d === MATERIALS[item].w && r.w !== r.d
+              ? Math.PI / 2
+              : 0),
+          qty: 1,
+          reserved: 0,
+          source: 'preview',
+        },
+        obstacles,
+      )
+    )
+      return false;
+    return exposed.every((stack) => !nearby(stack, r) || accessible(stack, obstacles));
+  };
+}
+export function railStoragePlacementPreservesAccess(
+  s: State,
+  item: Item,
+  r: Rect,
+  yaw?: number,
+): boolean {
+  return createRailStorageAccessCheck(s)(item, r, yaw);
+}
 function chooseStorage(s: State, item: Item, e: Equipment, api: DeliveryAPI) {
   const m = MATERIALS[item];
+  const preservesRailAccess = createRailStorageAccessCheck(s);
   const clearance = constructionStorageClearance(s);
   const loaded = { ...e, cargo: { item, qty: 1 } };
   const unavailable = (r: Rect) => clearance.some((area) => overlap(area, r));
@@ -388,7 +480,8 @@ function chooseStorage(s: State, item: Item, e: Equipment, api: DeliveryAPI) {
         t.qty > 0 &&
         t.qty + incoming(t.id) < m.max &&
         !railStagingStackOwned(s, t.id) &&
-        !unavailable(t),
+        !unavailable(t) &&
+        preservesRailAccess(item, t),
     )
     .sort((a, b) => b.qty - a.qty)) {
     const dock = storageDock(s, e, stack, loaded, api, clearance);
@@ -413,6 +506,7 @@ function chooseStorage(s: State, item: Item, e: Equipment, api: DeliveryAPI) {
   // Fill the far side first, leaving the loading face accessible as a dense block grows.
   candidates.sort((a, b) => b.z - a.z || a.x - b.x);
   for (const r of candidates) {
+    if (!preservesRailAccess(item, r)) continue;
     const dock = storageDock(s, e, r, loaded, api, clearance);
     if (dock) return { rect: r, space: m.max, dock };
   }

@@ -152,6 +152,7 @@ const railCrewDrafts = new Map<
   { stagingEquipment?: string; installingEquipment?: string }
 >();
 let parkingEquipment: string | undefined;
+let movingStock: string | undefined;
 const keys = new Set<string>();
 const purchaseCart = new Map<string, number>();
 let purchaseTransport: 'road' | 'rail' = 'road';
@@ -296,6 +297,10 @@ function railRect(p: Point): Rect {
   };
 }
 function rectFor(kind: string, p: Point): Rect {
+  if (kind === 'move-stock') {
+    const source = state.stacks.find((t) => t.id === movingStock);
+    return { x: Math.floor(p.x), z: Math.floor(p.z), w: source?.w || 5, d: source?.d || 3 };
+  }
   if (kind === 'rail') return railRect(p);
   let x = Math.floor(p.x),
     z = Math.floor(p.z);
@@ -378,6 +383,13 @@ function renderHint() {
     );
     return;
   }
+  if (tool === 'move-stock') {
+    stableHTML(
+      el,
+      `<b>RELOCATE RAIL STOCK · ${esc(movingStock)}</b> Click a clear original-size footprint inside a stockyard. One panel will be lifted and carried by real equipment and crew. <span>Keep lifting aisles clear · Esc cancels</span>`,
+    );
+    return;
+  }
   if (tool === 'parking') {
     stableHTML(
       el,
@@ -429,10 +441,36 @@ function updatePreview() {
   }
   const r = currentRect();
   const valid =
-    tool === 'parking' || tool === 'zone' || tool === 'recover' || !Sim.validPlan(state, tool, r);
+    tool === 'move-stock'
+      ? !Sim.stockMoveError(state, movingStock || '', r)
+      : tool === 'parking' ||
+        tool === 'zone' ||
+        tool === 'recover' ||
+        !Sim.validPlan(state, tool, r);
   world.preview(r, valid);
 }
 function doBuild(r: Rect) {
+  if (tool === 'move-stock' && movingStock) {
+    const result = Sim.moveRailStock(state, movingStock, r);
+    recorder.record(state, 'stock-relocation', {
+      source: movingStock,
+      destination: r,
+      job: result.job?.id,
+      error: result.error,
+    });
+    toast(
+      result.error || 'Rail relocation queued. Assign an available forklift or excavator in Work.',
+      !!result.error,
+    );
+    if (result.job) {
+      setTool('select');
+      selection = { type: 'jobGroup', id: result.job.parentId! };
+      renderInspector(true);
+      renderRecords(true);
+      persist(true);
+    }
+    return;
+  }
   recorder.record(state, 'plan', { tool, rect: r, rotation });
   if (tool === 'rail') {
     const origin = railOrigin(hover),
@@ -1015,7 +1053,7 @@ function renderInspector(force = false) {
           ? [['Contents', `${e.liters?.toFixed(1)} / 200 L`] as [string, unknown]]
           : []),
       ]) +
-      `<p class="note">This is physical stock. Hauling removes material from this location before it is installed.</p>${btn('tab:materials', 'Material register')}`;
+      `<p class="note">This is physical stock. Hauling removes material from this location before it is installed.</p>${String(e.item).startsWith('rail') ? btn('stock-move:' + e.id, 'Relocate one rail panel', '', e.qty - e.reserved < 1 ? 'disabled title="All panels are reserved; cancel waiting work or choose another exposed stack."' : '') : ''}${String(e.item).startsWith('rail') ? '<p class="note">To open access, move exposed outer panels to clear stockyard space. An operator drives the machine and a support worker attaches and releases the load.</p>' : ''}${btn('tab:materials', 'Material register')}`;
   }
   if (selection.type === 'job') {
     const j = e as Job;
@@ -1811,7 +1849,7 @@ function openModal(which: string) {
     content = `<div class="start-title"><span class="eyebrow">A PHYSICAL FACTORY SANDBOX</span><h1>Every piece<br>has a place.</h1><p>Start with an open yard and a rail connection.<br>Bring people and materials. Build what comes next.</p></div><div class="start-choices">${btn('new:starter', '<b>Start a new yard</b><span>Empty ground, with a starter supply order on its way.</span>', 'start-choice recommended')}${btn('new:empty', '<b>Start completely empty</b><span>Choose every worker, machine, and material yourself.</span>', 'start-choice')}${btn('new:demo', '<b>Explore Birch Junction</b><span>A small working base, stocked and ready to expand.</span>', 'start-choice')}</div><p class="note">No budget limit · construction and logistics · local saves · version 0.12</p>`;
   }
   if (which === 'menu') {
-    content = `<h1>${esc(state.name)}</h1><p class="subtitle">Starter Yard · version 0.17.0</p><div class="menu-grid">${btn('save', 'Save to browser', 'primary')}${btn('export-save', 'Export save file')}${btn('export-diagnostics', 'Export diagnostic history')}${btn('source-code', 'Source code · MIT')}${btn('import-save', 'Import save file')}${btn('restore-backup', 'Restore previous yard')}${btn('help', 'Controls and guide')}${btn('new-confirm', 'Start a new yard')}${btn('close-modal', 'Return to yard')}</div><p class="note">Autosaves every 20 seconds. Export a file for a portable backup. Your game stays on this computer.</p>`;
+    content = `<h1>${esc(state.name)}</h1><p class="subtitle">Starter Yard · version 0.18.0</p><div class="menu-grid">${btn('save', 'Save to browser', 'primary')}${btn('export-save', 'Export save file')}${btn('export-diagnostics', 'Export diagnostic history')}${btn('source-code', 'Source code · MIT')}${btn('import-save', 'Import save file')}${btn('restore-backup', 'Restore previous yard')}${btn('help', 'Controls and guide')}${btn('new-confirm', 'Start a new yard')}${btn('close-modal', 'Return to yard')}</div><p class="note">Autosaves every 20 seconds. Export a file for a portable backup. Your game stays on this computer.</p>`;
   }
   if (which === 'new-confirm') {
     content = `<h1>Start another yard</h1><p>Your current yard will be saved as a browser backup before the new yard is created.</p><div class="button-stack">${btn('new:starter', 'New yard + starter supplies', 'primary')}${btn('new:empty', 'Completely empty yard')}${btn('new:demo', 'Birch Junction example')}${btn('close-modal', 'Keep current yard')}</div>`;
@@ -1832,7 +1870,7 @@ function openModal(which: string) {
         ['Purchase', 'B'],
         ['Save', 'Ctrl / Cmd + S'],
       ],
-    )}<h3>Physical constraints</h3><p>Leave <b>3 m clear aisles</b> for machines. Offices need the 6 t excavator; the forklift cannot lift them. Diesel drums contain 200 L and stay in place when empty. Request refueling from Equipment.</p><p>The <b>Work</b> register explains blocked assignments. Canceling rail work first places its load safely and secures the buffer. A rail panel already installed stays in place. Other loaded jobs deposit their kits at the site. Finished buildings can be dismantled and recovered.</p><h3>Vehicle work roles</h3><p>Open <b>Equipment</b> and change a machine’s <b>Automatic work</b> selector, or select it in the yard. For parallel receiving and paving, check only <b>Receiving deliveries</b> for the forklift and only <b>Paving</b> for the excavator, with an operator for each. The dropdown lets you check several job kinds together. Automatic dispatch keeps one machine on each work order or delivery across its individual tasks and lifts. Separate work orders can run in parallel. Changes finish the current job or unloading batch before switching. <b>All</b> restores shared assignments; <b>None</b> holds new work while leaving driving and refueling available.</p><h3>Work orders, parking, and shifts</h3><p><b>Work</b> starts with active orders. Expand a building or paving order; assign equipment to a parent or child. Explicit assignments override automatic roles after current work finishes. Click asset IDs to inspect assigned people, stock, or equipment. Click table headers to sort; use Column filters to narrow records.</p><p>Select equipment to choose a parking bay in the yard or enter its coordinates. Workers have Always on, daily, overnight, and custom schedules. They finish current work, park, exit, walk to the actual bus, and return next shift. Chartered trips appear in Costs.</p><p>Use <b>Activity → Export diagnostic history</b> after a problem. The local rolling record includes positions, routes, blockers, phases, and recent full yard checkpoints.</p><h3>Traffic</h3><p>Road traffic keeps right. Buses continue forward after their stop; delivery trucks back clear of their berth before departing forward. Machines yield to people and route around obstructions. Keep receiving and turning areas clear; the equipment inspector identifies any actor blocking a route.</p><h3>First-version boundaries</h3><p>A 232 × 98 m buildable yard, straight, curved and turnout rail panels, owned-equipment freight handling and simplified utility services. Request a route in a complete turnout inspector; a real worker walks to its manual lever and throws it. The Railway register lists physical endpoints and uncapped branches. New train dispatch, an owned shunter, additional terminal buffers, and chemistry are later approval checkpoints. New curved/turnout assembly recovery is deferred; canceled panels can resume from their work inspector.</p></section></div>`;
+    )}<h3>Rail stock access</h3><p>Rail crews try reachable matching piles and attach slings at safe exposed edges. Select a blocking outer stack and choose <b>Relocate one rail panel</b>, then click a clear position inside a stockyard. Assign an available machine in Work; its operator and rigger physically move the panel. Repeat for stacked panels until access is open. Reserved panels must first be released by canceling their waiting work. New storage placements preserve an exposed loading face.</p><h3>Physical constraints</h3><p>Leave <b>3 m clear aisles</b> for machines. Offices need the 6 t excavator; the forklift cannot lift them. Diesel drums contain 200 L and stay in place when empty. Request refueling from Equipment.</p><p>The <b>Work</b> register explains blocked assignments. Canceling rail work first places its load safely and secures the buffer. A rail panel already installed stays in place. Other loaded jobs deposit their kits at the site. Finished buildings can be dismantled and recovered.</p><h3>Vehicle work roles</h3><p>Open <b>Equipment</b> and change a machine’s <b>Automatic work</b> selector, or select it in the yard. For parallel receiving and paving, check only <b>Receiving deliveries</b> for the forklift and only <b>Paving</b> for the excavator, with an operator for each. The dropdown lets you check several job kinds together. Automatic dispatch keeps one machine on each work order or delivery across its individual tasks and lifts. Separate work orders can run in parallel. Changes finish the current job or unloading batch before switching. <b>All</b> restores shared assignments; <b>None</b> holds new work while leaving driving and refueling available.</p><h3>Work orders, parking, and shifts</h3><p><b>Work</b> starts with active orders. Expand a building or paving order; assign equipment to a parent or child. Explicit assignments override automatic roles after current work finishes. Click asset IDs to inspect assigned people, stock, or equipment. Click table headers to sort; use Column filters to narrow records.</p><p>Select equipment to choose a parking bay in the yard or enter its coordinates. Workers have Always on, daily, overnight, and custom schedules. They finish current work, park, exit, walk to the actual bus, and return next shift. Chartered trips appear in Costs.</p><p>Use <b>Activity → Export diagnostic history</b> after a problem. The local rolling record includes positions, routes, blockers, phases, and recent full yard checkpoints.</p><h3>Traffic</h3><p>Road traffic keeps right. Buses continue forward after their stop; delivery trucks back clear of their berth before departing forward. Machines yield to people and route around obstructions. Keep receiving and turning areas clear; the equipment inspector identifies any actor blocking a route.</p><h3>First-version boundaries</h3><p>A 232 × 98 m buildable yard, straight, curved and turnout rail panels, owned-equipment freight handling and simplified utility services. Request a route in a complete turnout inspector; a real worker walks to its manual lever and throws it. The Railway register lists physical endpoints and uncapped branches. New train dispatch, an owned shunter, additional terminal buffers, and chemistry are later approval checkpoints. New curved/turnout assembly recovery is deferred; canceled panels can resume from their work inspector.</p></section></div>`;
   }
   if (which === 'shop') {
     content = `<div class="shop-head"><div><span class="eyebrow">PROCUREMENT</span><h1>People, machines & materials</h1><p>Order freely. Costs are recorded; there is no spending limit.</p></div>${btn('starter-order', 'Order starter supplies')}</div><div class="shop-options"><label>Material transport <select id="transport"><option value="road" ${purchaseTransport === 'road' ? 'selected' : ''}>Truck · 12 t loads</option><option value="rail" ${purchaseTransport === 'rail' ? 'selected' : ''}>Rail · 48 t loads</option></select></label><span>Your equipment unloads · $90 / road load · $240 / rail load</span></div><div id="purchase-cart" class="purchase-cart"></div><div class="catalog-head"><span>Item</span><span>Unit cost</span><span>Unit weight</span><span>Qty</span><span>Line weight</span><span>Order / batch</span></div>${[
@@ -1937,6 +1975,10 @@ async function action(value: string) {
       persist(true);
       break;
     }
+    case 'stock-move':
+      movingStock = b;
+      setTool('move-stock');
+      break;
     case 'parking-pick':
       parkingEquipment = b;
       rotation = state.equipment.find((e) => e.id === b)?.parking?.rotation || 0;

@@ -45,7 +45,7 @@ export function jobActivity(j: Pick<Job, 'kind'>): EquipmentActivity {
     ? 'paving'
     : j.kind === 'rail'
       ? 'rail'
-      : j.kind === 'remove'
+      : ['remove', 'moveStock'].includes(j.kind)
         ? 'recovery'
         : 'construction';
 }

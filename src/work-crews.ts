@@ -119,7 +119,7 @@ function accompanyingTransit(s: State, w: Worker, equipmentId: string): boolean 
     job?.equipment === equipmentId &&
     job.worker === w.id &&
     job.status === 'doing' &&
-    job.kind === 'rail'
+    ['rail', 'moveStock'].includes(job.kind)
   ) {
     // The initial collection route starts before the detailed rail handling
     // sequence is initialized. It already belongs to this equipment and crew.

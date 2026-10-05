@@ -1,6 +1,6 @@
 # Starter Yard architecture
 
-Version 0.14.0 separates serializable simulation, physical delivery sequences, motion, rendering, and the Condensed interface. The simulation is deterministic for a given sequence of commands and time steps and runs without a browser.
+Version 0.18.0 separates serializable simulation, physical delivery sequences, motion, rendering, and the Condensed interface. The simulation is deterministic for a given sequence of commands and time steps and runs without a browser.
 
 ## Files
 
@@ -204,3 +204,15 @@ The optional `finalYaw` argument to `machineRoute` validates arrival plus the st
 Cancellation reconciles unlifted batches synchronously, keeping immediate save/import valid. Supported canceled panels retain their stack membership until physically collected, and resume restores their own reservations. Whole-work resume walks descendants. Buffer resting previews include its supported footprint, the crane dock/final orientation, and a carried-load route around all current preparation stacks. Changing a blocked destination does not relocate the actual carried buffer.
 
 Traffic replans a stale yielding escape only after a sustained mutual blockage, preserving its original destination and a stable actor priority. A physically checked backing route is tried before another turn. Fuel-empty or refueling blockers cannot be asked to make an impossible escape.
+
+## Boxed rail stock access — version 0.18
+
+`rail-pickup.ts` samples corners and intermediate exposed edge points outside the panel footprint. A candidate must admit a real rigger walk, a collision-checked machine pickup approach, and a loaded withdrawal. An unlifted construction job can replace an inaccessible source with available stock of the exact same catalog item and handed variant. Reservation transfer preserves the existing explicit equipment/helper assignment and records the source change; carried steel is never remotely exchanged. Blocked pickup retains a linked source/reason rather than advancing through collision.
+
+`delivery.ts` protects physical rail storage access before accepting receiving or recovery setdowns. The preview accounts for current obstacles and pending delivery, recovery, and relocation footprints. A candidate rail pile needs an exposed feasible lifting face, and a new nearby pile of any material cannot seal the last currently exposed machine/crew face. Existing inaccessible stock remains physical and can require relocation; the check does not relocate it or promise full yard reachability. Nonrail stock outside those access envelopes retains ordinary dense storage packing, including adjacent slab cells and partial-stack top-ups.
+
+`Job.stockMove` records an exact source ID, destination rectangle, and yaw for kind `moveStock`. `moveRailStock` validates one unreserved rail panel, the original grid-aligned footprint, a clear designated stockyard destination, competing planned drops, and preserved rail access before creating one work group and one leaf. Dispatch reserves that exact source; it cannot silently substitute another stack. The ordinary operator/rigger pickup and stage-only handling sequence physically lifts, carries, lowers, and withdraws without rail installation or buffer work. A forklift or excavator must satisfy the panel's lift capacity. Destinations and ownership remain serialized for save/reload; cancellation retains supported or carried material through the existing safe setdown rules. Source reservations prevent duplicate moves, and pending destinations constrain later stock placement.
+
+The creator's EQ0013 / JOB0377 / STK0067 blockage was diagnosed from their screenshot, with a pickup target near E40.5, S25.5 surrounded by stock and a drum. The actual affected save was not inspected. Reproduction and verification must be distinguished from a confirmed replay of that yard; release validation is recorded separately.
+
+A supported relocation keeps one destination reservation and its job/stack link until local tool withdrawal completes; `railStagingStackOwned` protects that active stack from construction pickup and delivery top-ups. The shared storage screen rejects overlap with pending destination rectangles before evaluating exposed faces. This prevents a small parcel from occupying a future rail footprint while its relocation is queued.

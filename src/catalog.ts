@@ -279,7 +279,14 @@ export const label = (key: string) =>
   (EQUIPMENT as any)[key]?.name ||
   (ROLES as any)[key]?.name ||
   (SERVICES as any)[key]?.name ||
-  ({ remove: 'Recovery', refuel: 'Refueling', throwSwitch: 'Operate turnout lever' } as any)[key] ||
+  (
+    {
+      moveStock: 'Relocate rail stock',
+      remove: 'Recovery',
+      refuel: 'Refueling',
+      throwSwitch: 'Operate turnout lever',
+    } as any
+  )[key] ||
   key;
 export const bounds = { minX: -14, maxX: 220, minZ: 10, maxZ: 110 };
 export function footprint(kind: BuildKind | string, x: number, z: number, r = 0) {

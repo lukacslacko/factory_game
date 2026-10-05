@@ -29,6 +29,7 @@ import {
   syncRailBatchBuffer,
 } from './rail-batch';
 import { MATERIALS } from './catalog';
+import { planRailPickup, railCrewStandingPoints } from './rail-pickup';
 import { railCells, trackGeometry } from './track';
 import { center, dist, overlap } from './path';
 import { angleDelta, localPoint, mixAngle, smoothstep, turn } from './motion';
@@ -64,7 +65,7 @@ export function railStagingStackOwned(s: State, stackId: string): boolean {
     return true;
   return s.jobs.some(
     (j) =>
-      j.kind === 'rail' &&
+      ['rail', 'moveStock'].includes(j.kind) &&
       !['done', 'canceled'].includes(j.status) &&
       ((j.railWork?.panel.state === 'staged' && j.railWork.panel.stackId === stackId) ||
         (j.legacyRailHandoff === 'staged' && stack?.source === j.id)),
@@ -213,6 +214,71 @@ function clearBufferRest(
 }
 
 function chooseStaging(s: State, j: Job, e: Equipment, api: RailWorkAPI, deferForkAccess = false) {
+  if (j.kind === 'moveStock' && j.stockMove) {
+    const stage = j.stockMove.destination,
+      p = center(stage),
+      yaw = j.stockMove.yaw;
+    if (blocked(s, stage, api)) return undefined;
+    const side = { x: -Math.sin(yaw), z: Math.cos(yaw) },
+      forward = { x: Math.cos(yaw), z: Math.sin(yaw) };
+    const fork = e.kind === 'forklift';
+    const forkYaw = e.cargo?.yaw === undefined ? Math.PI / 2 : e.cargo.yaw - (e.yaw ?? 0);
+    const dockYaw = yaw - forkYaw;
+    const docks = fork
+      ? [add(p, { x: Math.cos(dockYaw), z: Math.sin(dockYaw) }, -4.2)]
+      : [
+          add(p, side, -REACH),
+          add(p, side, REACH),
+          add(p, forward, -MATERIALS[railItem(j)].w / 2 - 2.5),
+          add(p, forward, MATERIALS[railItem(j)].w / 2 + 2.5),
+        ];
+    for (const dock of docks) {
+      const facingYaw = facing(dock, p),
+        empty = {
+          ...e,
+          ...dock,
+          yaw: facingYaw,
+          cargo: undefined,
+          reach: fork ? 4.2 : 2.7,
+          reverse: true,
+        };
+      const obstacles = api.obstacles(s),
+        supported = [...obstacles, stage];
+      if (equipmentMoveBlocked(s, e, { ...dock, yaw: facingYaw })) continue;
+      if (
+        !deferForkAccess &&
+        !(
+          machineRoute(s, e, dock, obstacles, 450, true, facingYaw) ||
+          machineRoute(s, { ...e, reverse: !e.reverse }, dock, obstacles, 450, true, facingYaw)
+        )
+      )
+        continue;
+      const clear = localPoint(empty, -3.5, 0);
+      const withdraw = fork
+        ? forkStagingWithdrawal(s, empty, supported)
+        : machineRoute(s, empty, clear, supported, 350, true) ||
+          [-5.5, 5.5].some((n) =>
+            machineRoute(
+              s,
+              { ...empty, reverse: false },
+              localPoint(empty, 0, n),
+              supported,
+              350,
+              true,
+            ),
+          );
+      if (!withdraw) continue;
+      return {
+        side,
+        stage: { ...stage },
+        stageDock: dock,
+        railDock: dock,
+        bufferAside: p,
+        stageYaw: yaw,
+      };
+    }
+    return undefined;
+  }
   const geometry = trackGeometry(j),
     c = geometry.pose;
   const stagingYaw = j.track ? (j.track.heading * Math.PI) / 2 : ((j.rotation % 2) * Math.PI) / 2;
@@ -344,6 +410,7 @@ function panelCrewPoints(p: Point, yaw: number, length = 5, width = 3): Point[] 
   return points;
 }
 function initialize(s: State, j: Job, e: Equipment, api: RailWorkAPI) {
+  if (j.retryRevision === s.revision && (j.retryAt || 0) > s.elapsed) return false;
   const forkHandoff =
     e.kind === 'forklift' &&
     (j.railStageOnly || (j.legacyRailHandoff === 'carried' && e.cargo?.item === railItem(j)));
@@ -351,7 +418,14 @@ function initialize(s: State, j: Job, e: Equipment, api: RailWorkAPI) {
     j.reason = 'Rail laying and buffer handling require an excavator';
     return false;
   }
-  const geometry = trackGeometry(j);
+  const geometry =
+    j.kind === 'moveStock' && j.stockMove
+      ? {
+          entry: { ...center(j.stockMove.destination), yaw: j.stockMove.yaw - Math.PI },
+          end: { ...center(j.stockMove.destination), yaw: j.stockMove.yaw },
+          pose: { ...center(j.stockMove.destination), yaw: j.stockMove.yaw },
+        }
+      : trackGeometry(j);
   const start = { x: geometry.entry.x, z: geometry.entry.z };
   const end = { x: geometry.end.x, z: geometry.end.z },
     axisYaw = geometry.pose.yaw;
@@ -383,14 +457,14 @@ function initialize(s: State, j: Job, e: Equipment, api: RailWorkAPI) {
     j.reason = 'The assigned excavator must bring the reserved rail panel to the site';
     return false;
   }
-  const sourceStack =
+  let sourceStack =
     !e.cargo && !installed && j.legacyRailHandoff !== 'staged'
       ? s.stacks.find(
           (t) => t.id === j.stack && t.item === railItem(j) && t.qty >= 1 && t.reserved >= 1,
         )
       : undefined;
-  const stagingBatch = sourceStack ? planRailStagingBatch(s, j, e, sourceStack) : undefined;
-  const sourceQty = stagingBatch?.qty || 1;
+  let stagingBatch = sourceStack ? planRailStagingBatch(s, j, e, sourceStack) : undefined;
+  let sourceQty = stagingBatch?.qty || 1;
   let source: RailWork['source'];
   if (
     sourceStack &&
@@ -398,7 +472,8 @@ function initialize(s: State, j: Job, e: Equipment, api: RailWorkAPI) {
       (other) =>
         other.id !== j.id &&
         other.status === 'doing' &&
-        other.railWork?.source?.stackId === sourceStack.id &&
+        other.railWork &&
+        other.railWork?.source?.stackId === sourceStack?.id &&
         other.railWork.phase.startsWith('source-'),
     )
   ) {
@@ -408,97 +483,95 @@ function initialize(s: State, j: Job, e: Equipment, api: RailWorkAPI) {
     return false;
   }
   if (sourceStack) {
-    const point = center(sourceStack),
-      yaw = sourceStack.yaw || 0,
-      normal = { x: -Math.sin(yaw), z: Math.cos(yaw) },
-      forward = { x: Math.cos(yaw), z: Math.sin(yaw) };
     const crew = s.workers.find((w) => w.id === j.worker)!;
-    const material = MATERIALS[railItem(j)];
-    const workerPoint = panelCrewPoints(point, yaw, material.w, material.d)
-      .sort((a, b) => dist(crew, a) - dist(crew, b))
-      .find((p) => !workerMoveBlocked(s, crew, p) && walkRoute(s, crew, p, api.obstacles(s)));
-    if (!workerPoint) {
-      j.reason = 'Crew needs access to an exposed rail-panel edge for rigging';
-      return false;
-    }
-    const faces = [
-      { direction: normal, reach: REACH },
-      { direction: forward, reach: material.w / 2 + 2.5 },
-    ];
-    sourceFace: for (const { direction, reach } of faces)
-      for (const sign of [1, -1]) {
-        const dock = add(point, direction, reach * sign),
-          clear = add(dock, direction, 2.5 * sign),
-          approach = { ...clear };
-        const parked = { ...e, ...dock, yaw: facing(dock, point), reach };
-        const alignedApproach = { ...parked, ...approach, reach: 2.7, reverse: false };
-        const liftedState = {
-          ...s,
-          stacks: s.stacks.map((t) =>
-            t.id === sourceStack.id
-              ? { ...t, qty: t.qty - sourceQty, reserved: Math.max(0, t.reserved - 1) }
-              : t,
-          ),
-        };
-        const loaded = { ...parked, cargo: { item: railItem(j), qty: sourceQty, yaw } };
-        const inward = add(dock, direction, -2.5 * sign);
-        const loadedClear = machineRoute(
-          liftedState,
-          { ...loaded, reverse: true },
-          clear,
-          api.obstacles(liftedState),
-          350,
-          true,
+    let pickup = planRailPickup(s, e, crew, sourceStack, sourceQty, api.obstacles(s));
+    if (!pickup.source && j.kind === 'rail') {
+      const oldSource = sourceStack;
+      const candidates = s.stacks
+        .filter(
+          (t) =>
+            t.id !== oldSource.id &&
+            t.item === railItem(j) &&
+            (t.trackHand ?? 1) === (oldSource.trackHand ?? 1) &&
+            t.qty - t.reserved >= j.qty &&
+            !railStagingStackOwned(s, t.id) &&
+            !s.jobs.some(
+              (other) =>
+                other.id !== j.id &&
+                other.status === 'doing' &&
+                other.railWork?.source?.stackId === t.id &&
+                other.railWork.phase.startsWith('source-'),
+            ),
         )
-          ? clear
-          : machineRoute(
-                liftedState,
-                { ...loaded, reverse: false },
-                inward,
-                api.obstacles(liftedState),
-                350,
-                true,
-              )
-            ? inward
-            : undefined;
-        if (
-          !equipmentMoveBlocked(s, e, parked) &&
-          !equipmentMoveBlocked(s, e, alignedApproach) &&
-          (machineRoute(s, e, approach, api.obstacles(s), 450, true) ||
-            machineRoute(
-              s,
-              { ...e, reverse: !e.reverse },
-              approach,
-              api.obstacles(s),
-              450,
-              true,
-            )) &&
-          machineRoute(s, alignedApproach, dock, api.obstacles(s), 250, true) &&
-          loadedClear
-        ) {
-          source = {
-            stackId: sourceStack.id,
-            pose: {
-              ...point,
-              y:
-                surface(s, point) +
-                (sourceStack.baseHeight || 0) +
-                Math.max(0, sourceStack.qty - sourceQty) * RAIL_PANEL_PITCH,
-              yaw,
-            },
-            dock,
-            clear: loadedClear,
-            approach,
-            entering: false,
-            workerPoint,
-          };
-          break sourceFace;
-        }
+        .sort((a, b) => dist(e, center(a)) - dist(e, center(b)));
+      for (const candidate of candidates) {
+        // Preview the leader's reservation without stealing another job's stock.
+        const batch = planRailStagingBatch(s, j, e, {
+          ...candidate,
+          reserved: candidate.reserved + j.qty,
+        });
+        const quantity = batch?.qty || j.qty;
+        const alternative = planRailPickup(s, e, crew, candidate, quantity, api.obstacles(s));
+        if (!alternative.source) continue;
+        releaseUnliftedRailBatch(s, j);
+        oldSource.reserved = Math.max(0, oldSource.reserved - j.qty);
+        candidate.reserved += j.qty;
+        j.stack = candidate.id;
+        sourceStack = candidate;
+        stagingBatch = batch;
+        sourceQty = quantity;
+        pickup = alternative;
+        api.event(
+          s,
+          'Work',
+          j.id,
+          `${e.id} switched its unlifted rail source from ${oldSource.id} to accessible ${candidate.id}; ${crew.id} remains assigned.`,
+        );
+        s.revision++;
+        break;
       }
+    }
+    source = pickup.source;
     if (!source) {
-      j.reason = 'Reserved rail panel needs an accessible lifting face';
+      j.reason = `${sourceStack.id}: ${pickup.reason}${pickup.blockers.length ? '; blocked by ' + pickup.blockers.join(', ') : ''}. Clear access or relocate obstructing stock.`;
+      j.retryAt = s.elapsed + 5;
+      j.retryRevision = s.revision;
+      if (
+        !s.notices.some(
+          (n) => n.entity === j.id && n.title === 'Rail pickup blocked' && n.detail === j.reason,
+        )
+      ) {
+        s.notices.unshift({
+          id: api.id(s, 'notice'),
+          time: s.time,
+          title: 'Rail pickup blocked',
+          detail: j.reason,
+          entity: j.id,
+          state: 'todo',
+          seen: false,
+        });
+        s.events.push({
+          id: api.id(s, 'event'),
+          time: s.time,
+          type: 'Work',
+          entity: j.id,
+          text: j.reason,
+          severity: 'warning',
+        });
+      }
       return false;
     }
+    j.retryAt = undefined;
+    j.retryRevision = undefined;
+    for (const notice of s.notices)
+      if (
+        notice.entity === j.id &&
+        notice.title === 'Rail pickup blocked' &&
+        notice.state !== 'done'
+      ) {
+        notice.state = 'done';
+        notice.detail += ` Resolved: ${e.id} has a checked pickup from ${sourceStack.id}.`;
+      }
   }
   if (forkHandoff && source) {
     // The accessible storage face determines the rail panel's orientation on
@@ -928,12 +1001,20 @@ function stagePanel(s: State, j: Job, e: Equipment, api: RailWorkAPI) {
   stack.qty = qty;
   // Keep the identity of every physically deposited panel, including canceled
   // members. Their unreserved steel can be reclaimed when the work is resumed.
-  stack.railStagingJobs = r.stagingBatch?.jobIds.slice() || (j.railStageOnly ? [j.id] : undefined);
-  stack.reserved = stack.railStagingJobs
-    ? stack.railStagingJobs.filter((id) =>
-        s.jobs.some((member) => member.id === id && member.status !== 'canceled' && !member.cancel),
-      ).length
-    : 1;
+  stack.railStagingJobs =
+    j.kind === 'moveStock'
+      ? undefined
+      : r.stagingBatch?.jobIds.slice() || (j.railStageOnly ? [j.id] : undefined);
+  stack.reserved =
+    j.kind === 'moveStock'
+      ? 1
+      : stack.railStagingJobs
+        ? stack.railStagingJobs.filter((id) =>
+            s.jobs.some(
+              (member) => member.id === id && member.status !== 'canceled' && !member.cancel,
+            ),
+          ).length
+        : 1;
   if (r.stagingBatch)
     for (const id of r.stagingBatch.jobIds) {
       const member = s.jobs.find((other) => other.id === id);
@@ -1006,11 +1087,15 @@ function finish(s: State, j: Job, api: RailWorkAPI) {
   j.status = 'canceled';
   j.finished = s.time;
   j.phase =
-    r.panel.state === 'stored'
-      ? 'Canceled; reserved panel remains in stock'
-      : r.panel.state === 'installed'
-        ? 'Canceled; placed track retained and buffer secured'
-        : 'Canceled; panel staged and buffer secured';
+    j.kind === 'moveStock'
+      ? r.panel.state === 'stored'
+        ? 'Canceled; panel remains in source stock'
+        : 'Canceled; relocated panel safely stored'
+      : r.panel.state === 'stored'
+        ? 'Canceled; reserved panel remains in stock'
+        : r.panel.state === 'installed'
+          ? 'Canceled; placed track retained and buffer secured'
+          : 'Canceled; panel staged and buffer secured';
   j.reason = '';
   j.progress = r.panel.state === 'installed' ? 1 : 0;
   api.event(s, 'Work', j.id, j.phase);
@@ -1047,7 +1132,7 @@ function afterPanelStaged(s: State, j: Job, api: RailWorkAPI) {
  * State.buffer remains the single BUFFER-001 asset. Its elevation is in railWork.buffer.
  */
 export function tickRailWork(s: State, j: Job, dt: number, api: RailWorkAPI): boolean {
-  if (j.kind !== 'rail' || j.status !== 'doing') return false;
+  if (!['rail', 'moveStock'].includes(j.kind) || j.status !== 'doing') return false;
   const e = s.equipment.find((e) => e.id === j.equipment),
     w = s.workers.find((w) => w.id === j.worker),
     op = s.workers.find((w) => w.id === j.operator);
@@ -1262,7 +1347,7 @@ export function tickRailWork(s: State, j: Job, dt: number, api: RailWorkAPI): bo
         w,
         source.workerPoint,
         api,
-        panelCrewPoints(source.pose, source.pose.yaw, material.w, material.d),
+        railCrewStandingPoints(s.stacks.find((t) => t.id === source.stackId)!),
       );
     w.status = 'Walking to rig the reserved rail panel';
     if (machineReady && workerReady) transition(s, j, 'source-rig');
@@ -1481,6 +1566,20 @@ export function tickRailWork(s: State, j: Job, dt: number, api: RailWorkAPI): bo
       r.from = undefined;
       e.reverse = false;
       e.reach = 2.7;
+    }
+    if (j.kind === 'moveStock') {
+      // The physical local withdrawal is sufficient; relocation has no buffer
+      // crew to hand over to and no reason to drive to a distant parking point.
+      e.lift = 0.12;
+      finish(s, j, api);
+      j.railStageOnly = undefined;
+      api.event(
+        s,
+        'Work',
+        j.id,
+        `${e.id} withdrew after relocating ${railItem(j)} from ${j.stockMove?.sourceId} to ${r.panel.stackId}.`,
+      );
+      return true;
     }
     const parking = add(add(stagePoint, f, -15), r.side, 8);
     if (dist(e, parking) > 0.08) {

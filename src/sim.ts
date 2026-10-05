@@ -18,6 +18,7 @@ import {
 } from './work-crews';
 import { recordEquipmentTravel } from './ground-wear';
 import { tickRailWork, railStagingStackOwned } from './railwork';
+import { staticRailPickupFaces } from './rail-pickup';
 import { tickShedConstruction } from './shed-construction';
 import {
   constructionSourceBusy,
@@ -116,6 +117,8 @@ import {
   requestUnloading,
   migrateRoadDrive,
   constructionStorageClearance,
+  createRailStorageAccessCheck,
+  railStoragePlacementPreservesAccess,
   syncDeliveryCargo,
   equipmentReservedForDelivery,
 } from './delivery';
@@ -350,6 +353,7 @@ export function allocate(
 ): Rect | null {
   const m = MATERIALS[item];
   const clearance = constructionStorageClearance(s);
+  const storageAccessible = createRailStorageAccessCheck(s);
   for (const zone of s.zones) {
     for (let z = zone.z; z + m.d <= zone.z + zone.d; z++) {
       for (let x = zone.x; x + m.w <= zone.x + zone.w; x++) {
@@ -365,6 +369,7 @@ export function allocate(
           !s.equipment.some((e) => overlap({ x: e.x - 1.2, z: e.z - 1.2, w: 2.4, d: 2.4 }, r)) &&
           !s.jobs.some((j) => j.status === 'doing' && overlap(j, r)) &&
           (!from || approach(from, r, obstacles(s), 1.1)) &&
+          storageAccessible(item, r) &&
           (!accessible || accessible(r))
         )
           return r;
@@ -478,7 +483,7 @@ export function validPlan(s: State, kind: string, r: Rect, ignoreJobs = false): 
 }
 function newJob(
   s: State,
-  kind: BuildKind | 'refuel' | 'remove' | 'throwSwitch',
+  kind: Job['kind'],
   r: Rect,
   rotation = 0,
   target?: string,
@@ -504,6 +509,86 @@ function newJob(
   s.jobs.push(j);
   return j;
 }
+/** Move one exposed panel with the normal operator, rigger and lifting sequence. */
+export function stockMoveError(s: State, sourceId: string, destination: Rect): string {
+  const source = s.stacks.find((t) => t.id === sourceId);
+  if (!source || !source.item.startsWith('rail')) return 'Select a physical stack of rail panels.';
+  if (railStagingStackOwned(s, source.id))
+    return 'This rail stack belongs to active staging or withdrawal. Wait until its handling crew releases it.';
+  if (source.qty - source.reserved < 1)
+    return 'This stack has no unreserved panel. Cancel its waiting work first, or move another exposed stack.';
+  if (
+    s.jobs.some(
+      (j) =>
+        j.kind === 'moveStock' &&
+        j.stockMove?.sourceId === sourceId &&
+        ['todo', 'doing'].includes(j.status),
+    )
+  )
+    return 'A relocation from this stack is already queued.';
+  if (
+    !Number.isInteger(destination.x) ||
+    !Number.isInteger(destination.z) ||
+    destination.w !== source.w ||
+    destination.d !== source.d
+  )
+    return 'Keep the original grid-aligned panel footprint.';
+  if (
+    !s.zones.some(
+      (z) =>
+        destination.x >= z.x &&
+        destination.z >= z.z &&
+        destination.x + destination.w <= z.x + z.w &&
+        destination.z + destination.d <= z.z + z.d,
+    )
+  )
+    return 'Choose a clear position inside a designated stockyard.';
+  const blocker = obstacles(s).find((r) => overlap(r, destination, 0.15));
+  if (blocker)
+    return `Destination overlaps ${(blocker as Rect & { id?: string }).id || 'an obstacle'}.`;
+  if (
+    s.jobs.some((j) => ['todo', 'doing'].includes(j.status) && overlap(j, destination, 0.15)) ||
+    s.orders.some((o) =>
+      [...(o.allocated ? [o.allocated] : []), ...(o.unload ? [o.unload.destination] : [])].some(
+        (r) => overlap(r, destination, 0.15),
+      ),
+    )
+  )
+    return 'Another work order or delivery reserves this destination.';
+  if (!railStoragePlacementPreservesAccess(s, source.item, destination, source.yaw))
+    return 'Leave a machine lifting face and walking space beside this destination and nearby rail stacks.';
+  return '';
+}
+export function moveRailStock(
+  s: State,
+  sourceId: string,
+  destination: Rect,
+): { job?: Job; error: string } {
+  const error = stockMoveError(s, sourceId, destination);
+  if (error) return { error };
+  const source = s.stacks.find((t) => t.id === sourceId)!;
+  const group = createJobGroup(s, `Relocate one ${label(source.item)} · ${sourceId}`, destination);
+  const j = newJob(
+    s,
+    'moveStock',
+    destination,
+    Math.abs(Math.sin(source.yaw || 0)) > 0.5 ? 1 : 0,
+    sourceId,
+    group.id,
+  );
+  j.item = source.item;
+  j.stockMove = { sourceId, destination: { ...destination }, yaw: source.yaw || 0 };
+  j.railStageOnly = true;
+  event(
+    s,
+    'Planning',
+    j.id,
+    `Relocate one panel from ${sourceId} to E${destination.x}, S${destination.z}; an operator and rigger will physically lift, carry and lower it.`,
+  );
+  s.revision++;
+  return { job: j, error: '' };
+}
+
 export function plan(
   s: State,
   kind: BuildKind,
@@ -829,6 +914,7 @@ export function missingMaterials(s: State) {
   const result: Partial<Record<Item, number>> = {};
   for (const j of s.jobs) {
     if (
+      j.kind === 'moveStock' ||
       railBatchHeld(s, j) ||
       s.stacks.some((t) => stagedRailStackOwnedBy(s, t, j) && t.qty >= j.qty && t.reserved >= j.qty)
     )
@@ -1566,6 +1652,7 @@ function assign(s: State, j: Job) {
     }
     j.qty = 1;
   }
+  if (j.kind === 'moveStock') j.railStageOnly = true;
   if (j.kind === 'rail') {
     j.railStageOnly = !!railCrewGroup(s, j) && railNeedsStaging(j) && !j.cancel;
     if (j.railStageOnly && !railStagingAllowed(s, j)) {
@@ -1648,16 +1735,23 @@ function assign(s: State, j: Job) {
   let stack =
     j.kind === 'remove' || installedLegacyRail
       ? undefined
-      : s.stacks.find((t) => t.qty >= j.qty && stagedRailStackOwnedBy(s, t, j)) ||
-        s.stacks.find(
-          (t) =>
-            t.item === j.item &&
-            (!railStagingStackOwned(s, t.id) ||
-              (j.legacyRailHandoff === 'staged' && t.source === j.id)) &&
-            (j.kind !== 'slab' || !constructionSourceBusy(s, t.id, j.id)) &&
-            t.qty - t.reserved >= j.qty &&
-            (j.legacyRailHandoff !== 'staged' || t.source === j.id),
-        );
+      : j.kind === 'moveStock'
+        ? s.stacks.find(
+            (t) =>
+              t.id === j.stockMove?.sourceId &&
+              t.qty - t.reserved >= j.qty &&
+              !railStagingStackOwned(s, t.id),
+          )
+        : s.stacks.find((t) => t.qty >= j.qty && stagedRailStackOwnedBy(s, t, j)) ||
+          s.stacks.find(
+            (t) =>
+              t.item === j.item &&
+              (!railStagingStackOwned(s, t.id) ||
+                (j.legacyRailHandoff === 'staged' && t.source === j.id)) &&
+              (j.kind !== 'slab' || !constructionSourceBusy(s, t.id, j.id)) &&
+              t.qty - t.reserved >= j.qty &&
+              (j.legacyRailHandoff !== 'staged' || t.source === j.id),
+          );
   if (!stack && j.kind !== 'remove' && !installedLegacyRail) {
     j.reason = `Need ${j.qty} × ${label(j.item || 'material')}`;
     return;
@@ -1887,18 +1981,46 @@ function assign(s: State, j: Job) {
     j.reason = equipmentAssistantReason(s, eq.id) || 'Need an available construction worker';
     return;
   }
+  // Reserve an exposed pile rather than the first matching register entry.
+  // Detailed worker travel and loaded withdrawal are checked by railwork again
+  // after boarding; dynamic changes may still require an unlifted source swap.
+  if (
+    j.kind === 'rail' &&
+    stack &&
+    j.legacyRailHandoff !== 'staged' &&
+    !stagedRailStackOwnedBy(s, stack, j)
+  ) {
+    const candidate = s.stacks
+      .filter(
+        (t) =>
+          t.item === j.item &&
+          (t.trackHand ?? 1) === (stack!.trackHand ?? 1) &&
+          t.qty - t.reserved >= j.qty &&
+          !railStagingStackOwned(s, t.id),
+      )
+      .sort(
+        (a, b) =>
+          Number(a.id !== stack!.id) - Number(b.id !== stack!.id) ||
+          dist(eq, center(a)) - dist(eq, center(b)),
+      )
+      .find((t) => staticRailPickupFaces(s, t, eq.kind, obstacles(s)).length > 0);
+    if (candidate) stack = candidate;
+  }
   const oldVehicle =
     operator.vehicle && operator.vehicle !== eq.id
       ? s.equipment.find((e) => e.id === operator!.vehicle)
       : undefined;
   const operatorFrom = oldVehicle ? machineStep(oldVehicle) : operator;
   const obs = obstacles(s),
-    workerPath = worker && j.kind !== 'rail' ? approach(worker, j, obs, 0.1) : [],
+    workerPath =
+      worker && !['rail', 'moveStock'].includes(j.kind) ? approach(worker, j, obs, 0.1) : [],
     operatorPath = operator.vehicle === eq.id ? [] : route(operatorFrom, machineStep(eq), obs, 0.1);
   // Slabs use physical docking in construction-handling after boarding.
   // A generic stock approach would be discarded immediately, and can search
   // the whole yard twice before a busy placement lane is even checked.
-  let loadPath = ['slab', 'rail'].includes(j.kind) ? [] : machineApproach(s, eq, stack || j);
+  let loadPath = ['slab', 'rail', 'moveStock'].includes(j.kind)
+    ? []
+    : machineApproach(s, eq, stack || j);
   if (stack && !loadPath) {
     for (const alternative of s.stacks.filter(
       (t) =>
@@ -1934,6 +2056,7 @@ function assign(s: State, j: Job) {
   if (
     j.kind !== 'slab' &&
     j.kind !== 'rail' &&
+    j.kind !== 'moveStock' &&
     stack &&
     !machineApproach(s, { ...eq, ...loadEnd, yaw: loadYaw }, j)
   ) {
@@ -1955,11 +2078,10 @@ function assign(s: State, j: Job) {
   // Rail rigging starts only after the crane is parked and aligned. Preserve
   // an existing step-aside walk, but do not send the crew into its approach.
   if (worker) {
-    if (j.kind !== 'rail' && j.kind !== 'slab') worker.path = workerPath;
-    worker.status =
-      j.kind === 'rail' || j.kind === 'slab'
-        ? 'Waiting for equipment to park'
-        : 'Walk to installation';
+    if (!['rail', 'moveStock', 'slab'].includes(j.kind)) worker.path = workerPath;
+    worker.status = ['rail', 'moveStock', 'slab'].includes(j.kind)
+      ? 'Waiting for equipment to park'
+      : 'Walk to installation';
   }
   if (oldVehicle) leaveMachine(s, operator);
   operator.job = j.id;
@@ -2209,7 +2331,7 @@ function tickJob(s: State, j: Job, dt: number) {
     }
   }
   if (
-    j.kind === 'rail' &&
+    ['rail', 'moveStock'].includes(j.kind) &&
     tickRailWork(s, j, dt, { id, obstacles, movement, event, complete, release: finishRelease })
   )
     return;

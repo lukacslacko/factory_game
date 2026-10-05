@@ -315,7 +315,9 @@ export interface Job extends Rect {
   railStageOnly?: boolean;
   railBufferCleanup?: boolean;
   id: string;
-  kind: BuildKind | 'refuel' | 'remove' | 'throwSwitch';
+  kind: BuildKind | 'refuel' | 'remove' | 'throwSwitch' | 'moveStock';
+  /** Exact-source physical rail relocation, never a construction material demand. */
+  stockMove?: { sourceId: string; destination: Rect; yaw: number };
   requestedRoute?: 'straight' | 'branch';
   rotation: number;
   item?: Item;
