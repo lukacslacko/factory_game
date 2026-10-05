@@ -48,3 +48,24 @@ The original [C Planning View concept image](C-original-planning.png) is uploade
 ## Authorized playtest bug fixes
 
 - [#21 — Fix curved-panel stack top-up route rejection and show selected equipment intent](https://github.com/lukacslacko/factory_game/issues/21) — **completed in v0.13.0**; the creator explicitly authorized this fix after the initial issue list. It is separate from the broader blocker auto-clearing design in #17.
+
+## Reception and shunting parent request — October 5, 2026
+
+[**#22 — Receive multi-car trains and shunt freight to named factory rail locations**](https://github.com/lukacslacko/factory_game/issues/22) is the parent, with twelve native GitHub sub-issues. It remains open while separately reviewed checkpoints are completed.
+
+| Issue                                                        | Scope                                                             | Relation                                                                           |
+| ------------------------------------------------------------ | ----------------------------------------------------------------- | ---------------------------------------------------------------------------------- |
+| [#25](https://github.com/lukacslacko/factory_game/issues/25) | Named loading, unloading, transfer and parking positions          | Completed in v0.14.0; closed after verification and publication.                                      |
+| [#23](https://github.com/lukacslacko/factory_game/issues/23) | Through reception track and second commissioned main-line turnout | New; depends on safe reconstruction and buffer handling.                           |
+| [#24](https://github.com/lukacslacko/factory_game/issues/24) | Insert turnouts into existing straight runs                       | New; depends on #7 real recovery.                                                  |
+| [#26](https://github.com/lukacslacko/factory_game/issues/26) | Multiple physical cars per incoming train                         | New; stable per-car cargo/geometry and reception fit.                              |
+| [#27](https://github.com/lukacslacko/factory_game/issues/27) | Coupling/uncoupling and line-locomotive drop-off/collection       | New; real securing, detachment and clear exit.                                     |
+| [#28](https://github.com/lukacslacko/factory_game/issues/28) | Parallel reception tracks and safe concurrent traffic             | New; follows a reviewed single-track loop.                                         |
+| [#7](https://github.com/lukacslacko/factory_game/issues/7)   | Recover track assemblies                                          | Existing prerequisite reused.                                                      |
+| [#6](https://github.com/lukacslacko/factory_game/issues/6)   | Independent physical buffer stops                                 | Existing prerequisite reused.                                                      |
+| [#3](https://github.com/lukacslacko/factory_game/issues/3)   | Purchase/deliver diesel shunter                                   | Existing issue reused.                                                             |
+| [#4](https://github.com/lukacslacko/factory_game/issues/4)   | Hire/assign real shunter driver                                   | Existing issue reused.                                                             |
+| [#5](https://github.com/lukacslacko/factory_game/issues/5)   | Shunt freight and tanker cars to named locations                  | Existing issue broadened to ordinary freight, without duplicating tanker movement. |
+| [#2](https://github.com/lukacslacko/factory_game/issues/2)   | Engine shed and locomotive parking                                | Existing issue reused.                                                             |
+
+Pump station #9 will use the same named transfer references later. Completing the current named-location checkpoint does not implement supplier routing, multi-car consists or shunting, and does not authorize those subsequent chunks automatically.

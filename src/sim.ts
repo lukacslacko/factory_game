@@ -163,6 +163,7 @@ export function createState(): State {
     stacks: [],
     buildings: [],
     rails: [],
+    railLocations: [],
     paving: {},
     groundWear: {},
     zones: [],
@@ -2504,6 +2505,7 @@ export function load(json: string): State {
   if (s.version < 4) migrateLegacyRailJobs(s, { release: finishRelease, event });
   s.version = 4;
   s.groundWear ??= {};
+  s.railLocations ??= [];
   for (const order of s.orders) migrateRoadDrive(s, order);
   s.revision++;
   return s;

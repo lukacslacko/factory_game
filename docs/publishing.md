@@ -1,10 +1,10 @@
 # Publication
 
-Version 0.13.0 is published privately at https://plant-01-starter-yard.lukacslacko.chatgpt.site.
+Version 0.14.0 is published privately at https://plant-01-starter-yard.lukacslacko.chatgpt.site.
 
 The editable game lives in this starter-yard directory. The Site repository is a separate, build-only checkout at `../../work/plant01-publish` relative to this directory, with its own `.openai/hosting.json` and Git metadata. It contains only `dist/` and the hosting manifest. Do not upload the full game project or the private design documents when updating that Site.
 
-The Site identity is `appgprj_6ac1ff4c01388191b1d9d0dba709095e`. Reuse it; do not create a replacement. The successful build-only source commit for version 0.13.0 is `a0e217c86ca20616c17d3ed45d0ab46d33720402`.
+The Site identity is `appgprj_6ac1ff4c01388191b1d9d0dba709095e`. Reuse it; do not create a replacement. The successful build-only source commit for version 0.14.0 is `9cb1446433d8d9315b34c94af4dcb2e12418386c`.
 
 For an update, follow the Sites hosting skill to open the existing build-only checkout, build and test the editable game, replace the checkout's `dist/` with that build, inspect its file list, and publish through the same private Site workflow. Keep credentials in process memory/stdin only. The game requires no server secrets, cloud database, or external connectors.
 
@@ -93,3 +93,11 @@ Version 0.13.0 deployed successfully on October 5, 2026 at 17:13 CEST, preservin
 The reproduced eight-curved-panel rail delivery now completes into two stacks of four, including reload of its blocked top-up state. Actual loaded machine poses correct conservative clearance rejection without bypassing collision checks. Saved detours physically return to storage, active rail staging supports reject unrelated top-ups, and rail pickup entry checks both gears. Selected equipment shows its accepted route, dashed destination intent when no path is active, target marker and known blocker outline; the inspector links related actors and records.
 
 All 257 fresh sequential simulation regressions, integrated browser checks, TypeScript/build and independent production checks pass. The compatible v0.8 example remains a prior-release save verified in production. Source, documentation, actual gameplay previews and validation records are updated separately in the public MIT repository and downloadable project. GitHub issue #21 is closed as completed; further railway and fluid checkpoints remain gated for creator approval.
+
+## Version 0.14 named railway locations
+
+Version 0.14.0 deployed successfully on October 5, 2026 at 17:41 CEST, preserving the existing private Site and origin. Deployment ID: `appgdep_6ac3c5159ea881919cdcfee824dc161f`. Build-only source commit: `9cb1446433d8d9315b34c94af4dcb2e12418386c`. The nine verified built assets and hosting manifest match the final locally tested build byte for byte; source, design notes, examples, saves, diagnostics and credentials remain excluded from the Site.
+
+The release adds virtual named loading, unloading, transfer and parking destinations on actual installed rail, editable centered lengths and anchor offsets, track-following world guides and readable selectable labels, linked dense records, repairable missing-track references, SQL and compatible saves. These designations create no material, physical signage or traffic reservation. Supplier trains retain their original berth. Parent issue #22 has twelve native sub-issues reusing the existing engine, driver, shed, buffers and recovery work; named-location issue #25 is completed. The next reception/shunting checkpoint awaits creator playtesting and approval.
+
+All 270 fresh sequential simulation regressions, integrated browser checks, TypeScript/build and independent production checks pass. Production checks import a named-location yard as well as the older nighttime and v0.8 completed example, and exercise linked inspection and SQL. Source, documentation, actual gameplay previews and validation records are updated separately in the public MIT repository and downloadable project.

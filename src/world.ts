@@ -7,6 +7,8 @@ import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { surfaceMaterial } from './surfaces';
 import { WornPaths } from './worn-paths';
+import { railLocationPose, railLocationPath, railLocationStatus } from './rail-locations';
+import { trackNetwork } from './track';
 import { equipmentIntent } from './equipment-intent';
 import { GATE_PADS, groundPad, sceneryRandom } from './terrain-visuals';
 import { assembledShed, shedComponentModel } from './shed-visuals';
@@ -1153,6 +1155,77 @@ export class World {
       g.userData.selection = { type: 'building', id: t.id };
       this.staticGroup.add(g);
     }
+    const locationNetwork = s.railLocations?.length ? trackNetwork(s) : undefined;
+    for (const location of s.railLocations || []) {
+      const pose = railLocationPose(s, location);
+      if (!pose) continue;
+      const group = new THREE.Group();
+      group.name = `railway-location-${location.id}`;
+      group.userData.selection = { type: 'railLocation', id: location.id };
+      const locationStatus = railLocationStatus(s, location, locationNetwork);
+      const connected = locationStatus.connected && locationStatus.valid;
+      const color = connected
+        ? { loading: 0x659bbb, unloading: 0xe7bb58, transfer: 0x9e83bb, parking: 0x71a27e }[
+            location.kind
+          ]
+        : 0xe77965;
+      const path = railLocationPath(s, location);
+      if (path && path.length > 1) {
+        const line = new THREE.Line(
+          new THREE.BufferGeometry().setFromPoints(
+            path.map((p) => new THREE.Vector3(p.x, 0.48, p.z)),
+          ),
+          new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0.85 }),
+        );
+        line.name = 'railway-location-length';
+        group.add(line);
+        for (const p of [path[0], path[path.length - 1]]) {
+          const yaw = p.yaw ?? pose.yaw,
+            side = { x: -Math.sin(yaw), z: Math.cos(yaw) };
+          const cap = new THREE.Line(
+            new THREE.BufferGeometry().setFromPoints(
+              [-1, 1].map((d) => new THREE.Vector3(p.x + side.x * d, 0.48, p.z + side.z * d)),
+            ),
+            new THREE.LineBasicMaterial({ color }),
+          );
+          group.add(cap);
+        }
+      }
+      // Virtual map annotation: no unpurchased post, trackside sign, or collision footprint.
+      const icon = new THREE.Mesh(
+        new THREE.OctahedronGeometry(0.25),
+        new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.8 }),
+      );
+      icon.position.set(pose.x, 1.1, pose.z);
+      icon.name = 'railway-location-anchor';
+      group.add(icon);
+      const canvas = document.createElement('canvas');
+      const ctx = canvas.getContext('2d')!;
+      ctx.font = '14px monospace';
+      let text = `${location.name} · ${location.length.toFixed(1)} m`;
+      canvas.width = Math.min(330, Math.max(150, Math.ceil(ctx.measureText(text).width + 20)));
+      canvas.height = 28;
+      ctx.font = '14px monospace';
+      while (ctx.measureText(text).width > canvas.width - 16) text = text.slice(0, -2) + '…';
+      ctx.fillStyle = '#f1e9d5';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.strokeStyle = connected ? '#384d45' : '#a44636';
+      ctx.strokeRect(0.5, 0.5, canvas.width - 1, canvas.height - 1);
+      ctx.fillStyle = '#243c35';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(text, 8, 14);
+      const texture = new THREE.CanvasTexture(canvas);
+      texture.colorSpace = THREE.SRGBColorSpace;
+      const tag = new THREE.Mesh(
+        new THREE.PlaneGeometry(canvas.width / 40, canvas.height / 40),
+        new THREE.MeshBasicMaterial({ map: texture, side: THREE.DoubleSide }),
+      );
+      tag.position.set(pose.x, 2.5, pose.z);
+      tag.name = 'railway-location-label';
+      tag.quaternion.copy(this.camera.quaternion);
+      group.add(tag);
+      this.staticGroup.add(group);
+    }
     for (const j of s.jobs) {
       if (
         j.status === 'done' ||
@@ -1266,6 +1339,19 @@ export class World {
     }
     alpha = Math.max(0, Math.min(1, alpha));
     this.sync(s);
+    for (const group of this.staticGroup.children) {
+      if (group.userData.selection?.type === 'railLocation') {
+        const label = group.getObjectByName('railway-location-label');
+        if (label) {
+          label.quaternion.copy(this.camera.quaternion);
+          const depth = -label.position.clone().applyMatrix4(this.camera.matrixWorldInverse).z;
+          const metersPerPixel =
+            (2 * Math.max(0.1, depth) * Math.tan((this.camera.fov * Math.PI) / 360)) /
+            Math.max(1, this.canvas.clientHeight);
+          label.scale.setScalar(metersPerPixel * 40);
+        }
+      }
+    }
     for (const rail of s.rails) {
       if (rail.track?.layout !== 'turnout' || rail.track.section !== 0) continue;
       const model = this.staticGroup.children.find((g) => g.userData.selection?.id === rail.id);
@@ -2322,7 +2408,29 @@ export class World {
     }
     return undefined;
   }
+  previewRailLocation(p: (Point & { yaw: number }) | undefined) {
+    const key = p ? `${p.x.toFixed(2)}/${p.z.toFixed(2)}/${p.yaw.toFixed(3)}` : '';
+    if (this.hover.userData.railLocationKey === key) return;
+    this.disposeGroup(this.hover);
+    this.hover.userData.railLocationKey = key;
+    if (!p) return;
+    const side = { x: -Math.sin(p.yaw), z: Math.cos(p.yaw) };
+    const line = new THREE.Line(
+      new THREE.BufferGeometry().setFromPoints(
+        [-1.2, 1.2].map((d) => new THREE.Vector3(p.x + side.x * d, 0.53, p.z + side.z * d)),
+      ),
+      new THREE.LineBasicMaterial({ color: 0xe8d984 }),
+    );
+    this.hover.add(line);
+    const icon = new THREE.Mesh(
+      new THREE.OctahedronGeometry(0.23),
+      new THREE.MeshBasicMaterial({ color: 0xe8d984, transparent: true, opacity: 0.7 }),
+    );
+    icon.position.set(p.x, 1.1, p.z);
+    this.hover.add(icon);
+  }
   preview(r: Rect | undefined, valid = true) {
+    this.hover.userData.railLocationKey = undefined;
     this.disposeGroup(this.hover);
     if (!r) return;
     this.outline(this.hover, r, valid ? 0xe8d984 : 0xe06c54, 0.22);

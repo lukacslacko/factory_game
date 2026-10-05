@@ -1,6 +1,6 @@
 # Starter Yard architecture
 
-Version 0.13.0 separates serializable simulation, physical delivery sequences, motion, rendering, and the Condensed interface. The simulation is deterministic for a given sequence of commands and time steps and runs without a browser.
+Version 0.14.0 separates serializable simulation, physical delivery sequences, motion, rendering, and the Condensed interface. The simulation is deterministic for a given sequence of commands and time steps and runs without a browser.
 
 ## Files
 
@@ -168,3 +168,15 @@ Curved and turnout jobs retain kind `rail` but have explicit catalog material id
 Only the original BUFFER-001 exists in this checkpoint. It follows the through route of a turnout; extra exits are explicitly uncapped. Existing supplier trains remain on their original route. Train movement over player rails, independent buffer assets, engine shed, shunter/driver and fluid networks remain gated todos. New assembly recovery is not claimed as implemented.
 
 `turnout-operation.ts` owns worker-only manual lever requests. A serialized `throwSwitch` job reserves no machine or material. A builder or engineer walks to the handle, faces it, and throws over four seconds before committing the route. Partial saves retain progress; cancellation returns the handle physically to its old setting before releasing the worker. The renderer interpolates lever, point-blade and worker arm motion from the same saved phase/progress. Readiness checks require every canonical installed turnout piece and completed construction record.
+
+## Named railway service locations — version 0.14
+
+`rail-locations.ts` owns virtual designations separately from built assets and transport assignments. A stable `RLOC` record contains name, purpose, physical panel ID, path route, analytic arc offset and centered interval length. It stores no cargo or arbitrary detached world position. The protected main line and planned jobs are excluded from placement. The starter siding is an explicit available physical path.
+
+Centerline projection and interval sampling use the shared immutable rail geometry, normalizing sampled chord distances to its analytical path length. The centered interval walks only matching position/tangent ports on installed neighboring panels, including reversed descriptors. A unique continuation is required; gaps, open ends, ambiguous forks and repeating loops are rejected. Crossings do not join tracks. Location connectivity means geometric attachment to the starter network, not a commissioned switch route or train clearance. Interval validity is reported separately from topology.
+
+Edits validate transactionally before allocating IDs, changing revision or appending Activity events. Names are trimmed, case-insensitively unique, 1–64 characters and free of control characters. At most 512 designations are supported, with intervals of 1–200 m. State format remains version 4 with optional `railLocations`; older saves normalize to an empty list. Save validation checks record structure, IDs, names and known anchor bounds while retaining genuine missing-anchor/neighbor references after recovery. No destination silently relocates to another rail.
+
+The world draws a purpose-colored length guide, anchor icon and cached readable billboard text as map annotations. They are selectable but create no physical sign, collision footprint or capacity. Texture geometry is disposed through the existing static-model lifecycle; camera-facing label scaling uses no per-frame texture regeneration. World/register/SQL batches reuse a topology snapshot across their location rows. Inspectors and registers link stable IDs and expose repair state; SQL table `rail_locations` provides derived coordinates, yaw, connected/valid flags and reason alongside the stored reference.
+
+Supplier delivery logic, consists and locomotive paths are unchanged. Parent issue #22 tracks the separately reviewed reception connection, turnout replacement, multi-car identity, physical handoff and owned shunting work that will consume these same location IDs.

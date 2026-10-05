@@ -6,7 +6,7 @@ The world uses a true perspective 3D camera, with a meter grid, dimensional stoc
 
 ## Play
 
-The private game Site is **https://plant-01-starter-yard.lukacslacko.chatgpt.site**. This package documents version **0.13.0**; deployment status is recorded in `docs/publishing.md`. Sign in with the account that owns the Site. Local and hosted browser saves are separate; use Export save / Import save to transfer a yard.
+The private game Site is **https://plant-01-starter-yard.lukacslacko.chatgpt.site**. This package documents version **0.14.0**; deployment status is recorded in `docs/publishing.md`. Sign in with the account that owns the Site. Local and hosted browser saves are separate; use Export save / Import save to transfer a yard.
 
 On this Mac, double-click **Start Plant 01.command**. It starts the included local server and opens the game at **http://127.0.0.1:4173/**. Keep its Terminal window open while playing; Control-C stops the server.
 
@@ -39,6 +39,16 @@ Open **manual.html** through the local server for the illustrated player guide, 
 - Order electrical and water/sewer services. Utility crews arrive and commission the service. Connected lights illuminate the yard at night.
 - Inspect materials, workers, equipment, structures, deliveries, jobs, events, material movements, actual costs, and outstanding commitments. Track notifications in To do / Doing / Done.
 - Query a fresh SQLite reporting snapshot and export costs as CSV. Autosave locally, export/import a portable save, and restore the previous yard backup.
+
+## Version 0.14 named rail locations
+
+Choose **Rail location** in the yard or **Railway → + Named location**, then click installed siding or factory track. Enter a unique name, select **Loading**, **Unloading**, **Transfer** or **Parking**, and set its centered rail length. The virtual marker follows the real track centerline/tangent. Its length can span uniquely joined installed panels; an open end, gap or ambiguous fork is explained rather than guessed. The protected main line and unbuilt plans cannot be designated.
+
+Click a label or linked **RLOC** ID to edit its name, purpose, length or distance along its anchor panel. **Reposition in yard** changes its track anchor while preserving its ID. Deleting the designation retains the track. If its anchor or neighboring rail is recovered, the saved record remains available with a repair reason. The Railway register supports the existing search, header sorting and column filters; SQL exposes `rail_locations`, including position, interval validity, connectivity and status.
+
+These locations prepare destinations for later railway operation. Supplier trains still use the original berth; designating a location does not create goods, a physical sign or an operational route/traffic reservation. The reception loop, multiple cars, coupling, owned shunting and parallel reception are broken down under [parent issue #22](https://github.com/lukacslacko/factory_game/issues/22). This release completes only the named-location checkpoint; test it before authorizing the next chunk.
+
+The [actual location interface capture](railway-locations-preview.png) shows a designation created, edited and repositioned through the game controls.
 
 ## Version 0.12 railway construction checkpoint
 

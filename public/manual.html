@@ -232,7 +232,7 @@
         ><a href="#limits">Version boundaries</a>
       </nav>
       <article>
-        <small>PLAYER GUIDE · VERSION 0.13.0 · OCTOBER 5, 2026</small>
+        <small>PLAYER GUIDE · VERSION 0.14.0 · OCTOBER 5, 2026</small>
         <h1>Build the starter yard</h1>
         <p class="lead">
           Bring people, equipment, and materials to an open industrial site. Give every piece a
@@ -750,6 +750,22 @@
           shunter, driver, engine shed and additional physical buffers; then tanks, tanker pumps,
           pipes, valves and gauges. New track assembly recovery remains a todo.
         </p>
+        <h2>Designate named railway locations</h2>
+        <p>
+          Choose <b>Rail location</b> in the yard or <b>Railway → + Named location</b>, then click
+          installed siding or factory track. Enter a unique name, choose Loading, Unloading,
+          Transfer or Parking, and set a centered rail length. The length can span joined panels,
+          but cannot cross a missing panel, an open end or an ambiguous junction. Planned track and
+          the protected main line cannot be designated.
+        </p>
+        <p>
+          Click the virtual label or its linked location ID to rename, edit its anchor distance,
+          reposition or delete it. Named locations are listed in Railway and in SQL's
+          <code>rail_locations</code> table; they survive saves. Recovering their track leaves a
+          repairable reference in the register. These are planning designations, not constructed
+          signs or confirmed train clearances. Incoming trains still use the original berth until
+          later reception and shunting checkpoints are commissioned.
+        </p>
         <h2 id="limits">What comes after this version</h2>
         <p>
           This first version is a construction sandbox with a 232 × 98 m structure area and
@@ -773,7 +789,7 @@
           design vision recorded in the project documents.
         </p>
         <div class="footer">
-          Plant 01 · Starter Yard 0.13.0 · Built locally with Three.js and sql.js · See the included
+          Plant 01 · Starter Yard 0.14.0 · Built locally with Three.js and sql.js · See the included
           README, architecture notes, and test record for technical details.
         </div>
       </article>

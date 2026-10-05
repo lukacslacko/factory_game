@@ -125,6 +125,18 @@ export interface Rail extends Point {
   rotation: number;
   length: number;
 }
+/** A virtual service designation anchored to physical rail, not an installed sign. */
+export interface RailLocation {
+  id: string;
+  name: string;
+  kind: 'loading' | 'unloading' | 'transfer' | 'parking';
+  trackId: string;
+  route: 'straight' | 'branch';
+  /** Arc distance from the referenced path's entry, in meters. */
+  offset: number;
+  /** Centered rail interval; no cargo capacity or traffic reservation is created. */
+  length: number;
+}
 export interface Zone extends Rect {
   id: string;
   name: string;
@@ -435,6 +447,7 @@ export interface State {
   stacks: Stack[];
   buildings: Building[];
   rails: Rail[];
+  railLocations?: RailLocation[];
   paving: Record<string, string>;
   /** Compaction from accepted equipment travel, bounded to one value per meter cell. */
   groundWear?: Record<string, number>;
@@ -461,6 +474,7 @@ export type Selection = {
     | 'jobGroup'
     | 'order'
     | 'zone'
+    | 'railLocation'
     | 'buffer';
   id: string;
 };

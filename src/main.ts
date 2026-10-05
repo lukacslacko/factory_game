@@ -1,3 +1,11 @@
+import {
+  nearestRailLocationAnchor,
+  railLocationPose,
+  railLocationPath,
+  railLocationStatus,
+  saveRailLocation,
+  removeRailLocation,
+} from './rail-locations';
 import { turnoutIsComplete } from './turnout-operation';
 import { trackGeometry, trackSections, trackOpenPorts, trackNetwork, railFootprint } from './track';
 import type { TrackPiece } from './track';
@@ -36,6 +44,7 @@ import type {
   Equipment,
   EquipmentActivity,
   Job,
+  RailLocation,
 } from './types';
 import { SQL_EXAMPLES, query, csv } from './reports';
 import { key, center } from './path';
@@ -84,6 +93,8 @@ try {
 let railLayout: TrackPiece['layout'] = 'straight';
 let railHand: TrackPiece['hand'] = 1;
 let railPreviewKey = '';
+let railLocationEdit: string | undefined;
+let railLocationDraft: (Omit<RailLocation, 'id'> & { id?: string }) | undefined;
 let state = saved || Sim.createState(),
   tab = 'site',
   tool = 'select',
@@ -312,6 +323,7 @@ function renderBuildbar() {
     ['select', '↖', 'Inspect'],
     ['slab', '▦', 'Pave'],
     ['rail', '╫', 'Rail'],
+    ['rail-location', '⚑', 'Rail location'],
     ['office', '▤', 'Office'],
     ['sanitary', '▥', 'WC'],
     ['shed', '⌂', 'Shed'],
@@ -341,6 +353,13 @@ function renderHint() {
     );
     return;
   }
+  if (tool === 'rail-location') {
+    stableHTML(
+      el,
+      `<b>RAIL LOCATION</b> ${railLocationEdit ? 'Choose the new track anchor for ' + esc(railLocationEdit) + '.' : 'Click installed track to name a loading, unloading, transfer, or parking place.'} <span>Designation only · train dispatch comes later · Esc cancels</span>`,
+    );
+    return;
+  }
   if (tool === 'parking') {
     stableHTML(
       el,
@@ -366,6 +385,11 @@ function renderHint() {
 function updatePreview() {
   if (tool === 'select') {
     world.preview(undefined);
+    return;
+  }
+  if (tool === 'rail-location') {
+    const anchor = nearestRailLocationAnchor(state, hover);
+    world.previewRailLocation(anchor?.point);
     return;
   }
   if (tool === 'rail') {
@@ -474,6 +498,34 @@ world.onDrag = (a, b) => {
 };
 // Stockyard clicks use a useful default footprint; dragging always uses the exact grid rectangle.
 world.onPick = (picked, p) => {
+  if (tool === 'rail-location') {
+    const anchor = nearestRailLocationAnchor(state, p);
+    if (!anchor) {
+      toast(
+        'Choose installed siding or yard track. Planned rails and the protected main line cannot be marked.',
+        true,
+      );
+      return;
+    }
+    const old = (state.railLocations || []).find((l) => l.id === railLocationEdit);
+    railLocationDraft = {
+      ...(old || {
+        name: newRailLocationName(),
+        kind: 'unloading' as const,
+        length: 2,
+      }),
+      trackId: anchor.trackId,
+      route: anchor.route,
+      offset: anchor.offset,
+    };
+    if (!old)
+      railLocationDraft.length =
+        [14, 2, 1].find((length) =>
+          railLocationPath(state, { ...railLocationDraft!, id: 'preview', length }),
+        ) || 1;
+    openRailLocationForm();
+    return;
+  }
   if (tool === 'parking' && parkingEquipment) {
     recorder.record(state, 'parking-assignment', {
       equipmentId: parkingEquipment,
@@ -528,6 +580,7 @@ function selectedEntity(): any {
     jobGroup: state.jobGroups || [],
     order: state.orders,
     zone: state.zones,
+    railLocation: state.railLocations || [],
     buffer: [{ id: 'BUFFER-001', ...state.buffer }],
   };
   return lists[selection.type]?.find((o: any) => o.id === selection!.id);
@@ -542,6 +595,7 @@ function locate(type: string, id: string) {
     jobGroup: state.jobGroups || [],
     order: state.orders,
     zone: state.zones,
+    railLocation: state.railLocations || [],
   };
   const e = lists[type]?.find((v: any) => v.id === id);
   if (!e) return;
@@ -552,7 +606,8 @@ function locate(type: string, id: string) {
     typeof e.vehicle === 'string'
       ? state.equipment.find((q) => q.id === e.vehicle) || e
       : e.vehicle || e;
-  world.focus(position, 1.35);
+  const focus = type === 'railLocation' ? railLocationPose(state, e) : position;
+  if (focus) world.focus(focus, 1.35);
   renderInspector();
 }
 function locateAny(id: string) {
@@ -573,6 +628,7 @@ function locateAny(id: string) {
     jobGroup: state.jobGroups || [],
     order: state.orders,
     zone: state.zones,
+    railLocation: state.railLocations || [],
   })) {
     if (arr.some((e) => e.id === id)) {
       locate(type, id);
@@ -672,10 +728,81 @@ function scheduleControl(w: Worker) {
     ]);
   return `<select data-worker-schedule="${w.id}" aria-label="Shift for ${esc(w.name)}">${options.map(([v, t]) => `<option value="${v}" ${v === value ? 'selected' : ''}>${t}</option>`).join('')}</select>`;
 }
+function newRailLocationName() {
+  const names = new Set((state.railLocations || []).map((l) => l.name.toLowerCase()));
+  let index = 1;
+  while (names.has(`rail location ${index}`)) index++;
+  return `Rail location ${index}`;
+}
+function railLocationFields(location: Omit<RailLocation, 'id'>, offset = false) {
+  return `<div class="rail-location-fields"><label>Name <input id="rail-location-name" type="text" maxlength="64" value="${esc(location.name)}"></label><label>Purpose <select id="rail-location-kind">${(['loading', 'unloading', 'transfer', 'parking'] as const).map((k) => `<option value="${k}" ${location.kind === k ? 'selected' : ''}>${k[0].toUpperCase() + k.slice(1)}</option>`).join('')}</select></label><label>Usable length (m) <input id="rail-location-length" type="number" min="1" max="200" step="0.5" value="${location.length}"></label>${offset ? `<label>Anchor offset (m) <input id="rail-location-offset" type="number" min="0" step="0.1" value="${location.offset.toFixed(2)}"></label>` : ''}</div>`;
+}
+function openRailLocationForm() {
+  if (!railLocationDraft) return;
+  modal = 'rail-location';
+  renderInspector();
+  const draft = railLocationDraft,
+    pose = railLocationPose(state, { ...draft, id: draft.id || 'preview' });
+  $('#modal-root').innerHTML =
+    `<div class="modal-shade"><section class="modal rail-location-modal" id="rail-location-form" role="dialog" aria-modal="true" aria-labelledby="rail-location-heading">${btn('close-modal', '×', 'modal-close', 'aria-label="Cancel location"')}<span class="eyebrow">RAILWAY DESIGNATION</span><h1 id="rail-location-heading">${draft.id ? 'Reposition location' : 'Name a rail location'}</h1><p>${esc(draft.trackId)} · ${esc(draft.route)} · offset ${draft.offset.toFixed(2)} m${pose ? ` · E${pose.x.toFixed(2)}, S${pose.z.toFixed(2)}` : ''}</p>${railLocationFields(draft)}<p class="note">Length is centered on the anchor and must fit a continuous installed track section. This is a map marker for future operations; supplier deliveries still use the original siding.</p><p id="rail-location-error" class="note" role="alert"></p><div class="button-stack">${btn('rail-location-save:create', draft.id ? 'Save new anchor' : 'Create designation', 'primary')}${btn('close-modal', 'Cancel')}</div></section></div>`;
+  $('#rail-location-form input').focus();
+}
+function beginRailLocation(id?: string) {
+  railLocationEdit = id;
+  tab = 'site';
+  renderTabs();
+  setTool('rail-location');
+}
+function submitRailLocation(id: string) {
+  const original =
+    id === 'create' ? railLocationDraft : (state.railLocations || []).find((l) => l.id === id);
+  if (!original) return;
+  const existing = new Set((state.railLocations || []).map((l) => l.id));
+  const fields = id === 'create' ? $('#rail-location-form') : $('#inspector');
+  const offsetText = fields.querySelector<HTMLInputElement>('#rail-location-offset')?.value;
+  const input = {
+    ...original,
+    name: fields.querySelector<HTMLInputElement>('#rail-location-name')!.value,
+    kind: fields.querySelector<HTMLSelectElement>('#rail-location-kind')!
+      .value as RailLocation['kind'],
+    length: Number(fields.querySelector<HTMLInputElement>('#rail-location-length')!.value),
+    offset:
+      id === 'create' || offsetText === original.offset.toFixed(2)
+        ? original.offset
+        : Number(offsetText),
+  };
+  const error = saveRailLocation(state, input);
+  if (error) {
+    const el = document.querySelector('#rail-location-error');
+    if (el) el.textContent = error;
+    toast(error, true);
+    return;
+  }
+  const location = original.id
+    ? (state.railLocations || []).find((l) => l.id === original.id)
+    : (state.railLocations || []).find((l) => !existing.has(l.id));
+  recorder.record(state, 'rail-location-save', { ...input, id: location?.id });
+  if (id === 'create') {
+    closeModal();
+    setTool('select');
+    railLocationEdit = undefined;
+  }
+  if (location) selection = { type: 'railLocation', id: location.id };
+  persist(true);
+  renderInspector(true);
+  renderRecords(true);
+  toast('Rail location saved. Train dispatch is unchanged.');
+}
 function parkingControls(e: Equipment) {
   return `<p class="note">${esc(parkingStatus(state, e))}${e.parking ? ` · E${e.parking.x}, S${e.parking.z}` : ''}</p><div class="button-stack">${btn(`parking-pick:${e.id}`, 'Choose bay in yard')}${e.parking ? btn(`parking-clear:${e.id}`, 'Clear parking bay') : ''}</div><div class="parking-controls"><label>E <input id="parking-x" type="number" step="1" value="${e.parking?.x ?? Math.round(e.x)}"></label><label>S <input id="parking-z" type="number" step="1" value="${e.parking?.z ?? Math.round(e.z)}"></label><label>Face <select id="parking-direction">${['East', 'South', 'West', 'North'].map((v, i) => `<option value="${i}" ${e.parking?.rotation === i ? 'selected' : ''}>${v}</option>`).join('')}</select></label>${btn(`parking-save:${e.id}`, 'Assign coordinates', 'small')}</div>`;
 }
 function renderInspector(force = false) {
+  if (modal === 'rail-location') {
+    const panel = $('#inspector');
+    panel.hidden = true;
+    stableHTML(panel, '');
+    return;
+  }
   const panel = $('#inspector'),
     e = selectedEntity();
   if (!e || !selection) {
@@ -693,12 +820,43 @@ function renderInspector(force = false) {
   )
     return;
   panel.hidden = false;
+  const locationPose = selection.type === 'railLocation' ? railLocationPose(state, e) : undefined;
   const r =
-    e.track && e.length ? railFootprint(e) : e.w ? e : { x: e.x - 1, z: e.z - 1, w: 2, d: 2 };
+    selection.type === 'railLocation'
+      ? locationPose
+        ? { x: locationPose.x - 1, z: locationPose.z - 1, w: 2, d: 2 }
+        : undefined
+      : e.track && e.length
+        ? railFootprint(e)
+        : e.w
+          ? e
+          : { x: e.x - 1, z: e.z - 1, w: 2, d: 2 };
   world.highlight(selection.type === 'order' ? undefined : r);
   let title =
       e.name || e.label || (e.length ? 'Rail panel' : label(e.kind || e.item || selection.type)),
     body = '';
+  if (selection.type === 'railLocation') {
+    const location = e as RailLocation,
+      status = railLocationStatus(state, location);
+    title = location.name;
+    body =
+      details([
+        ['Track', esc(location.trackId)],
+        [
+          'Topology',
+          status.connected ? badge('Connected', 'green') : badge('Disconnected', 'amber'),
+        ],
+        [
+          'Position',
+          locationPose
+            ? `E${locationPose.x.toFixed(2)}, S${locationPose.z.toFixed(2)}`
+            : 'Anchor unavailable',
+        ],
+        ['Status', esc(status.reason)],
+      ]) +
+      railLocationFields(location, true) +
+      `<div class="button-stack">${btn('rail-location-save:' + location.id, 'Save designation', 'primary')}${btn('rail-location-reposition:' + location.id, 'Reposition in yard')}${btn('rail-location-delete:' + location.id, 'Delete designation', 'danger')}${btn('tab:railways', 'Railway register')}</div><p class="note">A map designation for future rail operations. It does not redirect deliveries, assign cars, build a sign, or verify a train can reach or fit here. Length is centered on this anchor.</p>`;
+  }
   if (selection.type === 'worker') {
     const w = e as Worker;
     body = details([
@@ -975,7 +1133,7 @@ function renderInspector(force = false) {
 function reference(text: unknown) {
   const safe = esc(text);
   return safe.replace(
-    /\b(?:WRK|EQ|STK|BLD|RAIL|JOB|WORK|PO|ZONE|EV|COST|MV|N|BUFFER)-\d+\b/g,
+    /\b(?:WRK|EQ|STK|BLD|RAIL|RLOC|JOB|WORK|PO|ZONE|EV|COST|MV|N|BUFFER)-\d+\b/g,
     (id) => btn(`entity:${id}`, id, 'text-link entity-link'),
   );
 }
@@ -988,7 +1146,7 @@ function linkCells(html: string) {
   for (const node of nodes) {
     if (node.parentElement?.closest('button,select,input,textarea,a,code')) continue;
     const content = node.textContent || '';
-    if (!/\b(?:WRK|EQ|STK|BLD|RAIL|JOB|WORK|PO|ZONE|EV|COST|MV|N|BUFFER)-\d+\b/.test(content))
+    if (!/\b(?:WRK|EQ|STK|BLD|RAIL|RLOC|JOB|WORK|PO|ZONE|EV|COST|MV|N|BUFFER)-\d+\b/.test(content))
       continue;
     const replacement = document.createElement('template');
     replacement.innerHTML = reference(content);
@@ -1069,9 +1227,42 @@ function renderRecords(force = false) {
       ports = trackOpenPorts(state, false);
     subtitle =
       'Connected track panels, real endpoints and manual turnout state. Owned shunting is the next approval checkpoint.';
-    actions = btn('rail-end', 'Build from siding end') + actions;
+    actions =
+      btn('rail-location-add', '+ Named location') +
+      btn('rail-end', 'Build from siding end') +
+      actions;
     body =
       `<div class="summary-strip"><span><b>${state.rails.length}</b> installed panels</span><span><b>${ports.length}</b> exposed endpoints</span><span>Supplier route: original siding</span></div>` +
+      '<h3>Named locations</h3><p class="note">Map designations on installed track. Length marks a centered track interval and does not certify train clearance. Deliveries still use the original siding; car dispatch and shunting come in later checkpoints.</p>' +
+      table(
+        [
+          'Location ID',
+          'Name',
+          'Purpose',
+          'Track',
+          'Offset',
+          'Usable length',
+          'Topology',
+          'Condition',
+          '',
+        ],
+        (state.railLocations || []).filter(matches).map((l) => {
+          const status = railLocationStatus(state, l, network);
+          return [
+            l.id,
+            esc(l.name),
+            esc(l.kind),
+            esc(l.trackId),
+            `${l.offset.toFixed(2)} m`,
+            `${l.length.toFixed(2)} m`,
+            status.connected ? 'Connected' : 'Disconnected',
+            status.valid ? 'Designated' : 'Needs repair',
+            loc('railLocation', l.id),
+          ];
+        }),
+        'No named rail locations. Choose + Named location, then click installed track.',
+      ) +
+      '<h3>Installed panels</h3>' +
       table(
         ['Track ID', 'Panel', 'Work order', 'Length', 'Connected', 'Turnout route', ''],
         state.rails
@@ -1469,7 +1660,7 @@ function renderRecords(force = false) {
   if (tab === 'reports') {
     if (!force && document.querySelector('#sql')) return;
     subtitle = 'A fresh SQLite snapshot of this yard. Queries cannot change the live simulation.';
-    body = `<div class="sql-layout"><div><div class="sql-examples">${SQL_EXAMPLES.map((e, i) => btn(`sql-example:${i}`, e.name, 'small')).join('')}</div><textarea id="sql" spellcheck="false" aria-label="SQL query">${esc(SQL_EXAMPLES[0].sql)}</textarea><div class="sql-run">${btn('sql-run', 'Run query', 'primary')}<span id="sql-status">Ready · snapshot created when you run</span></div><div id="sql-results"></div></div><aside><h3>Tables</h3><p>inventory<br>workers<br>equipment<br>jobs<br>job_groups<br>work_orders<br>orders<br>stacks<br>buildings<br>rails<br>zones<br>movements<br>costs<br>events</p><p class="note">Time is seconds since day 1 midnight. Positions use meters. Inventory counts exclude demo infrastructure supplied as opening assets.</p><p class="note">SELECT, WITH, and EXPLAIN are accepted. Run <code>SELECT * FROM jobs LIMIT 5</code> to inspect a table.</p></aside></div>`;
+    body = `<div class="sql-layout"><div><div class="sql-examples">${SQL_EXAMPLES.map((e, i) => btn(`sql-example:${i}`, e.name, 'small')).join('')}</div><textarea id="sql" spellcheck="false" aria-label="SQL query">${esc(SQL_EXAMPLES[0].sql)}</textarea><div class="sql-run">${btn('sql-run', 'Run query', 'primary')}<span id="sql-status">Ready · snapshot created when you run</span></div><div id="sql-results"></div></div><aside><h3>Tables</h3><p>rail_locations<br>inventory<br>workers<br>equipment<br>jobs<br>job_groups<br>work_orders<br>orders<br>stacks<br>buildings<br>rails<br>zones<br>movements<br>costs<br>events</p><p class="note">Time is seconds since day 1 midnight. Positions use meters. Inventory counts exclude demo infrastructure supplied as opening assets.</p><p class="note">SELECT, WITH, and EXPLAIN are accepted. Run <code>SELECT * FROM jobs LIMIT 5</code> to inspect a table.</p></aside></div>`;
     actions = '';
   }
   stableHTML(
@@ -1496,13 +1687,13 @@ function openModal(which: string) {
     content = `<div class="start-title"><span class="eyebrow">A PHYSICAL FACTORY SANDBOX</span><h1>Every piece<br>has a place.</h1><p>Start with an open yard and a rail connection.<br>Bring people and materials. Build what comes next.</p></div><div class="start-choices">${btn('new:starter', '<b>Start a new yard</b><span>Empty ground, with a starter supply order on its way.</span>', 'start-choice recommended')}${btn('new:empty', '<b>Start completely empty</b><span>Choose every worker, machine, and material yourself.</span>', 'start-choice')}${btn('new:demo', '<b>Explore Birch Junction</b><span>A small working base, stocked and ready to expand.</span>', 'start-choice')}</div><p class="note">No budget limit · construction and logistics · local saves · version 0.12</p>`;
   }
   if (which === 'menu') {
-    content = `<h1>${esc(state.name)}</h1><p class="subtitle">Starter Yard · version 0.13.0</p><div class="menu-grid">${btn('save', 'Save to browser', 'primary')}${btn('export-save', 'Export save file')}${btn('export-diagnostics', 'Export diagnostic history')}${btn('source-code', 'Source code · MIT')}${btn('import-save', 'Import save file')}${btn('restore-backup', 'Restore previous yard')}${btn('help', 'Controls and guide')}${btn('new-confirm', 'Start a new yard')}${btn('close-modal', 'Return to yard')}</div><p class="note">Autosaves every 20 seconds. Export a file for a portable backup. Your game stays on this computer.</p>`;
+    content = `<h1>${esc(state.name)}</h1><p class="subtitle">Starter Yard · version 0.14.0</p><div class="menu-grid">${btn('save', 'Save to browser', 'primary')}${btn('export-save', 'Export save file')}${btn('export-diagnostics', 'Export diagnostic history')}${btn('source-code', 'Source code · MIT')}${btn('import-save', 'Import save file')}${btn('restore-backup', 'Restore previous yard')}${btn('help', 'Controls and guide')}${btn('new-confirm', 'Start a new yard')}${btn('close-modal', 'Return to yard')}</div><p class="note">Autosaves every 20 seconds. Export a file for a portable backup. Your game stays on this computer.</p>`;
   }
   if (which === 'new-confirm') {
     content = `<h1>Start another yard</h1><p>Your current yard will be saved as a browser backup before the new yard is created.</p><div class="button-stack">${btn('new:starter', 'New yard + starter supplies', 'primary')}${btn('new:empty', 'Completely empty yard')}${btn('new:demo', 'Birch Junction example')}${btn('close-modal', 'Keep current yard')}</div>`;
   }
   if (which === 'help') {
-    content = `<span class="eyebrow">FIELD GUIDE</span><h1>Build a working starter yard</h1><div class="help-grid"><section><h3>Getting started</h3><p>Use <b>Purchase</b> to hire a builder and an operator, buy an excavator, and order slabs. The <b>starter order</b> includes a useful first set.</p><p>An empty yard has no storage assigned. Choose <b>Stockyard</b> and drag an area before deliveries arrive. Your operator drives purchased equipment down the lowloader ramps, then uses it to unload freight. Slabs stack up to 12 high in neighboring 1 m² cells. Keep the loading face and travel aisles accessible.</p><p><b>Drag with Pave</b> to lay out an area. Click Office, WC, Shed, or Stores to place a plan. Required foundations are added automatically. <b>Buy missing</b> orders supplies for your plans. <b>Recover</b> dismantles buildings, lifts player-built rail, or recovers a paving slab and hauls it back to storage.</p><p>Choose <b>Rail end</b>, then Straight, Curve, or Turnout in the Railway toolbar. Start at E125, S5 facing east. R chooses a cardinal direction; Left/Right changes the bend. A curve has six 15° panels at 20 m radius; a turnout has seven panels at four stations and two parallel exits 5 m apart. The toolbar shows quantities, weight and material cost. Use <b>Buy missing</b> after planning. Each straight panel extends 5 m. The crew stages the panel beside the track, releases and lifts the buffer aside, lays and fastens the panel, then reinstalls the same buffer. Leave clear space beside the extension for these lifts.</p><h3>Direct control</h3><p>Select a worker and click <b>Take direct control</b>. Click clear ground to walk. With an operator controlled, select equipment and click <b>Board</b>. Then click to drive. Select a waiting delivery and choose <b>Unload with controlled operator</b> to give that operator the handling assignment.</p><p>Select a queued construction plan and click <b>Work with controlled worker</b>. A builder and operator perform the same physical handling sequence used in automatic mode. <b>Return to automatic</b> releases control.</p></section><section><h3>Controls</h3>${details(
+    content = `<span class="eyebrow">FIELD GUIDE</span><h1>Build a working starter yard</h1><div class="help-grid"><section><h3>Getting started</h3><p>Use <b>Purchase</b> to hire a builder and an operator, buy an excavator, and order slabs. The <b>starter order</b> includes a useful first set.</p><p>An empty yard has no storage assigned. Choose <b>Stockyard</b> and drag an area before deliveries arrive. Your operator drives purchased equipment down the lowloader ramps, then uses it to unload freight. Slabs stack up to 12 high in neighboring 1 m² cells. Keep the loading face and travel aisles accessible.</p><p><b>Drag with Pave</b> to lay out an area. Click Office, WC, Shed, or Stores to place a plan. Required foundations are added automatically. <b>Buy missing</b> orders supplies for your plans. <b>Recover</b> dismantles buildings, lifts player-built rail, or recovers a paving slab and hauls it back to storage.</p><p>Choose <b>Rail end</b>, then Straight, Curve, or Turnout in the Railway toolbar. Start at E125, S5 facing east. R chooses a cardinal direction; Left/Right changes the bend. A curve has six 15° panels at 20 m radius; a turnout has seven panels at four stations and two parallel exits 5 m apart. The toolbar shows quantities, weight and material cost. Use <b>Buy missing</b> after planning. Each straight panel extends 5 m. The crew stages the panel beside the track, releases and lifts the buffer aside, lays and fastens the panel, then reinstalls the same buffer. Leave clear space beside the extension for these lifts.</p><h3>Named rail locations</h3><p>Choose <b>Rail location</b> or <b>Railway → + Named location</b>, then click installed track. Name the location, choose loading, unloading, transfer or parking, and set its centered length. The marker and length guide follow real joined panels. Select its label or linked ID to edit, reposition or delete it. Supplier trains retain their original berth until the reception and shunting checkpoints are commissioned.</p><h3>Direct control</h3><p>Select a worker and click <b>Take direct control</b>. Click clear ground to walk. With an operator controlled, select equipment and click <b>Board</b>. Then click to drive. Select a waiting delivery and choose <b>Unload with controlled operator</b> to give that operator the handling assignment.</p><p>Select a queued construction plan and click <b>Work with controlled worker</b>. A builder and operator perform the same physical handling sequence used in automatic mode. <b>Return to automatic</b> releases control.</p></section><section><h3>Controls</h3>${details(
       [
         ['Pan', 'Left drag empty ground / W A S D relative to view'],
         ['Orbit', 'Right mouse drag'],
@@ -1554,6 +1745,8 @@ function start(kind: string) {
     } catch {}
   }
   state = kind === 'demo' ? Sim.demoState() : Sim.createState();
+  railLocationEdit = undefined;
+  railLocationDraft = undefined;
   accumulator = 0;
   lastTime = performance.now();
   purchaseCart.clear();
@@ -1650,7 +1843,26 @@ async function action(value: string) {
       persist(true);
       break;
     }
+    case 'rail-location-add':
+      beginRailLocation();
+      break;
+    case 'rail-location-reposition':
+      beginRailLocation(b);
+      break;
+    case 'rail-location-save':
+      submitRailLocation(b);
+      break;
+    case 'rail-location-delete': {
+      const error = removeRailLocation(state, b);
+      toast(error || 'Rail location removed. Track stays in place.', !!error);
+      if (!error) selection = undefined;
+      persist(true);
+      renderInspector(true);
+      renderRecords(true);
+      break;
+    }
     case 'tool':
+      if (b === 'rail-location') railLocationEdit = undefined;
       setTool(b);
       break;
     case 'rail-layout':

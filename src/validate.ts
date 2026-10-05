@@ -1,4 +1,5 @@
 import { validTrackPiece, trackGeometry } from './track';
+import { validRailLocation } from './rail-locations';
 import {
   FREIGHT_CAPACITY,
   FREIGHT_DECK_LENGTH,
@@ -329,6 +330,18 @@ export function validateState(value: any): asserts value is State {
         !['straight', 'curve', 'turnout'].includes(g.track.layout))
     )
       fail('invalid track work order layout');
+  if (s.railLocations !== undefined) {
+    if (!Array.isArray(s.railLocations) || s.railLocations.length > 512)
+      fail('invalid or oversized rail locations');
+    const names = new Set<string>();
+    for (const l of s.railLocations) {
+      if (!validRailLocation(s, l) || ids.has(l.id)) fail('invalid or duplicate rail location');
+      const name = l.name.toLocaleLowerCase('en-US');
+      if (names.has(name)) fail('duplicate rail location name');
+      names.add(name);
+      ids.add(l.id);
+    }
+  }
   for (const j of s.jobs) {
     if (j.kind === 'throwSwitch') {
       const points = s.rails.find((r: any) => r.id === j.target);

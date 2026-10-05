@@ -1,4 +1,5 @@
 import { trackGeometry, trackNetwork } from './track';
+import { railLocationPose, railLocationStatus } from './rail-locations';
 import initSqlJs from 'sql.js';
 import wasmUrl from 'sql.js/dist/sql-wasm.wasm?url';
 import type { State } from './types';
@@ -45,6 +46,10 @@ export const SQL_EXAMPLES = [
     name: 'Delivery manifests',
     sql: 'SELECT order_id, item, qty, arrived, mass_kg FROM order_lines ORDER BY order_id, line;',
   },
+  {
+    name: 'Named railway locations',
+    sql: 'SELECT id, name, kind, track_id, route, offset_m, length_m, x, z, connected, status FROM rail_locations ORDER BY name;',
+  },
 ];
 let runtime: ReturnType<typeof initSqlJs> | undefined;
 export async function query(s: State, sql: string) {
@@ -53,6 +58,7 @@ export async function query(s: State, sql: string) {
   runtime ??= initSqlJs({ locateFile: () => wasmUrl });
   const SQL = await runtime;
   const db = new SQL.Database();
+  const railNetwork = trackNetwork(s);
   const tables: Record<string, Record<string, unknown>[]> = {
     inventory: Object.keys(MATERIALS).map((item) => ({
       item,
@@ -109,7 +115,7 @@ export async function query(s: State, sql: string) {
       exit_z: trackGeometry(r).end.z,
       selected_route: r.selectedRoute || null,
     })),
-    track_ports: trackNetwork(s).panels.flatMap((p) =>
+    track_ports: railNetwork.panels.flatMap((p) =>
       p.ports.map((port) => ({
         asset_id: p.id,
         port: port.portIndex,
@@ -123,8 +129,42 @@ export async function query(s: State, sql: string) {
       })),
     ),
     zones: s.zones.map((z) => ({ ...z })),
+    rail_locations: (s.railLocations || []).map((l) => {
+      const pose = railLocationPose(s, l),
+        status = railLocationStatus(s, l, railNetwork);
+      return {
+        id: l.id,
+        name: l.name,
+        kind: l.kind,
+        track_id: l.trackId,
+        route: l.route,
+        offset_m: l.offset,
+        length_m: l.length,
+        x: pose?.x ?? null,
+        z: pose?.z ?? null,
+        yaw: pose?.yaw ?? null,
+        connected: status.connected,
+        valid: status.valid,
+        status: status.reason,
+      };
+    }),
   };
   const defaultCols: Record<string, string[]> = {
+    rail_locations: [
+      'id',
+      'name',
+      'kind',
+      'track_id',
+      'route',
+      'offset_m',
+      'length_m',
+      'x',
+      'z',
+      'yaw',
+      'connected',
+      'valid',
+      'status',
+    ],
     inventory: [
       'item',
       'delivered',
