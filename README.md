@@ -50,6 +50,8 @@ This is the first bounded chemical-plant checkpoint. **Test it before the next c
 
 The actual completed browser-playtest yard is shown in [railway-construction-preview.png](railway-construction-preview.png). The separate curve/turnout preview images are rendering fixtures used for geometry checks.
 
+The remaining infrastructure and new operating feedback are tracked individually in the [GitHub request index](docs/design/github-issues.md).
+
 ## Version 0.11 automatic work ownership
 
 Automatic dispatch keeps one machine on a whole work order, including its paving cells and foundation subgroups, and one machine on each freight carrier across unloading lifts. Independent work orders and deliveries can still run in parallel. Current physical work finishes safely before a role, fuel, shift, capability, or explicit assignment change permits a handoff. The same ownership survives saving. Older saves finish any already active machinery before continuing with one. Automatic machines are linked in the Work register and inspector and available in SQL. Manual assignments retain priority.
