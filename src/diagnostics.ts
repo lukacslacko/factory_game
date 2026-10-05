@@ -121,6 +121,8 @@ export class DiagnosticRecorder {
           equipment: o.unload?.equipmentId,
           operator: o.unload?.operatorId,
           phase: o.unload?.phase || o.deployment,
+          handlingPaused: !!o.unloadPaused,
+          blockage: o.unloadBlockage,
         },
         wallTime,
       );
@@ -190,7 +192,7 @@ export class DiagnosticRecorder {
     return copy({
       format: 'plant01-diagnostics',
       version: 1,
-      gameVersion: '0.15.0',
+      gameVersion: '0.16.0',
       started: this.started,
       entries: this.entries,
       checkpoints: this.checkpoints,

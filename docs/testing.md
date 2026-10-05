@@ -229,7 +229,6 @@ The final integrated browser suite passes with no page or console errors, coveri
 
 The independent production check passes version 0.14.0 menu/guide, local SQL/WebAssembly, absence of the development harness, older nighttime and 147-job example imports, a named-location save import with linked inspector and SQL, all three guide images and 768-pixel guide width. No page errors, console warnings, failed requests or external requests were observed. The paused-yard frame sample averaged 16.67 ms (60 fps), not a large-factory performance guarantee. The compatible example remains the prior v0.8 save. Final source/test fingerprints and byte-matched production assets accompany the release package.
 
-
 ## Version 0.15 batch rail work and small crews
 
 Focused checks cover two-panel straight and six-panel curve buffer ownership, save/reload between installs, cancellation before pickup and between panels, two-excavator and forklift/excavator pipelines, active-staging cancellation, supply receiving before construction, exact panel inventory, dedicated helpers, ordinary paving with its helper and finishing/prefetch, manual/rest/shift preservation, and safe outward pedestrian escape from a newly placed buffer. Crew routes retain actual operators and collision checks.
@@ -253,3 +252,13 @@ The existing automatic-work interface check also caught a changed field label fo
 The final integrated browser suite passes with no page or console errors and all 21 register/layout combinations. New checks cover two distinct machines, operator exclusion and one-helper-per-machine validation, preserved edits during live updates, clickable actor IDs, explicit and default dispatch, legacy adjacent straight groups, helper release, SQL and actual Save/reload controls. The 768-pixel inspector fits; the crew panel screenshot was visually inspected.
 
 The independent production check passes version 0.15.0 menu/guide, local SQL/WebAssembly, no development harness, older nighttime and 147-job example imports, named-location and support-crew save imports with SQL, all three guide images and the 768-pixel guide. There are no page errors, console warnings, failed requests or external requests. A paused-yard sample averages 16.67 ms per frame (60 fps), not a large-factory performance guarantee. The exact verified nine-file build is published on the existing Site; the example remains a compatible v0.8 save. Track recovery #7 is not implemented in this checkpoint.
+
+## Version 0.16 delivery recovery
+
+Focused simulation checks pass: safely retained load/crew/reservation and immediate empty-carrier departure, manual cargo movement and resume, paused save/reload, transfer takeover rejection, safe clearance, durable warning deduplication, real fork withdrawal, fixed-rail-stack aligned reapproach with every executed sweep checked, occupied final dock warnings through actual unloading, and invalid pause/severity metadata rejection. The exact creator save is unavailable; these are equivalent physical reproductions rather than a claim to inspect their particular STK-0074.
+
+The full frozen regression run passes **301/301** tests in **264.55 seconds**, with no failures, cancellations, or skipped cases. Browser/production results follow below after verification. Source/test inputs are frozen before the broad run; processes run sequentially with a 384 MB Node heap cap.
+
+The integrated browser pass succeeds with no page or console errors and all 21 register/layout combinations. New checks reject takeover during a real lift, pause a real loaded carry, preserve the load/reservation/operator across Save/reload, drive through actual floor input, resume to exact stock and one invoice, and retain linked warning-only filtering through live updates and reload. Both new screen captures were visually inspected.
+
+The independent production check passes version 0.16.0 menu/guide, the paused loaded-delivery save and recovery controls, warning-only Activity and SQL severity, older nighttime and completed 147-job example imports, named-location/support-crew imports, local SQL/WebAssembly and all three guide images. No page errors, console warnings, failed requests or external requests occur. A paused-yard sample averages 16.66 ms/frame (60 fps); this is not a large-factory performance guarantee. TypeScript and the nine-file production build pass.

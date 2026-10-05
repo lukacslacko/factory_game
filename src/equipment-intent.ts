@@ -28,7 +28,7 @@ export function equipmentIntent(s: State, e: Equipment): EquipmentIntent {
   const references: string[] = [];
   if (order?.unload) {
     const t = order.unload;
-    phase = `Delivery · ${t.phase}`;
+    phase = `${order.unloadPaused ? 'Delivery paused' : 'Delivery'} · ${t.phase}`;
     detail = order.note || 'Handling delivery';
     references.push(order.id, ...(t.mergeId ? [t.mergeId] : []));
     const collecting = ['boarding', 'approach', 'rig', 'lift'].includes(t.phase);
@@ -112,6 +112,7 @@ export function equipmentIntent(s: State, e: Equipment): EquipmentIntent {
   }
   if (e.path.length) {
     target = e.path[e.path.length - 1];
+    if (order?.unloadPaused) targetLabel = 'Manual drive destination';
     if (e.trafficGoal) targetLabel = 'Clearance maneuver';
     if (phase === 'Available') {
       phase = 'Driving';
@@ -155,7 +156,8 @@ export function equipmentIntent(s: State, e: Equipment): EquipmentIntent {
       };
     references.push(blockedId);
   }
-  if (e.blockedBy) detail = `Waiting for ${e.blockedBy}. ${detail}`;
+  if (e.blockedBy && !detail.includes(e.blockedBy))
+    detail = `Waiting for ${e.blockedBy}. ${detail}`;
   return {
     phase,
     detail,

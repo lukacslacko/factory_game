@@ -1,10 +1,10 @@
 # Publication
 
-Version 0.15.0 is published privately at https://plant-01-starter-yard.lukacslacko.chatgpt.site.
+Version 0.16.0 is published privately at https://plant-01-starter-yard.lukacslacko.chatgpt.site.
 
 The editable game lives in this starter-yard directory. The Site repository is a separate, build-only checkout at `../../work/plant01-publish` relative to this directory, with its own `.openai/hosting.json` and Git metadata. It contains only `dist/` and the hosting manifest. Do not upload the full game project or the private design documents when updating that Site.
 
-The Site identity is `appgprj_6ac1ff4c01388191b1d9d0dba709095e`. Reuse it; do not create a replacement. The successful build-only source commit for version 0.15.0 is `81d7523019f4d97f23c48bf52e18bc4ac59ccda9`.
+The Site identity is `appgprj_6ac1ff4c01388191b1d9d0dba709095e`. Reuse it; do not create a replacement. The successful build-only source commit for version 0.16.0 is `2312b5d8a372bb137018b37ede202e7580309f6b`.
 
 For an update, follow the Sites hosting skill to open the existing build-only checkout, build and test the editable game, replace the checkout's `dist/` with that build, inspect its file list, and publish through the same private Site workflow. Keep credentials in process memory/stdin only. The game requires no server secrets, cloud database, or external connectors.
 
@@ -109,3 +109,9 @@ Version 0.15.0 deployed successfully on October 5, 2026 at 17:31 UTC on the exis
 Connected rail work keeps its one real buffer aside until the final panel. Optional two-machine crews physically stage one panel ahead, then install it with a separate excavator; assigned support workers stay nearby, perform ground work and retain normal shifts and manual control. The release preserves default single-machine dispatch. Cancellation, stock conservation, safe withdrawal and saved source approach gear changes are checked. Track recovery #7 remains the next separately reviewed checkpoint; #29 records this prerequisite under parent #22.
 
 All 292 simulation regressions pass. The subsequent diagnostic-version and ordinary-work display-label corrections pass their targeted and integrated browser checks. The final browser suite passes all 21 register/layout combinations and the new crew controls, linked references, SQL, save/reload and narrow inspector. Production checks pass with no page errors, warnings, failed requests or external requests, including older saves and support-worker SQL. The example remains the compatible prior v0.8 save. Source/test fingerprints, the two metadata/display-label deltas and byte-matched assets are retained in the downloadable package. Public source and documentation are published separately under MIT.
+
+## Version 0.16 loaded delivery recovery and warnings
+
+Version 0.16.0 deployed successfully on October 5, 2026 at 18:44 UTC on the same private Site and origin. Deployment ID: `appgdep_6ac3efe662ac8191a22447b131ef7711`. Build-only source commit: `2312b5d8a372bb137018b37ede202e7580309f6b`. The nine verified built assets plus hosting manifest contain no source, save, diagnostics, design documents, or credentials.
+
+The release adds safe pause/manual-drive/resume for supported delivery loads, collision-checked final-heading reapproaches around fixed stock, durable blockage Inbox todos and Activity severity filtering. All 301 frozen simulation regressions, integrated browser checks with actual floor input and Save/reload, TypeScript/build, and independent production checks pass. The compatible completed v0.8 example is retained. The creator's exact blocked save was not available; equivalent fixed-rail-stack and occupied-destination cases validate the fix. Broader blocker yielding #17 and railway recovery #7 remain open.

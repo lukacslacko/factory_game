@@ -65,6 +65,9 @@ export function validateState(value: any): asserts value is State {
       ids.add(e.id);
     }
   }
+  for (const e of s.events)
+    if (e.severity !== undefined && !['info', 'warning'].includes(e.severity))
+      fail('invalid activity severity');
   if (s.jobGroups !== undefined) {
     if (!Array.isArray(s.jobGroups) || s.jobGroups.length > 150000)
       fail('invalid work-order groups');
@@ -801,6 +804,42 @@ export function validateState(value: any): asserts value is State {
     }
     if (o.carrierDeparted !== undefined && typeof o.carrierDeparted !== 'boolean')
       fail('invalid carrier departure');
+    if (o.unloadPaused !== undefined && typeof o.unloadPaused !== 'boolean')
+      fail('invalid delivery pause');
+    if (
+      o.unloadOperatorDuty !== undefined &&
+      (!o.unloadPaused || !['auto', 'manual', 'rest'].includes(o.unloadOperatorDuty))
+    )
+      fail('invalid saved delivery operator duty');
+    if (
+      o.unloadBlockage &&
+      (!finite(o.unloadBlockage.since) ||
+        o.unloadBlockage.since < 0 ||
+        o.unloadBlockage.since > s.elapsed + 0.1 ||
+        typeof o.unloadBlockage.reason !== 'string' ||
+        o.unloadBlockage.reason.length > 2000 ||
+        (o.unloadBlockage.warned !== undefined && typeof o.unloadBlockage.warned !== 'boolean'))
+    )
+      fail('invalid saved delivery blockage');
+    if (o.unloadPaused) {
+      const t = o.unload,
+        e = s.equipment.find((q: any) => q.id === t?.equipmentId),
+        w = s.workers.find((q: any) => q.id === t?.operatorId);
+      if (
+        !t ||
+        !e ||
+        !w ||
+        !['clear', 'carry', 'back-away'].includes(t.phase) ||
+        e.deliveryOrder !== o.id ||
+        w.deliveryOrder !== o.id ||
+        e.operator !== w.id ||
+        w.vehicle !== e.id ||
+        w.duty !== 'manual' ||
+        (['clear', 'carry'].includes(t.phase) && (!e.cargo || !t.cargo)) ||
+        (t.phase === 'clear' && t.riggerId)
+      )
+        fail('unsafe paused delivery assignment');
+    }
     if (o.carrierDeparted && (!['departing', 'done'].includes(o.status) || o.arrived !== o.qty))
       fail('departed carrier still has an unreceived load');
     if (

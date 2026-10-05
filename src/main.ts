@@ -62,6 +62,11 @@ import {
 } from './jobs';
 import { equipmentAssistant, setEquipmentAssistant } from './work-crews';
 import {
+  deliveryControlState,
+  pauseDeliveryHandling,
+  resumeDeliveryHandling,
+} from './delivery-control';
+import {
   setWorkerSchedule,
   setEquipmentParking,
   clearEquipmentParking,
@@ -134,6 +139,11 @@ void diagnosticStore()
 const registerSort = new Map<string, { column: number; direction: number }>();
 const registerPages = new Map<string, number>();
 const registerFilters = new Map<string, Map<number, string>>();
+let activitySeverity: 'all' | 'warning' | 'info' = 'all';
+try {
+  const preference = localStorage.getItem('plant01-activity-severity');
+  if (preference === 'warning' || preference === 'info') activitySeverity = preference;
+} catch {}
 let showColumnFilters = false;
 const expandedWork = new Set<string>();
 const railCrewDrafts = new Map<
@@ -376,9 +386,10 @@ function renderHint() {
   }
   if (controlled) {
     const w = state.workers.find((w) => w.id === controlled);
+    const recovery = w?.vehicle ? deliveryControlState(state, w.vehicle) : undefined;
     stableHTML(
       el,
-      `<b>DIRECT CONTROL · ${esc(w?.name)}</b> ${w?.job ? 'Working on ' + esc(w.job) + '. Finish or cancel that assignment to move freely.' : 'Click a clear cell to ' + (w?.vehicle ? 'drive' : 'walk') + '.'} Select equipment to board, or a plan to work. ${btn('release', 'Return to automatic')}`,
+      `<b>DIRECT CONTROL · ${esc(w?.name)}</b> ${w?.job ? 'Working on ' + esc(w.job) + '. Finish or cancel that assignment to move freely.' : 'Click a clear cell to ' + (w?.vehicle ? 'drive' : 'walk') + '.'} ${recovery?.paused ? `Unloading ${reference(recovery.order.id)} is paused. ${btn('delivery-resume:' + w!.vehicle, 'Resume unloading')}` : `Select equipment to board, or a plan to work. ${btn('release', 'Return to automatic')}`}`,
     );
   } else if (tool !== 'select') {
     stableHTML(
@@ -743,6 +754,15 @@ function assistantControl(e: Equipment) {
       '',
     )}</select>${assistant ? `<small class="role-pending">${reference(assistant.id)} · ${esc(assistant.status)}</small>` : ''}`;
 }
+function deliveryRecoveryControls(e: Equipment) {
+  const recovery = deliveryControlState(state, e.id);
+  if (!recovery) return '';
+  return `<fieldset class="delivery-recovery-controls"><legend>Manual unloading recovery</legend><p class="note">${reference(recovery.order.id)} · ${reference(recovery.operator.id)}${recovery.paused ? ' · Automatic unloading paused' : ''}</p>${
+    recovery.paused
+      ? `${btn('delivery-take-control:' + e.id, 'Take control of operator', 'small')}${btn('delivery-resume:' + e.id, 'Resume unloading', 'small primary')}<p class="note">Click clear ground to drive with the load aboard. Collision checks remain active. Resume unloading when the machine is clear.</p>`
+      : `${btn('delivery-pause:' + e.id, 'Pause unloading & take control', 'small', recovery.canPause ? '' : 'disabled')}<p class="note">${esc(recovery.canPause ? 'Pause the handling assignment and drive its seated operator to a clear position. The cargo and storage reservation stay with this delivery.' : recovery.reason)}</p>`
+  }</fieldset>`;
+}
 function railCrewControls(groupId: string) {
   const group = state.jobGroups?.find((g) => g.id === groupId);
   const leaves = workLeaves(state, groupId);
@@ -975,7 +995,7 @@ function renderInspector(force = false) {
         ['References', esc(intent.references.join(' · ') || 'None')],
         ['Cargo', e2.cargo ? `${e2.cargo.qty} × ${label(e2.cargo.item)}` : 'Empty'],
       ]) +
-      `<div class="meter"><i style="width:${(e2.fuel / e2.tank) * 100}%"></i></div><p class="note">The current job or unloading batch finishes before a new role takes effect. Direct driving and refueling stay available.</p><div class="button-stack">${controlled ? btn(`enter:${e2.id}`, 'Board with selected operator', 'primary') : ''}${btn(`refuel:${e2.id}`, 'Request refueling')}${btn('tab:equipment', 'Equipment register')}</div><h3>Parking</h3>${parkingControls(e2)}`;
+      `<div class="meter"><i style="width:${(e2.fuel / e2.tank) * 100}%"></i></div><p class="note">The current job or unloading batch finishes before a new role takes effect. Direct driving and refueling stay available.</p>${deliveryRecoveryControls(e2)}<div class="button-stack">${controlled ? btn(`enter:${e2.id}`, 'Board with selected operator', 'primary') : ''}${btn(`refuel:${e2.id}`, 'Request refueling')}${btn('tab:equipment', 'Equipment register')}</div><h3>Parking</h3>${parkingControls(e2)}`;
   }
   if (selection.type === 'stack') {
     body =
@@ -1647,36 +1667,64 @@ function renderRecords(force = false) {
   if (tab === 'activity') {
     actions = btn('export-diagnostics', 'Export diagnostic history', 'primary');
     subtitle = `Orders, receipts, construction, handling, and fuel. Rolling diagnostics: ${recorder.entries.length.toLocaleString()} records · ${(recorder.size / 1000000).toFixed(1)} MB · ${diagnosticPersistence}.`;
+    const visibleEvents = state.events.filter(matches);
+    const severity = (e: (typeof state.events)[number]) => e.severity || 'info';
+    const warnings = visibleEvents.filter((e) => severity(e) === 'warning').length;
     body =
+      `<div class="filter-strip activity-severity-filter" role="group" aria-label="Activity severity">${(
+        [
+          ['warning', `Warnings (${warnings})`],
+          ['info', `Info (${visibleEvents.length - warnings})`],
+          ['all', `All (${visibleEvents.length})`],
+        ] as const
+      )
+        .map(([value, text]) =>
+          btn(
+            'activity-severity:' + value,
+            text,
+            activitySeverity === value ? 'active' : '',
+            `aria-pressed="${activitySeverity === value}"`,
+          ),
+        )
+        .join('')}</div>` +
       table(
-        ['Time', 'Type', 'Entity', 'Event'],
-        state.events
-          .filter(matches)
+        ['Time', 'Severity', 'Type', 'Entity', 'Event'],
+        visibleEvents
+          .filter((e) => activitySeverity === 'all' || severity(e) === activitySeverity)
           .slice()
           .reverse()
           .map((e) => [
             `D${day(e.time)} ${clock(e.time)}`,
+            badge(
+              severity(e) === 'warning' ? 'Warning' : 'Info',
+              severity(e) === 'warning' ? 'amber' : '',
+            ),
             badge(e.type),
             btn(`entity:${e.entity}`, esc(e.entity || 'SITE'), 'text-link'),
             esc(e.text),
           ]),
+        activitySeverity === 'warning'
+          ? 'No warnings match the current filters.'
+          : 'No activity matches the current filters.',
       ) +
-      `<h3>Material movements</h3>` +
-      table(
-        ['Time', 'Material', 'Qty', 'From', 'To', 'Reason'],
-        state.movements
-          .filter(matches)
-          .slice()
-          .reverse()
-          .map((m) => [
-            `D${day(m.time)} ${clock(m.time)}`,
-            label(m.item),
-            `${m.qty}`,
-            m.from,
-            m.to,
-            m.reason,
-          ]),
-      );
+      (activitySeverity === 'warning'
+        ? ''
+        : `<h3>Material movements</h3>` +
+          table(
+            ['Time', 'Material', 'Qty', 'From', 'To', 'Reason'],
+            state.movements
+              .filter(matches)
+              .slice()
+              .reverse()
+              .map((m) => [
+                `D${day(m.time)} ${clock(m.time)}`,
+                label(m.item),
+                `${m.qty}`,
+                m.from,
+                m.to,
+                m.reason,
+              ]),
+          ));
   }
   if (tab === 'costs') {
     const actual = state.costs.reduce((n, c) => n + c.amount, 0),
@@ -1750,7 +1798,7 @@ function openModal(which: string) {
     content = `<div class="start-title"><span class="eyebrow">A PHYSICAL FACTORY SANDBOX</span><h1>Every piece<br>has a place.</h1><p>Start with an open yard and a rail connection.<br>Bring people and materials. Build what comes next.</p></div><div class="start-choices">${btn('new:starter', '<b>Start a new yard</b><span>Empty ground, with a starter supply order on its way.</span>', 'start-choice recommended')}${btn('new:empty', '<b>Start completely empty</b><span>Choose every worker, machine, and material yourself.</span>', 'start-choice')}${btn('new:demo', '<b>Explore Birch Junction</b><span>A small working base, stocked and ready to expand.</span>', 'start-choice')}</div><p class="note">No budget limit · construction and logistics · local saves · version 0.12</p>`;
   }
   if (which === 'menu') {
-    content = `<h1>${esc(state.name)}</h1><p class="subtitle">Starter Yard · version 0.15.0</p><div class="menu-grid">${btn('save', 'Save to browser', 'primary')}${btn('export-save', 'Export save file')}${btn('export-diagnostics', 'Export diagnostic history')}${btn('source-code', 'Source code · MIT')}${btn('import-save', 'Import save file')}${btn('restore-backup', 'Restore previous yard')}${btn('help', 'Controls and guide')}${btn('new-confirm', 'Start a new yard')}${btn('close-modal', 'Return to yard')}</div><p class="note">Autosaves every 20 seconds. Export a file for a portable backup. Your game stays on this computer.</p>`;
+    content = `<h1>${esc(state.name)}</h1><p class="subtitle">Starter Yard · version 0.16.0</p><div class="menu-grid">${btn('save', 'Save to browser', 'primary')}${btn('export-save', 'Export save file')}${btn('export-diagnostics', 'Export diagnostic history')}${btn('source-code', 'Source code · MIT')}${btn('import-save', 'Import save file')}${btn('restore-backup', 'Restore previous yard')}${btn('help', 'Controls and guide')}${btn('new-confirm', 'Start a new yard')}${btn('close-modal', 'Return to yard')}</div><p class="note">Autosaves every 20 seconds. Export a file for a portable backup. Your game stays on this computer.</p>`;
   }
   if (which === 'new-confirm') {
     content = `<h1>Start another yard</h1><p>Your current yard will be saved as a browser backup before the new yard is created.</p><div class="button-stack">${btn('new:starter', 'New yard + starter supplies', 'primary')}${btn('new:empty', 'Completely empty yard')}${btn('new:demo', 'Birch Junction example')}${btn('close-modal', 'Keep current yard')}</div>`;
@@ -2164,6 +2212,53 @@ async function action(value: string) {
       renderHint();
       renderInspector();
       break;
+    case 'delivery-pause':
+    case 'delivery-take-control': {
+      const recovery = deliveryControlState(state, b);
+      const error =
+        a === 'delivery-pause'
+          ? pauseDeliveryHandling(state, b)
+          : recovery?.paused
+            ? ''
+            : 'Pause unloading before taking control.';
+      recorder.record(state, 'delivery-manual-recovery', { equipmentId: b, action: a, error });
+      if (error || !recovery) {
+        toast(error || 'No active unloading assignment.', true);
+        renderInspector(true);
+        break;
+      }
+      if (controlled && controlled !== recovery.operator.id) {
+        const previous = state.workers.find((w) => w.id === controlled);
+        if (previous?.job) previous.duty = 'auto';
+        else Sim.releaseWorker(state, controlled);
+      }
+      controlled = recovery.operator.id;
+      recovery.operator.duty = 'manual';
+      tab = 'site';
+      setTool('select');
+      selection = { type: 'equipment', id: b };
+      renderTabs();
+      renderHint();
+      renderInspector(true);
+      persist(true);
+      toast('Unloading paused. Click clear ground to drive the operator and current load.');
+      break;
+    }
+    case 'delivery-resume': {
+      const recovery = deliveryControlState(state, b);
+      const error = resumeDeliveryHandling(state, b);
+      recorder.record(state, 'delivery-manual-recovery', { equipmentId: b, action: a, error });
+      if (!error && controlled === recovery?.operator.id) {
+        controlled = undefined;
+        follow = false;
+      }
+      toast(error || 'Automatic unloading resumed from the current position.', !!error);
+      renderHint();
+      renderInspector(true);
+      renderRecords(true);
+      persist(true);
+      break;
+    }
     case 'enter':
       if (controlled) {
         const error = Sim.enterVehicle(state, controlled, b);
@@ -2241,6 +2336,15 @@ async function action(value: string) {
     case 'filter':
       recordFilter = b;
       renderRecords(true);
+      break;
+    case 'activity-severity':
+      if (b === 'warning' || b === 'info' || b === 'all') {
+        activitySeverity = b;
+        try {
+          localStorage.setItem('plant01-activity-severity', b);
+        } catch {}
+        renderRecords(true);
+      }
       break;
     case 'notices':
       tab = 'notices';

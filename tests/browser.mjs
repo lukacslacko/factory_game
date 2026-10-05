@@ -1,5 +1,6 @@
 import { checkRailLocationsUI } from './rail-locations-ui.mjs';
 import { checkRailCrewsUI } from './rail-crews-ui.mjs';
+import { checkDeliveryRecoveryUI } from './delivery-recovery-ui.mjs';
 import { checkEquipmentIntent } from './equipment-intent.mjs';
 import { checkTrackRendering } from './track-rendering.mjs';
 import { checkTrackUI } from './track-ui.mjs';
@@ -242,6 +243,7 @@ async function ready() {
   const equipmentIntent = await checkEquipmentIntent(page, base);
   const railLocations = await checkRailLocationsUI(page, base);
   const railCrews = await checkRailCrewsUI(page, base);
+  const deliveryRecovery = await checkDeliveryRecoveryUI(page, base);
   const layouts = [];
   for (const width of [1440, 1024, 768]) {
     await page.setViewportSize({ width, height: 900 });
@@ -285,6 +287,7 @@ async function ready() {
         equipmentIntent,
         railLocations,
         railCrews,
+        deliveryRecovery,
         trackRendering,
         trackUI,
         checks: [
@@ -306,6 +309,7 @@ async function ready() {
           'save reload',
           'named rail locations: geometry picking, edit, reposition, delete, SQL, and save reload',
           'rail work group equipment, dedicated support workers, linked inspectors, and save reload',
+          'safe paused delivery recovery, actual manual driving, saved loads, and live warning filters',
           'equipment work roles in register, inspector, SQL, and saved yard',
           'records responsive layouts',
         ],

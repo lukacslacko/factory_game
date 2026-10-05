@@ -73,3 +73,7 @@ Pump station #9 will use the same named transfer references later. Completing th
 ## Authorized batch rail work prerequisite
 
 [#29 — Batch rail buffer handling and small staging/installation work crews](https://github.com/lukacslacko/factory_game/issues/29) is completed in v0.15.0, linked under #22. The release passes 292 simulation regressions and final browser/production checks. It precedes the separately reviewed recovery checkpoint #7.
+
+[#30 — Recover loaded delivery equipment blocked by fixed stock and surface warnings](https://github.com/lukacslacko/factory_game/issues/30) tracks the creator's STK-0074 forklift report, safe manual recovery, automatic alignment reapproaches, and durable warning filters. Related broader yielding work #17 stays open; this does not implement railway recovery #7.
+
+Issue #30 is completed in published v0.16.0 with 301 regressions and integrated browser/production verification. #17 retains the broader construction/parking scope.

@@ -1521,6 +1521,23 @@ h3 {
 .rail-crew-controls .note {
   margin: 0;
 }
+.delivery-recovery-controls {
+  min-width: 0;
+  border: 1px solid var(--line);
+  padding: 7px;
+  margin: 8px 0;
+  display: grid;
+  gap: 6px;
+}
+.delivery-recovery-controls legend {
+  font-size: 11px;
+}
+.delivery-recovery-controls .note {
+  margin: 0;
+}
+.activity-severity-filter {
+  margin-bottom: 6px;
+}
 .work-depth {
   padding-left: calc(var(--depth, 0) * 13px);
   display: inline-flex;

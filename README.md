@@ -6,7 +6,7 @@ The world uses a true perspective 3D camera, with a meter grid, dimensional stoc
 
 ## Play
 
-The private game Site is **https://plant-01-starter-yard.lukacslacko.chatgpt.site**. This package documents version **0.15.0**; deployment status is recorded in `docs/publishing.md`. Sign in with the account that owns the Site. Local and hosted browser saves are separate; use Export save / Import save to transfer a yard.
+The private game Site is **https://plant-01-starter-yard.lukacslacko.chatgpt.site**. This package documents version **0.16.0**; deployment status is recorded in `docs/publishing.md`. Sign in with the account that owns the Site. Local and hosted browser saves are separate; use Export save / Import save to transfer a yard.
 
 On this Mac, double-click **Start Plant 01.command**. It starts the included local server and opens the game at **http://127.0.0.1:4173/**. Keep its Terminal window open while playing; Control-C stops the server.
 
@@ -28,6 +28,7 @@ Open **manual.html** through the local server for the illustrated player guide, 
 
 - Hire builders, equipment operators, and site engineers, named Worker #1, Worker #2, and so on. Buy a 6 t excavator or a 2.5 t forklift. Your own operator walks to its lowloader, boards, and drives it down the ramps.
 - Combine different material types on one truck or train, or different worker roles on one bus. Purchase shows unit and line weights, batch cargo weight, and the planned carrier count before ordering. Loads split by weight and available deck length. Freight waits for your own suitable machine, qualified operator, fuel, and reachable storage. Excavator lifts also require a builder or engineer to rig the load. Every batch moves from carrier to machine to its physical stack.
+- Pause a safely supported delivery from the equipment inspector, drive its real operator and retained cargo to clear ground, then resume the same delivery. Activity offers Warnings / Info / All; prolonged handling blockages create an actionable Inbox todo.
 - Designate storage areas. Slabs stack up to 12 high in neighboring 1 m² cells; incoming batches top up partial stacks first. A forklift lifts at most eight 280 kg slabs per trip. Full-length rail panels, containers, kits, poles, fence panels, and diesel drums retain their dimensions and stack limits. Keep a reachable loading face and travel aisles.
 - Drag paving plans; place offices, WC/showers, sheds, stores, lights, fences, and straight, curved, or turnout rail panels. Required foundations become ordinary construction jobs.
 - Builders and operators board equipment, collect material, carry it, place it, and install it. The work register explains missing resources and access problems.

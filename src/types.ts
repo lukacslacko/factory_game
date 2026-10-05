@@ -345,6 +345,10 @@ export interface OrderLine {
   arrived: number;
 }
 export interface Order {
+  /** Manual recovery pauses only site handling; an empty carrier still departs. */
+  unloadPaused?: boolean;
+  unloadOperatorDuty?: Worker['duty'];
+  unloadBlockage?: { since: number; reason: string; warned?: boolean };
   /** One carrier, with separately accounted material or passenger lines. */
   manifest?: OrderLine[];
   /** One automatic unloading machine across all lifts of this carrier. */
@@ -422,6 +426,8 @@ export interface UnloadTask {
   cargo?: Point & { y: number; yaw: number };
 }
 export interface Event {
+  /** Older activity rows have ordinary informational severity. */
+  severity?: 'info' | 'warning';
   id: string;
   time: number;
   type: string;

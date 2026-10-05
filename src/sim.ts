@@ -8,6 +8,7 @@ import {
 import { packPurchase, orderLines, orderDescription } from './procurement';
 export { packPurchase as planPurchaseBatch } from './procurement';
 import { tickWorkforce, workerAvailable } from './workforce';
+import { isPausedDeliveryOperator } from './delivery-control';
 import {
   equipmentAssistant,
   availableEquipmentAssistant,
@@ -1141,14 +1142,15 @@ function restoreYieldingWorkers(s: State) {
 export function moveWorker(s: State, wid: string, p: Point): string {
   const w = s.workers.find((w) => w.id === wid);
   if (!w) return 'Worker not found.';
-  if (!workerAvailable(s, w))
+  const recoveringDelivery = isPausedDeliveryOperator(s, w);
+  if (!workerAvailable(s, w) && !(recoveringDelivery && w.shiftPhase === 'finishing'))
     return 'This worker is off shift, commuting, or returning equipment to parking.';
-  if (w.transition || w.deliveryOrder || w.transportOrder)
+  if (w.transition || (w.deliveryOrder && !recoveringDelivery) || w.transportOrder)
     return 'Finish the delivery assignment before taking control.';
   if (w.job) return 'Finish or cancel the current assignment before taking control.';
   if (w.vehicle) {
     const e = s.equipment.find((e) => e.id === w.vehicle)!;
-    const path =
+    let path =
       machineRoute(s, e, p, pedestrianObstacles(s), 450, true) ||
       // A requested parking/movement destination may currently contain an
       // automatic machine that will yield. Ignore only actors at that goal
@@ -1165,9 +1167,15 @@ export function moveWorker(s: State, wid: string, p: Point): string {
         450,
         true,
       );
+    let reversedRecovery = false;
+    if (!path && recoveringDelivery) {
+      path = machineRoute(s, { ...e, reverse: !e.reverse }, p, pedestrianObstacles(s), 450, true);
+      reversedRecovery = !!path;
+    }
     if (!path) return 'No clear vehicle route. Leave at least 3 m of access.';
     if (e.fuel <= 0) return 'This machine needs fuel.';
     e.path = path;
+    if (reversedRecovery) e.reverse = !e.reverse;
   } else {
     const path = walkRoute(s, w, p, pedestrianObstacles(s));
     if (!path) return 'No walking route to that cell.';

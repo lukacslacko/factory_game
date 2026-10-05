@@ -11,6 +11,7 @@ import { equipmentHasAssignedWork, equipmentCanReceiveRailSupply } from './jobs'
 import { RAIL_PANEL_PITCH, railStagingStackOwned } from './railwork';
 import { equipmentAllows } from './equipment-roles';
 import { FORK_LOAD_CENTER } from './fork-geometry';
+import { deliveryBlockageNotice, resetDeliveryBlockage } from './delivery-control';
 import type {
   State,
   Order,
@@ -576,16 +577,22 @@ export function syncDeliveryCargo(s: State) {
     if (e?.cargo) cargoFollow(t, e, t.cargo.y);
   }
 }
-function loadedStorageRoute(s: State, e: Equipment, drop: Point, api: DeliveryAPI) {
+function loadedStorageRoute(
+  s: State,
+  e: Equipment,
+  drop: Point,
+  api: DeliveryAPI,
+  finalYaw?: number,
+) {
   const obstacles = api.obstacles(s);
   // Keep the established conservative path when it exists. A long load may
   // falsely exclude its own dock under circular inflation; only then search
   // the actual machine poses, including a checked reverse approach.
   const clearance = e.cargo ? Math.max(1.1, MATERIALS[e.cargo.item].w / 2) : 1.1;
-  const conservative = route(e, drop, obstacles, clearance);
+  const conservative = finalYaw === undefined ? route(e, drop, obstacles, clearance) : null;
   if (conservative) return { path: conservative, reverse: false };
   for (const reverse of [false, true]) {
-    const path = machineRoute(s, { ...e, reverse }, drop, obstacles, 250, true);
+    const path = machineRoute(s, { ...e, reverse }, drop, obstacles, 250, true, finalYaw);
     if (path) return { path, reverse };
   }
   return null;
@@ -602,6 +609,32 @@ function loadedRouteBlocked(s: State, o: Order, e: Equipment, t: UnloadTask) {
   // path is accepted, and no physical payload pose is changed by waiting.
   e.trafficRetry = s.elapsed + 1.5;
   o.note = `No clear loaded route to ${t.mergeId || 'storage'} at (${t.drop.x.toFixed(1)}, ${t.drop.z.toFixed(1)})${blocker ? `; blocked by ${blocker}` : '; clear the approach aisle'}`;
+  deliveryBlockageNotice(s, o, o.note);
+}
+function blockedTurnMessage(s: State, blocker: string) {
+  const fixed =
+    s.stacks.some((t) => t.id === blocker) ||
+    s.buildings.some((b) => b.id === blocker) ||
+    s.rails.some((r) => r.id === blocker) ||
+    blocker === 'BUFFER-001';
+  return fixed
+    ? `Turning space obstructed by ${blocker}; checking a clear reapproach. Pause unloading to drive clear if needed`
+    : `Waiting for ${blocker} to clear the turning area`;
+}
+function retryAlignedApproach(
+  s: State,
+  o: Order,
+  e: Equipment,
+  target: Point,
+  yaw: number,
+  api: DeliveryAPI,
+) {
+  if (s.elapsed < (e.trafficRetry || 0)) return;
+  e.trafficRetry = s.elapsed + 1.5;
+  const planned = loadedStorageRoute(s, e, target, api, yaw);
+  if (!planned?.path.length) return;
+  resumeLoadedRoute(e, planned);
+  o.note = `Reapproaching the handling dock with ${e.id} to align before placement`;
 }
 function resumeLoadedRoute(
   e: Equipment,
@@ -615,6 +648,7 @@ function resumeLoadedRoute(
   e.trafficWait = 0;
 }
 function unloadTick(s: State, o: Order, dt: number, api: DeliveryAPI) {
+  if (o.unloadPaused) return;
   if (!o.unload) {
     if (o.arrived >= o.qty) {
       finish(s, o, api);
@@ -634,6 +668,8 @@ function unloadTick(s: State, o: Order, dt: number, api: DeliveryAPI) {
     o.note = 'Assigned machine or operator missing';
     return;
   }
+  if (e.velocity && e.velocity > 0.01 && !e.blockedBy) resetDeliveryBlockage(s, o);
+  else if (e.blockedBy) deliveryBlockageNotice(s, o, `Route blocked by ${e.blockedBy}`);
   if (e.fuel <= 0 || e.refueling) {
     o.note = 'Unloading paused: machine needs fuel';
     return;
@@ -670,7 +706,9 @@ function unloadTick(s: State, o: Order, dt: number, api: DeliveryAPI) {
     const blocker = equipmentSweepBlocked(s, e, candidate);
     if (blocker) {
       e.blockedBy = blocker;
-      o.note = `Waiting for ${blocker} to clear the turning area`;
+      o.note = blockedTurnMessage(s, blocker);
+      deliveryBlockageNotice(s, o, o.note);
+      retryAlignedApproach(s, o, e, t.pickup, -Math.PI / 2, api);
       return;
     }
     e.yaw = candidate.yaw;
@@ -783,6 +821,7 @@ function unloadTick(s: State, o: Order, dt: number, api: DeliveryAPI) {
     else {
       e.blockedBy = reachBlocker;
       o.note = `Waiting for ${reachBlocker} to clear the reach carriage`;
+      deliveryBlockageNotice(s, o, o.note);
     }
     cargoFollow(t, e, y);
     e.lift = y;
@@ -835,7 +874,9 @@ function unloadTick(s: State, o: Order, dt: number, api: DeliveryAPI) {
     const blocker = equipmentSweepBlocked(s, e, candidate);
     if (blocker) {
       e.blockedBy = blocker;
-      o.note = `Waiting for ${blocker} to clear the turning area`;
+      o.note = blockedTurnMessage(s, blocker);
+      deliveryBlockageNotice(s, o, o.note);
+      retryAlignedApproach(s, o, e, t.drop, t.dropYaw, api);
       return;
     }
     e.yaw = candidate.yaw;
@@ -851,6 +892,7 @@ function unloadTick(s: State, o: Order, dt: number, api: DeliveryAPI) {
     e.reach = dist(e, center(t.destination));
     cargoFollow(t, e, y);
     set('lower');
+    resetDeliveryBlockage(s, o);
   } else if (t.phase === 'lower') {
     const c = center(t.destination),
       raised = Math.max(0.4, t.destinationY + 0.35);

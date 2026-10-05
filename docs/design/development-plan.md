@@ -159,3 +159,7 @@ Named lengths designate real continuous track, not confirmed car fit, buffer/fou
 ## Authorized prerequisite before #7 — rail work crews
 
 Completed and published in v0.15.0 for creator playtesting: batch buffer handling, optional staging/installation equipment and dedicated support workers. Real handoff, one staged panel ahead, operator/helper reservations, cancellation, save/reload and all 292 regressions pass. Keep recovery #7 deferred until the creator reviews this release.
+
+## Delivery handling recovery checkpoint
+
+Version 0.16 addresses #30: fixed-stock turning reapproaches, safely paused loaded manual recovery, and durable filtered warnings. It does not advance the separate railway recovery #7 or close the broader construction/parking blockers #17. Review this change with the creator's affected save if the equivalent-scenario correction does not resolve their playtest.

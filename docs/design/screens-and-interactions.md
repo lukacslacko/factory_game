@@ -139,3 +139,9 @@ The artwork includes illustrative people, values and previews. The definitions a
 ## Rail work crew controls
 
 The parent rail work inspector offers two compact selectors: Staging equipment and Installation equipment, with an explicit save action. Both blank means the usual single-machine workflow. Current machine, operator, support-worker and stock IDs remain linked in ordinary records. Equipment registers and inspectors offer Support worker selection; worker records link their supported equipment and permit release. The current panel phase distinguishes staging withdrawal, waiting for installation crew, and actual placement.
+
+## Loaded delivery recovery and Activity severity
+
+The equipment inspector offers **Pause unloading & take control**, explains unsafe physical phases, and shows **Resume unloading** while paused. The world mode hint identifies the paused delivery; after reload the inspector can restore direct control of the retained operator. Manual movement uses existing floor input and collision checks. No new operator or forklift is spawned.
+
+Activity has dense **Warnings**, **Info**, and **All** buttons with counts and a Severity column. Warnings hides routine material movement rows. IDs remain linked, and the filter survives live updates, tab changes and reload. A prolonged delivery blockage creates a linked unseen Inbox **Delivery handling blocked** todo, retained for the player's task board.

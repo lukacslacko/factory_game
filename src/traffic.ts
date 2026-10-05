@@ -439,6 +439,7 @@ export function machineRoute(
   staticObstacles: Rect[],
   searchLimit = 250,
   allowWorkerYield = false,
+  finalYaw?: number,
 ): Point[] | null {
   const solid = staticObstacles.map((r) => ({
     x: r.x + r.w / 2,
@@ -493,10 +494,20 @@ export function machineRoute(
       !solid.some((b) => replayBlocked(chassis, b, 0))
     );
   };
+  // A storage dock can fit the final chassis yet have no room for a turn
+  // from the route's arrival heading. Validate the whole stationary turn,
+  // so a caller can request a physical reapproach instead of waiting forever.
+  const canAlign = (p: Equipment) => {
+    if (finalYaw === undefined) return true;
+    const fromYaw = p.yaw ?? (p.heading * Math.PI) / 2;
+    return Array.from({ length: 24 }, (_, i) => (i + 1) / 24).every((t) =>
+      safe({ ...p, yaw: mixAngle(fromYaw, finalYaw, t) }),
+    );
+  };
   if (
-    !Array.from({ length: 16 }, (_, i) => (i * Math.PI) / 8).some((yaw) =>
-      safe({ ...e, ...goal, yaw }),
-    )
+    !(
+      finalYaw === undefined ? Array.from({ length: 16 }, (_, i) => (i * Math.PI) / 8) : [finalYaw]
+    ).some((yaw) => safe({ ...e, ...goal, yaw }))
   )
     return null;
   const maximum = equipmentTravelSpeed(s, e);
@@ -530,7 +541,7 @@ export function machineRoute(
     }
     return p.path.length ? null : p;
   };
-  if (dist(e, goal) < 0.01) return [];
+  if (dist(e, goal) < 0.01 && canAlign(e)) return [];
   const surfaceCost = (p: Point, yaw: number) => {
     const strip = e.kind === 'excavator' ? 0.94 : 0.68;
     return (
@@ -578,6 +589,7 @@ export function machineRoute(
         }
         p = next;
       }
+      if (valid && !canAlign(p)) valid = false;
       const value = routeCost(from, path);
       if (valid && value < cost) {
         best = path;
@@ -603,6 +615,7 @@ export function machineRoute(
         )
           continue;
         next = advance(at, path[i]);
+        if (next && i === path.length - 1 && !canAlign(next)) next = null;
         if (next) {
           selected = i;
           break;
@@ -646,7 +659,7 @@ export function machineRoute(
         }
         at = next;
       }
-      if (valid) return coarse;
+      if (valid && canAlign(at)) return coarse;
     }
     return null;
   };
@@ -725,12 +738,12 @@ export function machineRoute(
       k = `${node.x},${node.z},${node.direction}`,
       at = poses.get(k)!;
     if (node.g !== score.get(k)) continue;
-    const tail =
-      loops < 8 || loops % 16 === 0
-        ? connect(at)
-        : dist(at, goal) < step * 2.1 && advance(at, goal)
-          ? [{ ...goal }]
-          : null;
+    const shortConnection = () => {
+      if (dist(at, goal) >= step * 2.1) return null;
+      const end = advance(at, goal);
+      return end && canAlign(end) ? [{ ...goal }] : null;
+    };
+    const tail = loops < 8 || loops % 16 === 0 ? connect(at) : shortConnection();
     if (tail) {
       const path: Point[] = [];
       let cur = k;

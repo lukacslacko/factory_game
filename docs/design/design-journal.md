@@ -378,3 +378,11 @@ The creator asked for this bounded change before track recovery #7: remove the b
 Decision: retain the default single-machine automatic work, add explicit staging/installation crew selectors on rail parent orders and dedicated builder/engineer helpers per equipment. Use original panel records and one real panel staged ahead, with actual operators, supporting stock, withdrawal and collision checks. Preserve shifts, manual control, physical cancellation and saves. Track recovery #7 is still unstarted. Track this release in #29, linked under railway parent #22.
 
 Outcome: v0.15.0 is published at the same game origin. All 292 simulation regressions, final integrated interface checks and the production check pass. Source approaches now use a clear stop/alignment and explicit gear handoff; older mixed-gear saves resume physically. Batch cancellation restores the latest installed end, and staging checks the actual resting buffer. The release is the review checkpoint before #7.
+
+## October 5 — Loaded forklift trapped beside fixed rail stock
+
+Creator reports a forklift carrying a diesel barrel waiting for STK-0074 to clear its turning area. Fixed rail stock cannot move itself. Delivery ownership prevents the existing direct-control command, leaving no obvious player recovery. The blockage was easy to miss among ordinary Activity events; request explicit warnings filtering. The affected yard is in another browser/local instance, so its exact save was not inspected.
+
+Implement a collision-checked aligned reapproach, safe pause / retained-operator manual driving / resume, durable blockage Inbox todo, and Activity Warnings/Info/All. Preserve supported cargo, real crew, destination reservation, carrier departure and invoicing. Do not allow takeover in a physical transfer. Validate equivalent fixed-stack and occupied-destination scenarios, save/reload, clickable warnings, and actual floor input. Track this scoped fix in #30; leave broader blocker behavior #17 and railway recovery #7 open.
+
+Outcome: v0.16.0 is published at the same game origin; 301/301 sequential regressions, integrated browser controls and production checks pass. The source/test inputs remained unchanged across verification. The release includes compatible saves, diagnostic metadata and SQL severity; the next railway checkpoint remains deferred.
