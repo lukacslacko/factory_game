@@ -51,11 +51,11 @@ The original [C Planning View concept image](C-original-planning.png) is uploade
 
 ## Reception and shunting parent request — October 5, 2026
 
-[**#22 — Receive multi-car trains and shunt freight to named factory rail locations**](https://github.com/lukacslacko/factory_game/issues/22) is the parent, with twelve native GitHub sub-issues. It remains open while separately reviewed checkpoints are completed.
+[**#22 — Receive multi-car trains and shunt freight to named factory rail locations**](https://github.com/lukacslacko/factory_game/issues/22) is the parent, with twelve original native GitHub sub-issues and the additional crew prerequisite #29. It remains open while separately reviewed checkpoints are completed.
 
 | Issue                                                        | Scope                                                             | Relation                                                                           |
 | ------------------------------------------------------------ | ----------------------------------------------------------------- | ---------------------------------------------------------------------------------- |
-| [#25](https://github.com/lukacslacko/factory_game/issues/25) | Named loading, unloading, transfer and parking positions          | Completed in v0.14.0; closed after verification and publication.                                      |
+| [#25](https://github.com/lukacslacko/factory_game/issues/25) | Named loading, unloading, transfer and parking positions          | Completed in v0.14.0; closed after verification and publication.                   |
 | [#23](https://github.com/lukacslacko/factory_game/issues/23) | Through reception track and second commissioned main-line turnout | New; depends on safe reconstruction and buffer handling.                           |
 | [#24](https://github.com/lukacslacko/factory_game/issues/24) | Insert turnouts into existing straight runs                       | New; depends on #7 real recovery.                                                  |
 | [#26](https://github.com/lukacslacko/factory_game/issues/26) | Multiple physical cars per incoming train                         | New; stable per-car cargo/geometry and reception fit.                              |
@@ -69,3 +69,7 @@ The original [C Planning View concept image](C-original-planning.png) is uploade
 | [#2](https://github.com/lukacslacko/factory_game/issues/2)   | Engine shed and locomotive parking                                | Existing issue reused.                                                             |
 
 Pump station #9 will use the same named transfer references later. Completing the current named-location checkpoint does not implement supplier routing, multi-car consists or shunting, and does not authorize those subsequent chunks automatically.
+
+## Authorized batch rail work prerequisite
+
+[#29 — Batch rail buffer handling and small staging/installation work crews](https://github.com/lukacslacko/factory_game/issues/29) is completed in v0.15.0, linked under #22. The release passes 292 simulation regressions and final browser/production checks. It precedes the separately reviewed recovery checkpoint #7.

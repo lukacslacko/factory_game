@@ -1498,6 +1498,29 @@ h3 {
   max-width: 100%;
   min-width: 0;
 }
+.rail-crew-controls {
+  min-width: 0;
+  margin: 10px 0;
+  padding: 7px;
+  border: 1px solid var(--line);
+  display: grid;
+  gap: 6px;
+}
+.rail-crew-controls legend,
+.rail-crew-controls label {
+  font-size: 11px;
+}
+.rail-crew-controls select {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  margin-top: 3px;
+  font-size: 11px;
+  padding: 4px;
+}
+.rail-crew-controls .note {
+  margin: 0;
+}
 .work-depth {
   padding-left: calc(var(--depth, 0) * 13px);
   display: inline-flex;

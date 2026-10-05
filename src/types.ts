@@ -40,6 +40,8 @@ export interface Worker extends Point, Move, Motion {
   id: string;
   name: string;
   role: Role;
+  /** Dedicated ground helper; separate from the machine operator. */
+  assistingEquipment?: string;
   duty: 'auto' | 'manual' | 'rest';
   status: string;
   job?: string;
@@ -176,6 +178,12 @@ export type RailWorkPhase =
   | 'cancel-panel-lower'
   | 'complete';
 export type RailWorkPose = Point & { y: number; yaw: number };
+export interface RailBatchBuffer {
+  pose: RailWorkPose & { id: 'BUFFER-001'; secured: boolean; carried: boolean };
+  start: RailWorkPose;
+  latestEnd: RailWorkPose;
+  ownerJob?: string;
+}
 export interface RailWork {
   configuredHand?: 1 | -1;
   configureProgress?: number;
@@ -199,7 +207,15 @@ export interface RailWork {
     railId?: string;
   };
   buffer?: RailWorkPose & { id: 'BUFFER-001'; secured: boolean; carried: boolean };
-  source?: { stackId: string; pose: RailWorkPose; dock: Point; clear: Point; workerPoint: Point };
+  source?: {
+    stackId: string;
+    pose: RailWorkPose;
+    dock: Point;
+    clear: Point;
+    workerPoint: Point;
+    approach?: Point;
+    entering?: boolean;
+  };
   lifting?: 'panel' | 'buffer';
   from?: RailWorkPose;
   restoreOriginal?: boolean;
@@ -236,6 +252,8 @@ export interface ConstructionHandling {
   from?: RailWorkPose;
 }
 export interface JobGroup extends Rect {
+  railCrew?: { stagingEquipment?: string; installingEquipment?: string };
+  railBuffer?: RailBatchBuffer;
   track?: Omit<TrackPiece, 'section' | 'groupId'>;
   id: string;
   label: string;
@@ -287,6 +305,9 @@ export interface Job extends Rect {
   preferredEquipment?: string;
   equipmentPriority?: number;
   legacyRailHandoff?: 'carried' | 'staged' | 'installed';
+  /** First physical pass of this same panel record, handed off after staging. */
+  railStageOnly?: boolean;
+  railBufferCleanup?: boolean;
   id: string;
   kind: BuildKind | 'refuel' | 'remove' | 'throwSwitch';
   requestedRoute?: 'straight' | 'branch';

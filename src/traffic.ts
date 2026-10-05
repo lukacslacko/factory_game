@@ -275,7 +275,9 @@ export function staticObstacleRects(s: State): (Rect & { id: string })[] {
     }
   }
   const active = s.jobs.find((j) => j.status === 'doing' && j.railWork?.buffer)?.railWork;
-  const buffer = active?.buffer;
+  const buffer =
+    active?.buffer ||
+    s.jobGroups?.find((g) => g.railBuffer && !g.railBuffer.pose.secured)?.railBuffer?.pose;
   if (!buffer?.carried) {
     const yaw =
         buffer?.yaw ??
@@ -422,7 +424,7 @@ export function navigationActors(s: State, ignore: string): Rect[] {
 /** Route previews and executed motion must use the same steering speed. */
 export function equipmentTravelSpeed(s: State, e: Equipment) {
   const job = s.jobs.find((j) => j.equipment === e.id && j.status === 'doing');
-  return job?.railWork
+  return job?.kind === 'rail'
     ? 1
     : job?.handling || job?.shedAssembly
       ? 1.6
@@ -772,16 +774,37 @@ export function walkRoute(
   staticObstacles: Rect[],
 ): Point[] | null {
   if (goal.x < -48 || goal.x > 230 || goal.z < -30 || goal.z > 115) return null;
+  // A newly lowered asset may touch an existing crew position. Permit only
+  // monotonically outward escape, checking every real obstacle at each step.
+  const initiallyTouching = new Set(staticObstacles.filter((r) => !segmentClear(w, w, [r], 0.22)));
   const safe = (p: Point) =>
-    !workerMoveBlocked(s, w, p) && segmentClear(p, p, staticObstacles, 0.22);
+    !workerMoveBlocked(s, w, p) &&
+    segmentClear(
+      p,
+      p,
+      staticObstacles.filter((r) => !initiallyTouching.has(r)),
+      0.22,
+    );
   const edge = (a: Point, b: Point) => {
-    if (!segmentClear(a, b, staticObstacles, 0.22)) return false;
+    const obs = staticObstacles.filter(
+      (r) => !initiallyTouching.has(r) || segmentClear(a, a, [r], 0.22),
+    );
+    if (!segmentClear(a, b, obs, 0.22)) return false;
     const n = Math.max(1, Math.ceil(dist(a, b) / 0.18));
-    for (let i = 1; i <= n; i++)
-      if (!safe({ x: a.x + ((b.x - a.x) * i) / n, z: a.z + ((b.z - a.z) * i) / n })) return false;
+    let at = a;
+    for (let i = 1; i <= n; i++) {
+      const next = { x: a.x + ((b.x - a.x) * i) / n, z: a.z + ((b.z - a.z) * i) / n };
+      if (!safe(next) || workerMoveBlocked(s, { ...w, ...at }, next)) return false;
+      at = next;
+    }
     return true;
   };
-  if (!safe(goal)) return null;
+  if (
+    !safe(goal) ||
+    !segmentClear(goal, goal, staticObstacles, 0.22) ||
+    workerMoveBlocked(s, { id: w.id, x: -10000, z: -10000 }, goal)
+  )
+    return null;
   if (edge(w, goal)) return [{ ...goal }];
   const heap = new Heap(),
     score = new Map<string, number>(),

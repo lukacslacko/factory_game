@@ -203,8 +203,8 @@ test('seven separately handled turnout pieces conserve each material and retain 
   );
   assert.equal(
     s.jobs.filter((j) => j.railWork?.buffer).length,
-    4,
-    'Only points and three through panels handle the one buffer',
+    1,
+    'Only the final through panel retains the secured batch buffer',
   );
   conserve(s, counts);
 });

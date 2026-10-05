@@ -54,10 +54,13 @@ import {
   jobRows,
   equipmentAssignment,
   setJobEquipment,
+  setRailCrew,
+  railCrewGroup,
   workLeaves,
   sortWorkRows,
   automaticEquipmentForWork,
 } from './jobs';
+import { equipmentAssistant, setEquipmentAssistant } from './work-crews';
 import {
   setWorkerSchedule,
   setEquipmentParking,
@@ -133,6 +136,10 @@ const registerPages = new Map<string, number>();
 const registerFilters = new Map<string, Map<number, string>>();
 let showColumnFilters = false;
 const expandedWork = new Set<string>();
+const railCrewDrafts = new Map<
+  string,
+  { stagingEquipment?: string; installingEquipment?: string }
+>();
 let parkingEquipment: string | undefined;
 const keys = new Set<string>();
 const purchaseCart = new Map<string, number>();
@@ -710,8 +717,50 @@ function assignmentControl(id: string) {
     return 'Worker on foot · no equipment required';
   if (own && 'kind' in own && own.kind === 'refuel')
     return `${reference(own.target || 'Equipment')}<small class="role-pending">Refueling target · serviced by a worker</small>`;
+  const crewGroup =
+    own &&
+    ('kind' in own
+      ? own.kind === 'rail'
+        ? railCrewGroup(state, own)
+        : undefined
+      : own.railCrew
+        ? own
+        : undefined);
+  if (crewGroup?.railCrew)
+    return `${reference(crewGroup.railCrew.stagingEquipment || 'Unassigned')} stages · ${reference(crewGroup.railCrew.installingEquipment || 'Unassigned')} installs<small class="role-pending">Change both roles in ${reference(crewGroup.id)}.</small>`;
   const done = !workLeaves(state, id).some((j) => ['todo', 'doing'].includes(j.status));
   return `<select class="assignment-select" data-job-equipment="${esc(id)}" aria-label="Assign equipment to ${esc(id)}" ${done ? 'disabled' : ''}><option value="">${a.inherited ? `Inherit ${a.equipmentId}` : 'Automatic / inherit'}</option>${state.equipment.map((e) => `<option value="${e.id}" ${own?.preferredEquipment === e.id ? 'selected' : ''}>${e.id} · ${label(e.kind)}</option>`).join('')}</select><small class="role-pending">${reference(a.text)}</small>`;
+}
+function assistantControl(e: Equipment) {
+  const assistant = equipmentAssistant(state, e.id);
+  return `<select class="assignment-select" data-equipment-assistant="${esc(e.id)}" aria-label="Support worker for ${esc(e.id)}"><option value="">No dedicated support worker</option>${state.workers
+    .filter((w) => w.role === 'builder' || w.role === 'engineer')
+    .map(
+      (w) =>
+        `<option value="${esc(w.id)}" ${assistant?.id === w.id ? 'selected' : ''}>${esc(w.name)} · ${esc(w.id)}${w.assistingEquipment && w.assistingEquipment !== e.id ? ` · supporting ${esc(w.assistingEquipment)}` : ''}</option>`,
+    )
+    .join(
+      '',
+    )}</select>${assistant ? `<small class="role-pending">${reference(assistant.id)} · ${esc(assistant.status)}</small>` : ''}`;
+}
+function railCrewControls(groupId: string) {
+  const group = state.jobGroups?.find((g) => g.id === groupId);
+  const leaves = workLeaves(state, groupId);
+  const railOnly =
+    leaves.some((j) => j.kind === 'rail') &&
+    leaves.every((j) => j.kind === 'rail' || j.kind === 'remove');
+  if (!group || (!group.track && !railOnly)) return '';
+  const done = !leaves.some((j) => ['todo', 'doing'].includes(j.status));
+  const crew = railCrewDrafts.get(groupId) || group.railCrew;
+  const options = (selected: string | undefined, installer: boolean) =>
+    state.equipment
+      .filter((e) => !installer || e.kind === 'excavator')
+      .map(
+        (e) =>
+          `<option value="${esc(e.id)}" ${e.id === selected ? 'selected' : ''}>${esc(e.id)} · ${esc(label(e.kind))}</option>`,
+      )
+      .join('');
+  return `<fieldset class="rail-crew-controls" data-rail-crew="${esc(groupId)}"><legend>Rail work group</legend><label>Bring panels to preparation area<select id="rail-staging-equipment" aria-label="Rail staging equipment" ${done ? 'disabled' : ''}><option value="">Single-machine work</option>${options(crew?.stagingEquipment, false)}</select></label><label>Install panels and handle the buffer<select id="rail-installing-equipment" aria-label="Rail installation equipment" ${done ? 'disabled' : ''}><option value="">Single-machine work</option>${options(crew?.installingEquipment, true)}</select></label>${btn('rail-crew-save:' + groupId, 'Set rail work group', 'small', done ? 'disabled' : '')}<p class="note">Choose two different machines to stage the next panel while the excavator installs the current one. Each machine needs its own operator and support worker. Assign support workers in Equipment. Clear both choices to return to single-machine work.</p>${group.railCrew ? `<p class="note">Staging: ${reference(group.railCrew.stagingEquipment || 'Unassigned')} · Installation: ${reference(group.railCrew.installingEquipment || 'Unassigned')}</p>` : ''}</fieldset>`;
 }
 function scheduleControl(w: Worker) {
   const value = w.schedule ? `${w.schedule.start},${w.schedule.end}` : '';
@@ -868,9 +917,12 @@ function renderInspector(force = false) {
       ['Location', `${w.x.toFixed(1)}, ${w.z.toFixed(1)}`],
       ['Vehicle', esc(w.vehicle || w.commuteOrder || w.transportOrder || 'On foot')],
       ['Assignment', esc(w.deliveryOrder || w.transportOrder || w.job || 'None')],
+      ['Supports equipment', esc(w.assistingEquipment || 'No dedicated machine')],
       ['Time on site', `${w.hours.toFixed(1)} h`],
       ['Hourly rate', money(w.wage)],
     ]);
+    if (w.assistingEquipment)
+      body += `<p class="note">Stays near ${reference(w.assistingEquipment)} between support tasks. This is a ground support role, separate from the operator.</p>${btn('assistant-clear:' + w.id, 'Release support assignment', 'small')}`;
     body += `<div class="parking-controls"><label>Shift start <input id="shift-start" type="number" min="0" max="23.99" step="0.25" value="${w.schedule?.start ?? 7}"></label><label>Shift end <input id="shift-end" type="number" min="0" max="23.99" step="0.25" value="${w.schedule?.end ?? 17}"></label>${btn(`shift-save:${w.id}`, 'Set custom shift', 'small')}</div><div class="button-stack">${btn(`control:${w.id}`, w.id === controlled ? 'Controlling this worker' : 'Take direct control', 'primary', w.job || w.deliveryOrder || w.transportOrder || w.transition || !workerAvailable(state, w) ? 'disabled' : '')}${w.vehicle ? btn(`exit:${w.id}`, 'Leave vehicle', '', w.job || w.deliveryOrder || w.transportOrder || w.transition || !workerAvailable(state, w) ? 'disabled' : '') : ''}${btn(`duty:${w.id}`, w.duty === 'rest' ? 'Return to duty' : 'Rest / hold assignments', '', w.job || w.deliveryOrder || w.transportOrder || w.transition || !workerAvailable(state, w) ? 'disabled' : '')}</div>`;
   }
   if (selection.type === 'equipment') {
@@ -879,6 +931,7 @@ function renderInspector(force = false) {
     body =
       details([
         ['Automatic work', equipmentRoleControl(e2)],
+        ['Support worker', assistantControl(e2)],
         ['Fuel', `${e2.fuel.toFixed(1)} / ${e2.tank} L`],
         ['Diesel consumed', `${e2.used.toFixed(2)} L`],
         ['Refueling job', esc(e2.refueling || 'None')],
@@ -1005,12 +1058,18 @@ function renderInspector(force = false) {
         ['Progress', `${Math.round(row.progress * 100)}%`],
         ['Parent', esc(e.parentId || 'Top-level work order')],
         ['Assign equipment', assignmentControl(e.id)],
-        ['Automatic machine', esc(automaticEquipmentForWork(state, e) || 'Not selected yet')],
+        [
+          e.railCrew ? 'Dispatch' : 'Automatic machine',
+          e.railCrew
+            ? 'Two-machine rail work group'
+            : esc(automaticEquipmentForWork(state, e) || 'Automatic machine not selected yet'),
+        ],
         ['Worker', esc(row.worker || 'See tasks')],
         ['Operator', esc(row.operator || 'See tasks')],
         ['Working equipment', esc(row.equipment || 'See tasks')],
         ['Next requirement', esc(row.reason)],
       ]) +
+      railCrewControls(e.id) +
       `<div class="button-stack">${btn('tab:jobs', 'Work register')}${row.status === 'todo' || row.status === 'doing' ? btn(`priority-group:${e.id}`, 'Prioritize remaining tasks') : ''}</div><h3>Individual tasks</h3>${workLeaves(
         state,
         e.id,
@@ -1374,6 +1433,7 @@ function renderRecords(force = false) {
         'Action',
         'Vehicle',
         'Assignment',
+        'Supports equipment',
         'Hours',
         'Rate / h',
         '',
@@ -1389,6 +1449,7 @@ function renderRecords(force = false) {
           esc(w.shiftPhase ? `${w.shiftPhase} · ${w.status}` : w.status),
           esc(w.vehicle || '—'),
           esc(w.commuteOrder || w.deliveryOrder || w.transportOrder || w.job || '—'),
+          esc(w.assistingEquipment || '—'),
           w.hours.toFixed(1),
           money(w.wage),
           loc('worker', w.id) +
@@ -1419,6 +1480,7 @@ function renderRecords(force = false) {
           'Fuel',
           'Consumed',
           'Operator',
+          'Support worker',
           'Assignment',
           'Cargo',
           'Parking',
@@ -1437,6 +1499,7 @@ function renderRecords(force = false) {
                 ? `${state.workers.find((w) => w.id === e.operator)?.name || 'Worker'} · ${e.operator}`
                 : '—',
             ),
+            assistantControl(e),
             esc(
               e.blockedBy
                 ? `Waiting for ${e.blockedBy}`
@@ -1687,7 +1750,7 @@ function openModal(which: string) {
     content = `<div class="start-title"><span class="eyebrow">A PHYSICAL FACTORY SANDBOX</span><h1>Every piece<br>has a place.</h1><p>Start with an open yard and a rail connection.<br>Bring people and materials. Build what comes next.</p></div><div class="start-choices">${btn('new:starter', '<b>Start a new yard</b><span>Empty ground, with a starter supply order on its way.</span>', 'start-choice recommended')}${btn('new:empty', '<b>Start completely empty</b><span>Choose every worker, machine, and material yourself.</span>', 'start-choice')}${btn('new:demo', '<b>Explore Birch Junction</b><span>A small working base, stocked and ready to expand.</span>', 'start-choice')}</div><p class="note">No budget limit · construction and logistics · local saves · version 0.12</p>`;
   }
   if (which === 'menu') {
-    content = `<h1>${esc(state.name)}</h1><p class="subtitle">Starter Yard · version 0.14.0</p><div class="menu-grid">${btn('save', 'Save to browser', 'primary')}${btn('export-save', 'Export save file')}${btn('export-diagnostics', 'Export diagnostic history')}${btn('source-code', 'Source code · MIT')}${btn('import-save', 'Import save file')}${btn('restore-backup', 'Restore previous yard')}${btn('help', 'Controls and guide')}${btn('new-confirm', 'Start a new yard')}${btn('close-modal', 'Return to yard')}</div><p class="note">Autosaves every 20 seconds. Export a file for a portable backup. Your game stays on this computer.</p>`;
+    content = `<h1>${esc(state.name)}</h1><p class="subtitle">Starter Yard · version 0.15.0</p><div class="menu-grid">${btn('save', 'Save to browser', 'primary')}${btn('export-save', 'Export save file')}${btn('export-diagnostics', 'Export diagnostic history')}${btn('source-code', 'Source code · MIT')}${btn('import-save', 'Import save file')}${btn('restore-backup', 'Restore previous yard')}${btn('help', 'Controls and guide')}${btn('new-confirm', 'Start a new yard')}${btn('close-modal', 'Return to yard')}</div><p class="note">Autosaves every 20 seconds. Export a file for a portable backup. Your game stays on this computer.</p>`;
   }
   if (which === 'new-confirm') {
     content = `<h1>Start another yard</h1><p>Your current yard will be saved as a browser backup before the new yard is created.</p><div class="button-stack">${btn('new:starter', 'New yard + starter supplies', 'primary')}${btn('new:empty', 'Completely empty yard')}${btn('new:demo', 'Birch Junction example')}${btn('close-modal', 'Keep current yard')}</div>`;
@@ -1739,6 +1802,7 @@ function closeModal() {
   $('#modal-root').innerHTML = '';
 }
 function start(kind: string) {
+  railCrewDrafts.clear();
   if (state.elapsed > 0 || state.orders.length) {
     try {
       localStorage.setItem('plant01-backup-v1', Sim.save(state));
@@ -1811,6 +1875,43 @@ async function action(value: string) {
       rotation = state.equipment.find((e) => e.id === b)?.parking?.rotation || 0;
       setTool('parking');
       break;
+    case 'rail-crew-save': {
+      const staging = $<HTMLSelectElement>('#rail-staging-equipment').value || undefined;
+      const installing = $<HTMLSelectElement>('#rail-installing-equipment').value || undefined;
+      const error = setRailCrew(state, b, staging, installing);
+      if (!error) railCrewDrafts.delete(b);
+      recorder.record(state, 'rail-work-crew', {
+        workId: b,
+        stagingEquipment: staging,
+        installingEquipment: installing,
+        error,
+      });
+      toast(
+        error || (staging ? 'Rail work group assigned.' : 'Single-machine rail work restored.'),
+        !!error,
+      );
+      renderInspector(true);
+      renderRecords(true);
+      persist(true);
+      break;
+    }
+    case 'assistant-clear': {
+      const worker = state.workers.find((w) => w.id === b);
+      const equipmentId = worker?.assistingEquipment;
+      const error = equipmentId
+        ? setEquipmentAssistant(state, equipmentId)
+        : 'That worker has no support assignment.';
+      recorder.record(state, 'equipment-support-worker', {
+        workerId: b,
+        equipmentId,
+        error,
+      });
+      toast(error || 'Support assignment released after the current task.', !!error);
+      renderInspector(true);
+      renderRecords(true);
+      persist(true);
+      break;
+    }
     case 'parking-clear': {
       const error = clearEquipmentParking(state, b);
       toast(error || 'Parking bay cleared.', !!error);
@@ -2373,6 +2474,16 @@ document.addEventListener('input', (e) => {
 });
 document.addEventListener('change', (e) => {
   const target = e.target as HTMLSelectElement;
+  if (target.id === 'rail-staging-equipment' || target.id === 'rail-installing-equipment') {
+    const fields = target.closest<HTMLElement>('[data-rail-crew]')!;
+    railCrewDrafts.set(fields.dataset.railCrew!, {
+      stagingEquipment:
+        fields.querySelector<HTMLSelectElement>('#rail-staging-equipment')!.value || undefined,
+      installingEquipment:
+        fields.querySelector<HTMLSelectElement>('#rail-installing-equipment')!.value || undefined,
+    });
+    return;
+  }
   if (target.id === 'transport') {
     purchaseTransport = target.value as 'road' | 'rail';
     renderCart();
@@ -2387,6 +2498,29 @@ document.addEventListener('change', (e) => {
     });
     toast(
       error || 'Equipment assignment updated. Current work finishes safely before handover.',
+      !!error,
+    );
+    renderInspector(true);
+    renderRecords(true);
+    persist(true);
+    return;
+  }
+  if (target.dataset.equipmentAssistant) {
+    const error = setEquipmentAssistant(
+      state,
+      target.dataset.equipmentAssistant,
+      target.value || undefined,
+    );
+    recorder.record(state, 'equipment-support-worker', {
+      equipmentId: target.dataset.equipmentAssistant,
+      workerId: target.value || undefined,
+      error,
+    });
+    toast(
+      error ||
+        (target.value
+          ? 'Dedicated support worker assigned.'
+          : 'Support assignment released after the current task.'),
       !!error,
     );
     renderInspector(true);
@@ -2440,6 +2574,7 @@ $('#import-file').addEventListener('change', async (e) => {
     const next = Sim.load(await file.text());
     localStorage.setItem('plant01-backup-v1', Sim.save(state));
     state = next;
+    railCrewDrafts.clear();
     state.paused = true;
     world.revision = -1;
     selection = undefined;

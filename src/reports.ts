@@ -4,6 +4,7 @@ import initSqlJs from 'sql.js';
 import wasmUrl from 'sql.js/dist/sql-wasm.wasm?url';
 import type { State } from './types';
 import { totals } from './sim';
+import { equipmentAssistant } from './work-crews';
 import { MATERIALS } from './catalog';
 import { orderLines, orderMass, itemMass } from './procurement';
 import { parkingStatus } from './workforce';
@@ -67,6 +68,7 @@ export async function query(s: State, sql: string) {
     workers: s.workers.map(({ path, ...w }) => ({ ...w })),
     equipment: s.equipment.map(({ path, cargo, ...e }) => ({
       ...e,
+      support_worker: equipmentAssistant(s, e.id)?.id || null,
       workRole: equipmentRole(e),
       allowedWork: equipmentActivities(e),
       automaticWork: equipmentWorkSummary(e),
@@ -82,7 +84,12 @@ export async function query(s: State, sql: string) {
       assignment_source: equipmentAssignment(s, j.id).sourceId,
       automatic_equipment: automaticEquipmentForWork(s, j),
     })),
-    job_groups: (s.jobGroups || []).map((g) => ({ ...g })),
+    job_groups: (s.jobGroups || []).map((g) => ({
+      ...g,
+      staging_equipment: g.railCrew?.stagingEquipment,
+      installing_equipment: g.railCrew?.installingEquipment,
+      buffer_secured: g.railBuffer?.pose.secured,
+    })),
     work_orders: jobRows(s).map((r) => ({ ...r })),
     orders: s.orders.map(({ vehicle, handler, allocated, ...o }) => ({
       ...o,
@@ -204,7 +211,17 @@ export async function query(s: State, sql: string) {
       'buffer',
     ],
     zones: ['id', 'name', 'x', 'z', 'w', 'd'],
-    job_groups: ['id', 'label', 'parentId', 'preferredEquipment', 'automaticEquipment', 'created'],
+    job_groups: [
+      'id',
+      'label',
+      'parentId',
+      'preferredEquipment',
+      'automaticEquipment',
+      'staging_equipment',
+      'installing_equipment',
+      'buffer_secured',
+      'created',
+    ],
     work_orders: [
       'id',
       'label',
@@ -220,6 +237,7 @@ export async function query(s: State, sql: string) {
       'operator',
     ],
     workers: [
+      'assistingEquipment',
       'id',
       'name',
       'role',
@@ -236,6 +254,7 @@ export async function query(s: State, sql: string) {
       'job',
     ],
     equipment: [
+      'support_worker',
       'id',
       'kind',
       'workRole',

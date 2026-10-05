@@ -599,3 +599,32 @@ test('a worker trapped beside a stock row walks around a loaded machine turn ins
   assert.ok(Math.hypot(e.x - 63.5, e.z - 44.1) < 0.05);
   assert.equal(e.cargo?.qty, 1);
 });
+
+test('a worker touched by a newly placed buffer can walk outward but cannot plan through it', async () => {
+  const { staticObstacleRects, workerMoveBlocked } = await import('../src/traffic.ts');
+  const s = S.createState();
+  s.buffer = { x: 40, z: 40 };
+  const w = { id: 'CLEARANCE-WORKER', x: 40.2, z: 41.1 };
+  const goal = { x: 40.2, z: 44 };
+  const path = walkRoute(s, w, goal, staticObstacleRects(s));
+  assert.ok(path?.length, 'A real outward escape must be possible');
+  let at = { ...w };
+  for (const p of path!) {
+    const from = { ...at },
+      n = Math.ceil(Math.hypot(p.x - at.x, p.z - at.z) / 0.1);
+    for (let i = 1; i <= n; i++) {
+      const next = {
+        ...w,
+        x: from.x + ((p.x - from.x) * i) / n,
+        z: from.z + ((p.z - from.z) * i) / n,
+      };
+      assert.equal(workerMoveBlocked(s, at, next), '');
+      at = next;
+    }
+  }
+  assert.equal(
+    walkRoute(s, w, { x: 40.2, z: 40 }, staticObstacleRects(s)),
+    null,
+    'An endpoint inside the buffer remains forbidden',
+  );
+});

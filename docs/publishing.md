@@ -1,10 +1,10 @@
 # Publication
 
-Version 0.14.0 is published privately at https://plant-01-starter-yard.lukacslacko.chatgpt.site.
+Version 0.15.0 is published privately at https://plant-01-starter-yard.lukacslacko.chatgpt.site.
 
 The editable game lives in this starter-yard directory. The Site repository is a separate, build-only checkout at `../../work/plant01-publish` relative to this directory, with its own `.openai/hosting.json` and Git metadata. It contains only `dist/` and the hosting manifest. Do not upload the full game project or the private design documents when updating that Site.
 
-The Site identity is `appgprj_6ac1ff4c01388191b1d9d0dba709095e`. Reuse it; do not create a replacement. The successful build-only source commit for version 0.14.0 is `9cb1446433d8d9315b34c94af4dcb2e12418386c`.
+The Site identity is `appgprj_6ac1ff4c01388191b1d9d0dba709095e`. Reuse it; do not create a replacement. The successful build-only source commit for version 0.15.0 is `81d7523019f4d97f23c48bf52e18bc4ac59ccda9`.
 
 For an update, follow the Sites hosting skill to open the existing build-only checkout, build and test the editable game, replace the checkout's `dist/` with that build, inspect its file list, and publish through the same private Site workflow. Keep credentials in process memory/stdin only. The game requires no server secrets, cloud database, or external connectors.
 
@@ -101,3 +101,11 @@ Version 0.14.0 deployed successfully on October 5, 2026 at 17:41 CEST, preservin
 The release adds virtual named loading, unloading, transfer and parking destinations on actual installed rail, editable centered lengths and anchor offsets, track-following world guides and readable selectable labels, linked dense records, repairable missing-track references, SQL and compatible saves. These designations create no material, physical signage or traffic reservation. Supplier trains retain their original berth. Parent issue #22 has twelve native sub-issues reusing the existing engine, driver, shed, buffers and recovery work; named-location issue #25 is completed. The next reception/shunting checkpoint awaits creator playtesting and approval.
 
 All 270 fresh sequential simulation regressions, integrated browser checks, TypeScript/build and independent production checks pass. Production checks import a named-location yard as well as the older nighttime and v0.8 completed example, and exercise linked inspection and SQL. Source, documentation, actual gameplay previews and validation records are updated separately in the public MIT repository and downloadable project.
+
+## Version 0.15 batch rail work and small crews
+
+Version 0.15.0 deployed successfully on October 5, 2026 at 17:31 UTC on the existing private Site and origin. Deployment ID: `appgdep_6ac3dececa94819181b40b8e53eec09d`. Build-only source commit: `81d7523019f4d97f23c48bf52e18bc4ac59ccda9`. The nine built assets and hosting manifest match the locally verified production build. Source, design notes, saves, diagnostic captures and credentials remain excluded from the Site.
+
+Connected rail work keeps its one real buffer aside until the final panel. Optional two-machine crews physically stage one panel ahead, then install it with a separate excavator; assigned support workers stay nearby, perform ground work and retain normal shifts and manual control. The release preserves default single-machine dispatch. Cancellation, stock conservation, safe withdrawal and saved source approach gear changes are checked. Track recovery #7 remains the next separately reviewed checkpoint; #29 records this prerequisite under parent #22.
+
+All 292 simulation regressions pass. The subsequent diagnostic-version and ordinary-work display-label corrections pass their targeted and integrated browser checks. The final browser suite passes all 21 register/layout combinations and the new crew controls, linked references, SQL, save/reload and narrow inspector. Production checks pass with no page errors, warnings, failed requests or external requests, including older saves and support-worker SQL. The example remains the compatible prior v0.8 save. Source/test fingerprints, the two metadata/display-label deltas and byte-matched assets are retained in the downloadable package. Public source and documentation are published separately under MIT.

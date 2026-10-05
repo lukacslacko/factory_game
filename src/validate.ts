@@ -86,6 +86,52 @@ export function validateState(value: any): asserts value is State {
       ids.add(g.id);
     }
   }
+  const pose = (p: any) => point(p) && finite(p.y) && finite(p.yaw);
+  for (const g of s.jobGroups || []) {
+    if (g.railCrew) {
+      const c = g.railCrew;
+      const staging = s.equipment.find((e: any) => e.id === c.stagingEquipment),
+        installing = s.equipment.find((e: any) => e.id === c.installingEquipment);
+      if (
+        !staging ||
+        !installing ||
+        staging.id === installing.id ||
+        installing.kind !== 'excavator' ||
+        !s.jobs.some(
+          (j: any) => j.kind === 'rail' && (j.parentId === g.id || j.track?.groupId === g.id),
+        )
+      )
+        fail('invalid rail work crew');
+    }
+    if (g.railBuffer) {
+      const b = g.railBuffer;
+      if (
+        !pose(b.pose) ||
+        b.pose.id !== 'BUFFER-001' ||
+        typeof b.pose.secured !== 'boolean' ||
+        typeof b.pose.carried !== 'boolean' ||
+        !pose(b.start) ||
+        !pose(b.latestEnd) ||
+        (b.ownerJob !== undefined &&
+          !s.jobs.some((j: any) => j.id === b.ownerJob && j.kind === 'rail' && j.parentId === g.id))
+      )
+        fail('invalid shared rail buffer');
+    }
+  }
+  if ((s.jobGroups || []).filter((g: any) => g.railBuffer && !g.railBuffer.pose.secured).length > 1)
+    fail('duplicate loose shared buffer');
+  for (const j of s.jobs)
+    if (
+      j.railStageOnly !== undefined &&
+      (typeof j.railStageOnly !== 'boolean' || j.kind !== 'rail')
+    )
+      fail('invalid rail staging pass');
+  for (const j of s.jobs)
+    if (
+      j.railBufferCleanup !== undefined &&
+      (typeof j.railBufferCleanup !== 'boolean' || j.kind !== 'rail' || !j.delivered || !j.railWork)
+    )
+      fail('invalid buffer cleanup task');
   const groups = new Map<string, any>((s.jobGroups || []).map((g: any) => [g.id, g]));
   for (const work of [...(s.jobGroups || []), ...s.jobs]) {
     if (
@@ -148,6 +194,7 @@ export function validateState(value: any): asserts value is State {
         fail('invalid ground wear cell');
     }
   }
+  const helpers = new Set<string>();
   for (const w of s.workers) {
     if (
       !point(w) ||
@@ -193,6 +240,16 @@ export function validateState(value: any): asserts value is State {
       fail('missing worker commute bus');
     if (w.parkingEquipment && !s.equipment.some((e: any) => e.id === w.parkingEquipment))
       fail('missing parking equipment');
+    if (w.assistingEquipment !== undefined) {
+      if (
+        typeof w.assistingEquipment !== 'string' ||
+        w.role === 'operator' ||
+        !s.equipment.some((e: any) => e.id === w.assistingEquipment) ||
+        helpers.has(w.assistingEquipment)
+      )
+        fail('invalid dedicated support worker assignment');
+      helpers.add(w.assistingEquipment);
+    }
     if (w.yieldTarget && !point(w.yieldTarget)) fail('invalid pedestrian yield destination');
   }
   for (const e of s.equipment) {
@@ -664,6 +721,8 @@ export function validateState(value: any): asserts value is State {
         r.source &&
         (!pose(r.source.pose) ||
           ![r.source.dock, r.source.clear, r.source.workerPoint].every(point) ||
+          (r.source.approach !== undefined && !point(r.source.approach)) ||
+          (r.source.entering !== undefined && typeof r.source.entering !== 'boolean') ||
           typeof r.source.stackId !== 'string')
       )
         fail('invalid rail source pickup');

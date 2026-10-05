@@ -95,6 +95,7 @@ export function queueTurnoutOperation(
 function eligible(s: State, w: Worker, j: Job) {
   return (
     w.role !== 'operator' &&
+    (!w.assistingEquipment || w.id === j.preferredWorker) &&
     workerAvailable(s, w) &&
     !w.job &&
     !w.vehicle &&

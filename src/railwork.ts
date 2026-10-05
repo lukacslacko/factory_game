@@ -10,10 +10,17 @@ import type {
   State,
   Worker,
 } from './types';
-import { legacyStagingAccessible } from './legacy-rail';
+import { forkStagingWithdrawal, legacyStagingAccessible } from './legacy-rail';
+import {
+  claimRailBatchBuffer,
+  railBatchContinues,
+  railBatchSafeEnd,
+  releaseRailBatchBuffer,
+  syncRailBatchBuffer,
+} from './rail-batch';
 import { MATERIALS } from './catalog';
 import { railCells, trackGeometry } from './track';
-import { center, dist, overlap, route } from './path';
+import { center, dist, overlap } from './path';
 import { angleDelta, localPoint, mixAngle, smoothstep, turn } from './motion';
 import {
   equipmentSweepBlocked,
@@ -21,6 +28,7 @@ import {
   machineRoute,
   workerMoveBlocked,
   equipmentBoxes,
+  boxOverlap,
   personTouchesBox,
   walkRoute,
 } from './traffic';
@@ -60,7 +68,7 @@ const phaseLabels: Record<RailWorkPhase, string> = {
   'stage-align': 'Align panel over staging supports',
   'stage-lower': 'Lower panel onto staging supports',
   'configure-staged-panel': 'Reposition and bolt turnout branch components',
-  'legacy-fork-withdraw': 'Withdraw forklift from staged imported panel',
+  'legacy-fork-withdraw': 'Withdraw staging machine from the supported panel',
   'unbolt-buffer': 'Unbolt existing buffer clamps',
   'buffer-rig': 'Attach buffer lifting slings',
   'buffer-lift': 'Lift released buffer clear of track',
@@ -93,11 +101,15 @@ const stepToward = (from: number, to: number, amount: number) =>
   from + Math.max(-amount, Math.min(amount, to - from));
 const facing = (from: Point, to: Point) => Math.atan2(to.z - from.z, to.x - from.x);
 const axis = (r: RailWork): Point => ({ x: Math.cos(r.axisYaw), z: Math.sin(r.axisYaw) });
-const finalBufferPoint = (r: RailWork) => (r.restoreOriginal ? r.start : r.end);
+const finalBufferPoint = (s: State, j: Job) =>
+  j.railWork!.restoreOriginal ? railBatchSafeEnd(s, j) || j.railWork!.start : j.railWork!.end;
 const railItem = (j: Job): Item => j.item || 'rail';
 const stageYaw = (r: RailWork) => r.stageYaw ?? r.axisYaw;
 const entryYaw = (r: RailWork) => r.entryYaw ?? r.axisYaw;
-const finalBufferYaw = (r: RailWork) => (r.restoreOriginal ? entryYaw(r) : (r.endYaw ?? r.axisYaw));
+const finalBufferYaw = (s: State, j: Job) => {
+  const r = j.railWork!;
+  return r.restoreOriginal ? (railBatchSafeEnd(s, j)?.yaw ?? entryYaw(r)) : (r.endYaw ?? r.axisYaw);
+};
 const installedPose = (j: Job): RailWorkPose => ({ ...trackGeometry(j).pose, y: 0 });
 const suppliedHand = (r: RailWork) => r.configuredHand ?? 1;
 
@@ -121,7 +133,7 @@ function blocked(s: State, r: Rect, api: RailWorkAPI) {
   );
 }
 
-function chooseStaging(s: State, j: Job, e: Equipment, api: RailWorkAPI) {
+function chooseStaging(s: State, j: Job, e: Equipment, api: RailWorkAPI, deferForkAccess = false) {
   const geometry = trackGeometry(j),
     c = geometry.pose;
   const stagingYaw = j.track ? (j.track.heading * Math.PI) / 2 : ((j.rotation % 2) * Math.PI) / 2;
@@ -135,6 +147,24 @@ function chooseStaging(s: State, j: Job, e: Equipment, api: RailWorkAPI) {
     z: Math.sin(geometry.entry.yaw + Math.PI),
   };
   const start = geometry.entry;
+  // This rigger must walk to the source edge before the crane ever reaches
+  // its laying dock. Preview that later dock without their current idle
+  // position; executed movement and boom sweeps still check every worker.
+  const dockState = {
+    ...s,
+    workers: s.workers.filter(
+      (w) => w.id !== j.worker || w.duty !== 'auto' || w.path.length || !!w.transition,
+    ),
+  };
+  const sharedBuffer = s.jobGroups?.find(
+    (g) => g.id === (j.track?.groupId || j.parentId),
+  )?.railBuffer;
+  const restingBuffer =
+    sharedBuffer &&
+    !sharedBuffer.pose.secured &&
+    (j.railStageOnly || dist(sharedBuffer.latestEnd, start) < 0.02)
+      ? sharedBuffer.pose
+      : undefined;
   if (j.legacyRailHandoff === 'staged') {
     const stack = s.stacks.find((t) => t.id === j.stack && t.source === j.id && t.qty > 0);
     if (!stack) return undefined;
@@ -150,7 +180,9 @@ function chooseStaging(s: State, j: Job, e: Equipment, api: RailWorkAPI) {
       stage: { x: stack.x, z: stack.z, w: stack.w, d: stack.d },
       stageDock: add(p, stockSide, -REACH),
       railDock: add(c, side, REACH),
-      bufferAside: add(add(start, side, gap), forward, j.track ? -8 : -4),
+      bufferAside: restingBuffer
+        ? { x: restingBuffer.x, z: restingBuffer.z }
+        : add(add(start, side, gap), forward, j.track ? -8 : -4),
       stageYaw: stockYaw,
     };
   }
@@ -169,28 +201,46 @@ function chooseStaging(s: State, j: Job, e: Equipment, api: RailWorkAPI) {
         d,
       };
       const p = center(stage);
-      const forkHandoff = e.kind === 'forklift' && j.legacyRailHandoff === 'carried';
+      const forkHandoff =
+        e.kind === 'forklift' && (j.legacyRailHandoff === 'carried' || j.railStageOnly);
       const forkYaw =
-        e.cargo?.yaw === undefined ? 0 : e.cargo.yaw - (e.yaw ?? (e.heading * Math.PI) / 2);
+        e.cargo?.yaw === undefined
+          ? j.railStageOnly
+            ? Math.PI / 2
+            : 0
+          : e.cargo.yaw - (e.yaw ?? (e.heading * Math.PI) / 2);
       const dockYaw = stagingYaw - forkYaw;
       let stageDock = forkHandoff
           ? add(p, { x: Math.cos(dockYaw), z: Math.sin(dockYaw) }, -4.2)
           : add(p, stageSide, -REACH),
         railDock = add(c, side, REACH);
-      const bufferAside = add(add(start, side, gap), forward, j.track ? -8 : -4);
+      const bufferAside = restingBuffer
+        ? { x: restingBuffer.x, z: restingBuffer.z }
+        : add(add(start, side, gap), forward, j.track ? -8 : -4);
       const asideBox = { x: bufferAside.x - 1.5, z: bufferAside.z - 1.5, w: 3, d: 3 };
-      if (blocked(s, stage, api) || blocked(s, asideBox, api) || overlap(stage, asideBox, 0.3))
+      if (
+        blocked(s, stage, api) ||
+        (!restingBuffer && blocked(s, asideBox, api)) ||
+        overlap(stage, asideBox, 0.3)
+      )
         continue;
       const obs = api.obstacles(s);
-      if (!forkHandoff && equipmentMoveBlocked(s, e, { ...stageDock, yaw: facing(stageDock, p) }))
+      if (
+        !forkHandoff &&
+        equipmentMoveBlocked(dockState, e, { ...stageDock, yaw: facing(stageDock, p) })
+      )
         stageDock = add(p, stageSide, REACH);
       if (forkHandoff) {
         const parking = add(add(p, forward, -15), side, 8);
-        if (!legacyStagingAccessible(s, e, stageDock, stage, parking, dockYaw, obs)) continue;
+        if (
+          !deferForkAccess &&
+          !legacyStagingAccessible(s, e, stageDock, stage, parking, dockYaw, obs)
+        )
+          continue;
       } else if (
         (!machineRoute(s, e, stageDock, obs, 600, true) &&
           !machineRoute(s, { ...e, reverse: !e.reverse }, stageDock, obs, 600, true)) ||
-        equipmentMoveBlocked(s, e, { ...railDock, yaw: facing(railDock, c) })
+        equipmentMoveBlocked(dockState, e, { ...railDock, yaw: facing(railDock, c) })
       )
         continue;
       return { side, stage, stageDock, railDock, bufferAside, stageYaw: stagingYaw };
@@ -209,7 +259,8 @@ function panelCrewPoints(p: Point, yaw: number, length = 5, width = 3): Point[] 
 }
 function initialize(s: State, j: Job, e: Equipment, api: RailWorkAPI) {
   const forkHandoff =
-    e.kind === 'forklift' && j.legacyRailHandoff === 'carried' && e.cargo?.item === 'rail';
+    e.kind === 'forklift' &&
+    (j.railStageOnly || (j.legacyRailHandoff === 'carried' && e.cargo?.item === railItem(j)));
   if (e.kind !== 'excavator' && !forkHandoff) {
     j.reason = 'Rail laying and buffer handling require an excavator';
     return false;
@@ -230,7 +281,7 @@ function initialize(s: State, j: Job, e: Equipment, api: RailWorkAPI) {
               t.track?.layout === j.track.layout)),
       )
     : undefined;
-  const staging = chooseStaging(s, j, e, api);
+  let staging = chooseStaging(s, j, e, api, !!(forkHandoff && !e.cargo));
   if (!staging) {
     j.reason =
       'Rail work needs a clear staging area beside the track and an accessible machine route';
@@ -277,7 +328,7 @@ function initialize(s: State, j: Job, e: Equipment, api: RailWorkAPI) {
     const material = MATERIALS[railItem(j)];
     const workerPoint = panelCrewPoints(point, yaw, material.w, material.d)
       .sort((a, b) => dist(crew, a) - dist(crew, b))
-      .find((p) => !workerMoveBlocked(s, crew, p) && route(crew, p, api.obstacles(s), 0.15));
+      .find((p) => !workerMoveBlocked(s, crew, p) && walkRoute(s, crew, p, api.obstacles(s)));
     if (!workerPoint) {
       j.reason = 'Crew needs access to an exposed rail-panel edge for rigging';
       return false;
@@ -289,8 +340,10 @@ function initialize(s: State, j: Job, e: Equipment, api: RailWorkAPI) {
     sourceFace: for (const { direction, reach } of faces)
       for (const sign of [1, -1]) {
         const dock = add(point, direction, reach * sign),
-          clear = add(dock, direction, 2.5 * sign);
+          clear = add(dock, direction, 2.5 * sign),
+          approach = { ...clear };
         const parked = { ...e, ...dock, yaw: facing(dock, point), reach };
+        const alignedApproach = { ...parked, ...approach, reach: 2.7, reverse: false };
         const liftedState = {
           ...s,
           stacks: s.stacks.map((t) =>
@@ -320,8 +373,17 @@ function initialize(s: State, j: Job, e: Equipment, api: RailWorkAPI) {
             : undefined;
         if (
           !equipmentMoveBlocked(s, e, parked) &&
-          (machineRoute(s, e, dock, api.obstacles(s), 450, true) ||
-            machineRoute(s, { ...e, reverse: !e.reverse }, dock, api.obstacles(s), 450, true)) &&
+          !equipmentMoveBlocked(s, e, alignedApproach) &&
+          (machineRoute(s, e, approach, api.obstacles(s), 450, true) ||
+            machineRoute(
+              s,
+              { ...e, reverse: !e.reverse },
+              approach,
+              api.obstacles(s),
+              450,
+              true,
+            )) &&
+          machineRoute(s, alignedApproach, dock, api.obstacles(s), 250, true) &&
           loadedClear
         ) {
           source = {
@@ -336,6 +398,8 @@ function initialize(s: State, j: Job, e: Equipment, api: RailWorkAPI) {
             },
             dock,
             clear: loadedClear,
+            approach,
+            entering: false,
             workerPoint,
           };
           break sourceFace;
@@ -343,6 +407,29 @@ function initialize(s: State, j: Job, e: Equipment, api: RailWorkAPI) {
       }
     if (!source) {
       j.reason = 'Reserved rail panel needs an accessible lifting face';
+      return false;
+    }
+  }
+  if (forkHandoff && source) {
+    // The accessible storage face determines the rail panel's orientation on
+    // its forks. Preflight staging AND the mandatory straight withdrawal with
+    // that real orientation, rather than reversing an earlier guessed dock.
+    const liftedState = {
+      ...s,
+      stacks: s.stacks.map((t) =>
+        t.id === source!.stackId ? { ...t, qty: t.qty - 1, reserved: t.reserved - 1 } : t,
+      ),
+    };
+    const loadedAtSource = {
+      ...e,
+      ...source.dock,
+      yaw: facing(source.dock, source.pose),
+      reach: dist(source.dock, source.pose),
+      cargo: { item: railItem(j), qty: 1, yaw: source.pose.yaw },
+    };
+    staging = chooseStaging(liftedState, j, loadedAtSource, api);
+    if (!staging) {
+      j.reason = 'Rail-panel staging needs an accessible fork approach and straight withdrawal';
       return false;
     }
   }
@@ -370,7 +457,10 @@ function initialize(s: State, j: Job, e: Equipment, api: RailWorkAPI) {
       ? (j.track?.hand ?? 1)
       : (sourceStack?.trackHand ?? staged?.trackHand ?? 1),
     legacyForkYaw: forkHandoff
-      ? (e.cargo?.yaw ?? e.yaw ?? (e.heading * Math.PI) / 2) - (e.yaw ?? (e.heading * Math.PI) / 2)
+      ? source
+        ? source.pose.yaw - facing(source.dock, source.pose)
+        : (e.cargo?.yaw ?? e.yaw ?? (e.heading * Math.PI) / 2) -
+          (e.yaw ?? (e.heading * Math.PI) / 2)
       : undefined,
     source,
     panel: source
@@ -393,9 +483,14 @@ function initialize(s: State, j: Job, e: Equipment, api: RailWorkAPI) {
             },
     lifting: installed || source || staged ? undefined : 'panel',
   };
+  if (forkHandoff && source) {
+    const dockYaw = stageYaw(r) - r.legacyForkYaw!;
+    r.stageDock = add(center(r.stage), { x: Math.cos(dockYaw), z: Math.sin(dockYaw) }, -4.2);
+  }
   if (
-    dist(s.buffer, start) < 0.15 ||
-    (installed && (j.phase === 'Relocate buffer' || j.legacyRailHandoff === 'installed'))
+    !j.railStageOnly &&
+    (dist(s.buffer, start) < 0.15 ||
+      (installed && (j.phase === 'Relocate buffer' || j.legacyRailHandoff === 'installed')))
   ) {
     r.buffer = {
       ...s.buffer,
@@ -406,7 +501,8 @@ function initialize(s: State, j: Job, e: Equipment, api: RailWorkAPI) {
       carried: false,
     };
   }
-  if (staged && r.buffer) r.phase = 'unbolt-buffer';
+  claimRailBatchBuffer(s, j, r);
+  if (staged && r.buffer?.secured) r.phase = 'unbolt-buffer';
   if (
     staged &&
     j.track?.layout === 'turnout' &&
@@ -415,6 +511,14 @@ function initialize(s: State, j: Job, e: Equipment, api: RailWorkAPI) {
   )
     r.phase = 'configure-staged-panel';
   j.railWork = r;
+  const crew = s.workers.find((worker) => worker.id === j.worker);
+  if (crew) {
+    // A prior yielding maneuver can retain a return destination beside a
+    // buffer that has since been set down. This sequence owns the next real
+    // walking destination; stop the stale path before requesting its rigger.
+    crew.path = [];
+    crew.yieldTarget = undefined;
+  }
   j.phase = phaseLabels[r.phase];
   j.elapsed = 0;
   j.reason = '';
@@ -513,12 +617,68 @@ function machineAt(
   if (blocker) {
     e.blockedBy = blocker;
     j.reason = `Waiting for ${blocker} to clear the excavator turning area`;
+    parkRailBlocker(s, e, blocker, target, api);
     return false;
   }
   e.blockedBy = undefined;
   e.yaw = candidate.yaw;
   e.reach = stepToward(e.reach || 2.7, dist(e, target), dt * 0.8);
   return aligned && Math.abs((e.reach || 0) - dist(e, target)) < 0.02;
+}
+
+/** An idle, occupied machine can clear a neighboring crew's actual boom sweep. */
+function parkRailBlocker(s: State, e: Equipment, blocker: string, target: Point, api: RailWorkAPI) {
+  const other = s.equipment.find((q) => q.id === blocker);
+  if (
+    !other ||
+    other.path.length ||
+    other.job ||
+    other.cargo ||
+    other.deliveryOrder ||
+    other.transportOrder ||
+    other.refueling ||
+    other.fuel <= 0 ||
+    s.elapsed < (other.trafficRetry || 0)
+  )
+    return;
+  const op = s.workers.find(
+    (w) => w.id === other.operator && w.vehicle === other.id && w.duty === 'auto',
+  );
+  if (!op) return;
+  const from = e.yaw ?? (e.heading * Math.PI) / 2,
+    change = angleDelta(from, facing(e, target));
+  const sweep = Array.from({ length: 17 }, (_, i) =>
+    equipmentBoxes(e, { ...e, yaw: from + (change * i) / 16 }),
+  ).flat();
+  const away = facing(e, other);
+  for (const distance of [5, 8, 11])
+    for (const offset of [0, Math.PI / 2, -Math.PI / 2, Math.PI]) {
+      const p = add(other, { x: Math.cos(away + offset), z: Math.sin(away + offset) }, distance);
+      if (
+        equipmentBoxes(other, { ...p, yaw: other.yaw }).some((b) =>
+          sweep.some((q) => boxOverlap(b, q, 0.35)),
+        )
+      )
+        continue;
+      for (const reverse of [false, true]) {
+        const path = machineRoute(s, { ...other, reverse }, p, api.obstacles(s), 150, true);
+        if (!path?.length) continue;
+        other.path = path;
+        other.reverse = reverse;
+        other.trafficReverse = reverse || undefined;
+        other.trafficGoal = { ...p };
+        other.trafficWait = 0;
+        op.status = 'Parking clear of the neighboring rail crew';
+        api.event(
+          s,
+          'Traffic',
+          other.id,
+          `${op.name} is moving ${other.id} clear of ${e.id}'s rail-handling sweep.`,
+        );
+        return;
+      }
+    }
+  other.trafficRetry = s.elapsed + 1.5;
 }
 
 function workerAt(
@@ -622,7 +782,9 @@ function followLoad(
   const targetYaw =
     object === 'buffer'
       ? ['buffer-carry-end', 'buffer-align-end'].includes(r.phase)
-        ? finalBufferYaw(r)
+        ? r.restoreOriginal
+          ? entryYaw(r)
+          : (r.endYaw ?? r.axisYaw)
         : entryYaw(r)
       : r.phase === 'source-clear'
         ? (r.source?.pose.yaw ?? stageYaw(r))
@@ -667,7 +829,8 @@ function stagePanel(s: State, j: Job, e: Equipment, api: RailWorkAPI) {
   }
   stack.qty = 1;
   stack.reserved = 1;
-  if (j.legacyRailHandoff === 'carried') stack.baseHeight = 0.06;
+  if (j.legacyRailHandoff === 'carried' || (j.railStageOnly && e.kind === 'forklift'))
+    stack.baseHeight = 0.06;
   r.panel.stackId = id;
   r.panel.state = 'staged';
   Object.assign(r.panel, center(r.stage), {
@@ -705,6 +868,11 @@ function finish(s: State, j: Job, api: RailWorkAPI) {
   r.clock = 0;
   r.lifting = undefined;
   r.from = undefined;
+  releaseRailBatchBuffer(s, j);
+  if (j.railBufferCleanup) {
+    j.cancel = undefined;
+    j.railBufferCleanup = undefined;
+  }
   if (!j.cancel) {
     api.complete(s, j);
     return;
@@ -736,7 +904,7 @@ function afterPanelStaged(s: State, j: Job, api: RailWorkAPI) {
     transition(s, j, 'configure-staged-panel');
     return;
   }
-  if (j.legacyRailHandoff === 'carried') {
+  if (j.legacyRailHandoff === 'carried' || j.railStageOnly) {
     transition(s, j, 'legacy-fork-withdraw');
     return;
   }
@@ -745,7 +913,7 @@ function afterPanelStaged(s: State, j: Job, api: RailWorkAPI) {
       r.restoreOriginal = true;
       transition(s, j, 'buffer-retrieve');
     } else finish(s, j, api);
-  } else transition(s, j, r.buffer ? 'unbolt-buffer' : 'panel-approach');
+  } else transition(s, j, r.buffer?.secured ? 'unbolt-buffer' : 'panel-approach');
 }
 
 /**
@@ -778,7 +946,7 @@ export function tickRailWork(s: State, j: Job, dt: number, api: RailWorkAPI): bo
     return true;
   }
   if (e.operator !== op.id || op.vehicle !== e.id) {
-    j.reason = 'Assigned operator must remain in the excavator';
+    j.reason = `Assigned operator must remain in the ${e.kind === 'forklift' ? 'forklift' : 'excavator'}`;
     return true;
   }
   // This sequence owns the rigger's next destination. After yielding to its crane,
@@ -804,8 +972,15 @@ export function tickRailWork(s: State, j: Job, dt: number, api: RailWorkAPI): bo
   if (j.cancel && r.panel.state !== 'installed') {
     r.restoreOriginal = true;
     if (r.panel.state === 'stored') {
-      finish(s, j, api);
-      return true;
+      if (r.buffer && !r.buffer.secured) {
+        if (!r.phase.includes('buffer')) {
+          e.path = [];
+          transition(s, j, 'buffer-retrieve');
+        }
+      } else {
+        finish(s, j, api);
+        return true;
+      }
     }
     if (
       ['panel-lift', 'panel-carry', 'panel-align', 'panel-lower', 'join-panel'].includes(r.phase)
@@ -845,6 +1020,29 @@ export function tickRailWork(s: State, j: Job, dt: number, api: RailWorkAPI): bo
 
   if (r.phase === 'source-approach') {
     const source = r.source!;
+    if (!source.approach) {
+      // Earlier saves have one mixed-gear path directly to the lifting face.
+      // Preserve the real poses and stock, stop that obsolete path, and begin
+      // a physical clear-face approach before making the forward entry.
+      const distance = dist(source.dock, source.pose);
+      if (distance < 0.1) {
+        j.reason = 'Saved rail-panel lifting face needs a valid approach direction';
+        return true;
+      }
+      source.approach = add(
+        source.dock,
+        {
+          x: (source.dock.x - source.pose.x) / distance,
+          z: (source.dock.z - source.pose.z) / distance,
+        },
+        2.5,
+      );
+      source.entering = false;
+      e.path = [];
+      e.trafficGoal = undefined;
+      e.trafficReverse = undefined;
+      e.velocity = 0;
+    }
     // Old saves can contain a center-only approach that fits the grid but
     // cannot fit the crane while it turns. Retain the same reserved panel,
     // replay actual steering, and try the opposite lifting face if needed.
@@ -883,7 +1081,7 @@ export function tickRailWork(s: State, j: Job, dt: number, api: RailWorkAPI): bo
         if (!path) continue;
         const entry = machineRoute(
           s,
-          { ...parked, ...approach, reverse: false },
+          { ...parked, ...approach, reach: 2.7, reverse: false },
           dock,
           api.obstacles(s),
           200,
@@ -892,7 +1090,9 @@ export function tickRailWork(s: State, j: Job, dt: number, api: RailWorkAPI): bo
         if (!entry) continue;
         source.dock = dock;
         source.clear = approach;
-        e.path = [...path, ...entry];
+        source.approach = approach;
+        source.entering = false;
+        e.path = path;
         e.reverse = reverse;
         e.trafficWait = 0;
         j.reason = '';
@@ -904,6 +1104,28 @@ export function tickRailWork(s: State, j: Job, dt: number, api: RailWorkAPI): bo
         );
         break;
       }
+    }
+    if (source.approach && !source.entering) {
+      const yaw = facing(source.approach, source.pose),
+        alignTarget = localPoint({ ...source.approach, yaw }, 2.7, 0);
+      if (machineAt(s, j, e, source.approach, alignTarget, dt, api)) {
+        const path = machineRoute(
+          s,
+          { ...e, reverse: false },
+          source.dock,
+          api.obstacles(s),
+          250,
+          true,
+        );
+        if (path) {
+          // Steering and gear change happen while stationary at the clear
+          // approach. Every point of the final entry uses this forward gear.
+          e.reverse = false;
+          e.path = path;
+          source.entering = true;
+        } else j.reason = 'Clear the forward approach to the rail-panel lifting face';
+      }
+      return true;
     }
     const machineReady = machineAt(s, j, e, source.dock, source.pose, dt, api);
     const workerReady =
@@ -928,7 +1150,10 @@ export function tickRailWork(s: State, j: Job, dt: number, api: RailWorkAPI): bo
     r.clock += dt;
     r.lifting = 'panel';
     e.lift = r.panel.y;
-    w.status = 'Attaching slings to the top rail panel';
+    w.status =
+      e.kind === 'forklift'
+        ? 'Checking fork bearings and securing the supported rail panel'
+        : 'Attaching slings to the top rail panel';
     if (r.clock >= 3) {
       if (!crewClearForLift(s, j, e, w, r.panel, false, api, source.clear)) return true;
       stack.qty--;
@@ -942,7 +1167,9 @@ export function tickRailWork(s: State, j: Job, dt: number, api: RailWorkAPI): bo
         1,
         stack.id,
         e.id,
-        'Rigged rail panel lifted from its storage stack',
+        e.kind === 'forklift'
+          ? 'Rail panel raised on its supporting forks from storage'
+          : 'Rigged rail panel lifted from its storage stack',
       );
       transition(s, j, 'source-lift', r.panel);
     }
@@ -1021,7 +1248,11 @@ export function tickRailWork(s: State, j: Job, dt: number, api: RailWorkAPI): bo
       r,
       {
         ...stagePoint,
-        y: surface(s, stagePoint) + (j.legacyRailHandoff === 'carried' ? 0.06 : 0),
+        y:
+          surface(s, stagePoint) +
+          (j.legacyRailHandoff === 'carried' || (j.railStageOnly && e.kind === 'forklift')
+            ? 0.06
+            : 0),
         yaw: stageYaw(r),
       },
       3.5,
@@ -1062,29 +1293,71 @@ export function tickRailWork(s: State, j: Job, dt: number, api: RailWorkAPI): bo
       }
     }
   } else if (r.phase === 'legacy-fork-withdraw') {
-    const yaw = e.yaw ?? (e.heading * Math.PI) / 2;
+    const yaw = facing(r.stageDock, stagePoint);
     if (e.path.length) return true;
     if (r.clock < 1) {
-      const clear = localPoint({ ...r.stageDock, yaw }, -3.5, 0);
+      if (e.kind === 'excavator') {
+        // Released slings can be lifted and the empty boom retracted. Unlike
+        // forks still beneath a panel, a crane need not reverse toward the
+        // running line (or the buffer) before leaving its staging position.
+        e.lift = stepToward(e.lift || 0, 0.8, dt * 0.5);
+        if (Math.abs(e.lift - 0.8) > 0.02) return true;
+        e.reach = stepToward(e.reach || REACH, 2.7, dt * 0.8);
+        if (Math.abs(e.reach - 2.7) > 0.02) return true;
+      }
+      let clear = r.from || localPoint({ ...r.stageDock, yaw }, -3.5, 0);
       if (dist(e, clear) > 0.08) {
-        const path = machineRoute(s, { ...e, reverse: true }, clear, api.obstacles(s), 350, true);
-        if (!path) {
-          j.reason = 'Clear the forklift withdrawal route beside the staged panel';
+        if (s.elapsed < (e.trafficRetry || 0)) {
+          j.reason = 'Clear the staging machine withdrawal route beside the supported panel';
           return true;
         }
+        let reverse = true,
+          path =
+            e.kind === 'forklift'
+              ? forkStagingWithdrawal(s, { ...e, reverse }, api.obstacles(s))
+              : machineRoute(s, { ...e, reverse }, clear, api.obstacles(s), 350, true);
+        if (!path && e.kind === 'excavator' && !r.from) {
+          const candidates = [-5.5, 5.5].map((side) =>
+            localPoint({ ...r.stageDock, yaw }, 0, side),
+          );
+          for (const candidate of candidates) {
+            reverse = false;
+            path = machineRoute(s, { ...e, reverse }, candidate, api.obstacles(s), 350, true);
+            if (!path) {
+              reverse = true;
+              path = machineRoute(s, { ...e, reverse }, candidate, api.obstacles(s), 350, true);
+            }
+            if (path) {
+              clear = candidate;
+              break;
+            }
+          }
+        }
+        if (!path) {
+          j.reason = 'Clear the staging machine withdrawal route beside the supported panel';
+          e.trafficRetry = s.elapsed + 1.5;
+          return true;
+        }
+        r.from = { ...clear, y: 0, yaw };
         e.path = path;
-        e.reverse = true;
+        e.reverse = reverse;
         return true;
       }
       r.clock = 1;
+      r.from = undefined;
       e.reverse = false;
       e.reach = 2.7;
     }
     const parking = add(add(stagePoint, f, -15), r.side, 8);
     if (dist(e, parking) > 0.08) {
+      if (s.elapsed < (e.trafficRetry || 0)) {
+        j.reason = 'Clear a parking route outside the buffer lifting area';
+        return true;
+      }
       const path = machineRoute(s, e, parking, api.obstacles(s), 450, true);
       if (!path) {
         j.reason = 'Clear a parking route outside the buffer lifting area';
+        e.trafficRetry = s.elapsed + 1.5;
         return true;
       }
       e.path = path;
@@ -1095,19 +1368,25 @@ export function tickRailWork(s: State, j: Job, dt: number, api: RailWorkAPI): bo
     e.reverse = false;
     e.lift = 0.12;
     e.reach = 2.7;
+    const stagedStackId = r.panel.stackId;
     api.release(s, j);
     j.legacyRailHandoff = j.cancel ? undefined : 'staged';
     j.railWork = undefined;
     j.status = j.cancel ? 'canceled' : 'todo';
     j.phase = j.cancel ? 'Canceled; imported panel staged' : 'Waiting';
     j.reason = j.cancel ? '' : 'Imported panel staged; waiting for an excavator';
+    if (j.railStageOnly) {
+      j.railStageOnly = false;
+      j.stack = j.cancel ? undefined : stagedStackId;
+      j.reason = j.cancel ? '' : 'Panel staged; waiting for the rail installation crew';
+    }
     j.retryAt = undefined;
     j.retryRevision = undefined;
     api.event(
       s,
       'Work',
       j.id,
-      'Forklift withdrew from the staged imported panel and released its crew.',
+      `${e.kind === 'forklift' ? 'Forklift' : 'Excavator'} withdrew from the supported panel and released its staging crew.`,
     );
     s.revision++;
     return true;
@@ -1256,7 +1535,14 @@ export function tickRailWork(s: State, j: Job, dt: number, api: RailWorkAPI): bo
           `${w.name} completed the rail joints; panel ${rid} is installed.`,
         );
         s.revision++;
-        if (r.buffer) transition(s, j, 'buffer-retrieve');
+        syncRailBatchBuffer(s, j);
+        if (r.buffer && !j.cancel && railBatchContinues(s, j)) {
+          // The buffer is a stationary real obstacle beside the track. Keep it
+          // there while this work order's next connected panel is installed.
+          releaseRailBatchBuffer(s, j);
+          r.buffer = undefined;
+          finish(s, j, api);
+        } else if (r.buffer) transition(s, j, 'buffer-retrieve');
         else finish(s, j, api);
       }
     }
@@ -1270,7 +1556,7 @@ export function tickRailWork(s: State, j: Job, dt: number, api: RailWorkAPI): bo
       machineReady && workerAt(s, j, w, workerPoint(r.buffer), api, bufferCrewPoints(r.buffer));
     if (machineReady && workerReady) transition(s, j, 'buffer-rig-return');
   } else if (r.phase === 'buffer-carry-end' || r.phase === 'buffer-align-end') {
-    const target = finalBufferPoint(r);
+    const target = finalBufferPoint(s, j);
     if (machineAt(s, j, e, bufferDock(target), target, dt, api)) {
       followLoad(r, e, 'buffer', dt);
       transition(s, j, 'buffer-lower-end', r.buffer!);
@@ -1278,9 +1564,9 @@ export function tickRailWork(s: State, j: Job, dt: number, api: RailWorkAPI): bo
       transition(s, j, 'buffer-align-end');
   } else if (r.phase === 'buffer-lower-end') {
     const b = r.buffer!,
-      target = finalBufferPoint(r);
+      target = finalBufferPoint(s, j);
     r.clock += dt;
-    if (animatePose(r, { ...target, y: 0.2, yaw: finalBufferYaw(r) }, 3.5, b)) {
+    if (animatePose(r, { ...target, y: 0.2, yaw: finalBufferYaw(s, j) }, 3.5, b)) {
       b.carried = false;
       r.lifting = undefined;
       transition(s, j, 'fasten-buffer');
@@ -1335,6 +1621,7 @@ export function tickRailWork(s: State, j: Job, dt: number, api: RailWorkAPI): bo
   if (r.buffer) {
     s.buffer.x = r.buffer.x;
     s.buffer.z = r.buffer.z;
+    syncRailBatchBuffer(s, j);
   }
   if (j.status === 'doing')
     j.progress =

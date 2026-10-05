@@ -6,7 +6,7 @@ The world uses a true perspective 3D camera, with a meter grid, dimensional stoc
 
 ## Play
 
-The private game Site is **https://plant-01-starter-yard.lukacslacko.chatgpt.site**. This package documents version **0.14.0**; deployment status is recorded in `docs/publishing.md`. Sign in with the account that owns the Site. Local and hosted browser saves are separate; use Export save / Import save to transfer a yard.
+The private game Site is **https://plant-01-starter-yard.lukacslacko.chatgpt.site**. This package documents version **0.15.0**; deployment status is recorded in `docs/publishing.md`. Sign in with the account that owns the Site. Local and hosted browser saves are separate; use Export save / Import save to transfer a yard.
 
 On this Mac, double-click **Start Plant 01.command**. It starts the included local server and opens the game at **http://127.0.0.1:4173/**. Keep its Terminal window open while playing; Control-C stops the server.
 
@@ -34,11 +34,19 @@ Open **manual.html** through the local server for the illustrated player guide, 
 - Select a worker to walk cell to cell, board equipment, drive, or take a particular job. Hand control back without resetting the person or machine.
 - Recover buildings and paving into storage; existing straight-panel rail recovery remains available. Recovered prefab containers retain their asset IDs. Track plans recover existing paving first. Extending the initial siding relocates the same buffer.
 - Road traffic keeps right on an 8.4 m road, queues behind stopped vehicles, and yields at the crossing. Carriers take turns through the connecting yard maneuver, while parked deliveries release it for other arrivals. Buses continue forward; freight and utility trucks back clear inside the yard before departing forward; lowloaders use a forward turning loop. Machinery yields to workers and routes around obstructions.
-- Rail construction stages the panel beside the track, unbolts and lifts the existing buffer aside, lowers and joins the panel, then lifts and refastens that same buffer at the new end. Keep space beside the extension for staging and lifting.
+- Rail construction stages panels beside the track, unbolts and lifts the existing buffer aside, and lowers and joins each panel. A connected multi-panel work order refastens that same buffer once at its final end. Keep space beside the extension for staging and lifting.
 - Consume diesel, receive low-fuel notices, and refuel through a worker carrying a 20 L service can. Fuel held in a can survives saving and loading.
 - Order electrical and water/sewer services. Utility crews arrive and commission the service. Connected lights illuminate the yard at night.
 - Inspect materials, workers, equipment, structures, deliveries, jobs, events, material movements, actual costs, and outstanding commitments. Track notifications in To do / Doing / Done.
 - Query a fresh SQLite reporting snapshot and export costs as CSV. Autosave locally, export/import a portable save, and restore the previous yard backup.
+
+## Version 0.15 rail construction crews
+
+A connected multi-panel rail work order removes its buffer once, keeps it physically beside the track while panels are installed, and returns it at the final endpoint. Cancellation restores the last installed endpoint. Curves and straight runs retain the same buffer, stock, and worker records across save/reload.
+
+Select the parent rail work order in Jobs and choose separate **Staging equipment** and **Installation equipment**, then save the crew. A forklift or excavator can stage panels within its lift capacity; installation requires an excavator. At most one panel is prepared ahead, and handoff waits for actual supported setdown and machine withdrawal. Each machine needs its own operator. Empty selectors restore normal single-machine work.
+
+In Equipment, assign a builder or engineer as a **Support worker**. The helper is reserved for that machine, walks nearby, and performs its ground work. Rest, manual control, shifts, and existing jobs remain respected. Crew changes finish current physical handling before taking effect. Two machines need enough space for both approaches; a crew does not bypass collision checks or create free workers.
 
 ## Version 0.14 named rail locations
 

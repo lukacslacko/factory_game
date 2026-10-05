@@ -180,3 +180,9 @@ Edits validate transactionally before allocating IDs, changing revision or appen
 The world draws a purpose-colored length guide, anchor icon and cached readable billboard text as map annotations. They are selectable but create no physical sign, collision footprint or capacity. Texture geometry is disposed through the existing static-model lifecycle; camera-facing label scaling uses no per-frame texture regeneration. World/register/SQL batches reuse a topology snapshot across their location rows. Inspectors and registers link stable IDs and expose repair state; SQL table `rail_locations` provides derived coordinates, yaw, connected/valid flags and reason alongside the stored reference.
 
 Supplier delivery logic, consists and locomotive paths are unchanged. Parent issue #22 tracks the separately reviewed reception connection, turnout replacement, multi-car identity, physical handoff and owned shunting work that will consume these same location IDs.
+
+## Batch rail buffer and crew state
+
+Optional JobGroup.railBuffer persists the real pose, original start, latest installed endpoint and current owner. Railwork synchronizes it during actual motion and releases ownership between panels; renderer and navigation use the group pose when no panel currently owns it. Legacy groups and old saves remain supported without a save-version bump.
+
+JobGroup.railCrew records stagingEquipment and installingEquipment. Original rail jobs use a transient railStageOnly pass, then legacyRailHandoff=staged with a real job-owned support stack; reservations transfer only after withdrawal. Dispatch admits one staging panel ahead and retains installation order. Worker.assistingEquipment is a one-to-one support assignment. Following uses ordinary collision-checked walking, and assignment changes preserve ongoing tasks. Reporting exposes these records and diagnostics include crew/staging phases.

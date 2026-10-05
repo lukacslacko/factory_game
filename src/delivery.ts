@@ -1,7 +1,13 @@
 export { orderLines, orderDescription, orderMass, itemMass } from './procurement';
 import { orderLines, orderDescription, pendingOrderLine } from './procurement';
 import { workerAvailable, commuteDoor } from './workforce';
-import { equipmentHasAssignedWork } from './jobs';
+import {
+  equipmentAssistant,
+  availableEquipmentAssistant,
+  equipmentAssistantReason,
+  workerSupportsEquipment,
+} from './work-crews';
+import { equipmentHasAssignedWork, equipmentCanReceiveRailSupply } from './jobs';
 import { RAIL_PANEL_PITCH, railStagingStackOwned } from './railwork';
 import { equipmentAllows } from './equipment-roles';
 import { FORK_LOAD_CENTER } from './fork-geometry';
@@ -283,7 +289,8 @@ export function equipmentReservedForDelivery(s: State, e: Equipment, ignoreOrder
 function materialMachine(s: State, o: Order, preferred?: string, manual = false) {
   const mass = MATERIALS[pendingOrderLine(o)!.item as Item].mass;
   const qualified = (e: Equipment) =>
-    !equipmentHasAssignedWork(s, e) &&
+    (!equipmentHasAssignedWork(s, e) ||
+      equipmentCanReceiveRailSupply(s, e, pendingOrderLine(o)!.item as Item)) &&
     !e.transportOrder &&
     !e.deliveryOrder &&
     !e.job &&
@@ -428,21 +435,36 @@ function startUnloading(s: State, o: Order, api: DeliveryAPI, preferred?: string
     return false;
   }
   const { e, w } = pair;
+  const slot = shipmentLots(o).find((t) => t.qty > 0)!;
+  const source = localPoint(freightPose(o), slot.x, slot.z);
+  const assignedAssistant = equipmentAssistant(s, e.id);
   const rigger =
     e.kind === 'excavator'
-      ? s.workers.find(
-          (r) =>
-            workerAvailable(s, r) &&
-            r.role !== 'operator' &&
-            r.duty === 'auto' &&
-            !r.job &&
-            !r.deliveryOrder &&
-            !r.transportOrder &&
-            !r.vehicle,
-        )
+      ? assignedAssistant
+        ? availableEquipmentAssistant(s, e.id)
+        : s.workers
+            .filter(
+              (r) =>
+                workerAvailable(s, r) &&
+                workerSupportsEquipment(r, e.id) &&
+                r.role !== 'operator' &&
+                r.duty === 'auto' &&
+                !r.job &&
+                !r.deliveryOrder &&
+                !r.transportOrder &&
+                !r.transition &&
+                !r.vehicle,
+            )
+            .sort((a, b) => dist(a, source) - dist(b, source))[0]
       : undefined;
   if (e.kind === 'excavator' && !rigger) {
-    waiting(s, o, 'Waiting for a site worker to rig the excavator lift', 'rigger', api);
+    waiting(
+      s,
+      o,
+      equipmentAssistantReason(s, e.id) || 'Waiting for a site worker to rig the excavator lift',
+      'rigger',
+      api,
+    );
     return false;
   }
   const dest = chooseStorage(s, item, e, api);
@@ -458,9 +480,7 @@ function startUnloading(s: State, o: Order, api: DeliveryAPI, preferred?: string
     );
     return false;
   }
-  const slot = shipmentLots(o).find((t) => t.qty > 0)!;
   const qty = Math.min(slot.qty, dest.space, Math.floor(EQUIPMENT[e.kind].capacity / m.mass));
-  const source = localPoint(freightPose(o), slot.x, slot.z);
   const pickup = {
     x: source.x,
     z:

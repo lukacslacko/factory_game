@@ -2360,6 +2360,10 @@ export class World {
         alpha,
       );
       this.positionModel(this.buffer, p);
+    } else if (s.jobGroups?.some((g) => g.railBuffer && !g.railBuffer.pose.secured)) {
+      const pose = s.jobGroups.find((g) => g.railBuffer && !g.railBuffer.pose.secured)!.railBuffer!
+        .pose;
+      this.positionModel(this.buffer, pose);
     } else {
       this.buffer.position.set(s.buffer.x, 0.2, s.buffer.z);
       this.buffer.rotation.y = 0;

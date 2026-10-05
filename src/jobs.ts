@@ -54,6 +54,10 @@ export function refreshAutomaticEquipment(s: State, operatorAvailable: (e: Equip
     if (unfinished(j)) entry.jobs.push(j);
   }
   for (const { group, jobs } of groups.values()) {
+    if (group.railCrew) {
+      group.automaticEquipment = undefined;
+      continue;
+    }
     if (!jobs.length) {
       group.automaticEquipment = undefined;
       continue;
@@ -87,6 +91,8 @@ export function refreshAutomaticEquipment(s: State, operatorAvailable: (e: Equip
 export function automaticEquipmentAllowsJob(s: State, e: Equipment, j: Job): boolean {
   const group = automaticWorkGroup(s, j);
   if (!group) return true;
+  if (group.railCrew && ['rail', 'remove'].includes(j.kind))
+    return jobEquipmentAssignment(s, j).equipmentId === e.id;
   if (group.automaticEquipment && group.automaticEquipment !== e.id) return false;
   return !s.jobs.some(
     (other) =>
@@ -160,6 +166,21 @@ function resolveEquipmentAssignment(
   work: Job | JobGroup | undefined,
   workId: string,
 ): Assignment {
+  if (work && 'kind' in work && ['rail', 'remove'].includes(work.kind)) {
+    const group = railCrewGroup(s, work);
+    const crew = group?.railCrew;
+    if (crew?.stagingEquipment && crew.installingEquipment) {
+      const staging = work.kind === 'rail' && railNeedsStaging(work);
+      const equipmentId = staging ? crew.stagingEquipment : crew.installingEquipment;
+      return {
+        equipmentId,
+        sourceId: group!.id,
+        inherited: true,
+        priority: group!.equipmentPriority || 0,
+        text: `${staging ? 'Staging' : 'Installation'} crew · ${equipmentId}`,
+      };
+    }
+  }
   const visited = new Set<string>();
   while (work && !visited.has(work.id)) {
     if ('kind' in work && work.kind === 'throwSwitch')
@@ -187,9 +208,22 @@ export function equipmentHasAssignedWork(s: State, e: Equipment): boolean {
   // remains correct after any mutation, including cancellation and imported saves.
   if (
     !s.jobs.some((j) => j.preferredEquipment === e.id) &&
-    !s.jobGroups?.some((g) => g.preferredEquipment === e.id)
+    !s.jobGroups?.some(
+      (g) =>
+        g.preferredEquipment === e.id ||
+        g.railCrew?.stagingEquipment === e.id ||
+        g.railCrew?.installingEquipment === e.id,
+    )
   )
     return false;
+  if (
+    s.jobGroups?.some(
+      (g) =>
+        (g.railCrew?.stagingEquipment === e.id || g.railCrew?.installingEquipment === e.id) &&
+        workLeaves(s, g.id).some(unfinished),
+    )
+  )
+    return true;
   return s.jobs.some(
     (j) =>
       unfinished(j) &&
@@ -217,7 +251,9 @@ export function equipmentCanDoJob(e: Equipment, j: Job, s?: State): boolean {
           : (s.buildings.find((b) => b.id === j.target)?.kind as Item | undefined)
       : undefined);
   return (
-    (!['rail', 'shed'].includes(j.kind) || e.kind === 'excavator') &&
+    (!['rail', 'shed'].includes(j.kind) ||
+      (j.kind === 'rail' && j.railStageOnly) ||
+      e.kind === 'excavator') &&
     !(j.kind === 'remove' && s && !item) &&
     EQUIPMENT[e.kind].capacity >= (MATERIALS[item!]?.mass || 1)
   );
@@ -379,4 +415,88 @@ export function sortWorkRows<
       visit(row.id);
     }
   return out;
+}
+
+export function railCrewGroup(s: State, j: Job): JobGroup | undefined {
+  return s.jobGroups?.find((g) => g.id === (j.track?.groupId || j.parentId) && g.railCrew);
+}
+export function railNeedsStaging(j: Job): boolean {
+  return !j.delivered && j.legacyRailHandoff !== 'staged' && j.legacyRailHandoff !== 'installed';
+}
+/** One real panel record passes through two machines; no duplicate material demand. */
+export function railStagingAllowed(s: State, j: Job): boolean {
+  const group = railCrewGroup(s, j);
+  if (!group || !railNeedsStaging(j)) return false;
+  const jobs = workLeaves(s, group.id).filter((k) => k.kind === 'rail' && unfinished(k));
+  // One staged/in-flight panel ahead, in the original installation order.
+  return (
+    !jobs.some(
+      (k) =>
+        k.id !== j.id &&
+        ((k.railStageOnly && k.status === 'doing') ||
+          (k.legacyRailHandoff === 'staged' && k.status === 'todo')),
+    ) && jobs.find((k) => railNeedsStaging(k))?.id === j.id
+  );
+}
+export function setRailCrew(
+  s: State,
+  groupId: string,
+  stagingEquipment?: string,
+  installingEquipment?: string,
+): string {
+  const group = s.jobGroups?.find((g) => g.id === groupId);
+  if (!group || !workLeaves(s, groupId).some((j) => j.kind === 'rail'))
+    return 'Select a rail construction work order.';
+  const jobs = workLeaves(s, groupId).filter(unfinished);
+  if (!jobs.length) return 'This work order has already finished.';
+  if (!!stagingEquipment !== !!installingEquipment)
+    return 'Choose both a staging machine and an installation excavator, or leave both blank.';
+  if (stagingEquipment && stagingEquipment === installingEquipment)
+    return 'Choose two different machines; single-machine work uses the normal assignment.';
+  if (stagingEquipment && installingEquipment) {
+    const staging = s.equipment.find((e) => e.id === stagingEquipment),
+      installing = s.equipment.find((e) => e.id === installingEquipment);
+    if (!staging || !installing) return 'Equipment no longer exists.';
+    if (installing.kind !== 'excavator')
+      return 'Installation and buffer handling require an excavator.';
+    if (jobs.some((j) => EQUIPMENT[staging.kind].capacity < (MATERIALS[j.item!]?.mass || 1)))
+      return 'The staging machine cannot lift every panel in this work order.';
+    if (jobs.some((j) => j.preferredEquipment))
+      return 'Clear individual panel equipment assignments before assigning this rail crew.';
+  }
+  group.railCrew = stagingEquipment ? { stagingEquipment, installingEquipment } : undefined;
+  group.automaticEquipment = undefined;
+  group.equipmentPriority = stagingEquipment ? s.next : undefined;
+  s.events.push({
+    id: `EV-${String(s.next++).padStart(4, '0')}`,
+    time: s.time,
+    type: 'Assignment',
+    entity: groupId,
+    text: stagingEquipment
+      ? `Rail crew: ${stagingEquipment} stages panels; ${installingEquipment} installs. Active physical work finishes safely before reassignment.`
+      : 'Rail crew cleared; active work finishes safely before normal assignment resumes.',
+  });
+  for (const j of jobs) {
+    j.retryAt = undefined;
+    j.retryRevision = undefined;
+  }
+  s.revision++;
+  return '';
+}
+
+/** The staging machine may receive its own missing panels before carrying them to the work. */
+export function equipmentCanReceiveRailSupply(s: State, e: Equipment, item: Item): boolean {
+  return !!s.jobGroups?.some(
+    (g) =>
+      g.railCrew?.stagingEquipment === e.id &&
+      (() => {
+        const need = workLeaves(s, g.id).filter(
+          (j) => unfinished(j) && j.kind === 'rail' && j.item === item && railNeedsStaging(j),
+        ).length;
+        const ready = s.stacks
+          .filter((t) => t.item === item)
+          .reduce((n, t) => n + t.qty - t.reserved, 0);
+        return need > ready;
+      })(),
+  );
 }

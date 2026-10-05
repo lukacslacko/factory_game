@@ -61,7 +61,8 @@ export function equipmentIntent(s: State, e: Equipment): EquipmentIntent {
       else if (r.phase === 'legacy-fork-withdraw')
         target =
           r.clock < 1
-            ? localPoint({ ...r.stageDock, yaw: e.yaw ?? (e.heading * Math.PI) / 2 }, -3.5, 0)
+            ? r.from ||
+              localPoint({ ...r.stageDock, yaw: e.yaw ?? (e.heading * Math.PI) / 2 }, -3.5, 0)
             : {
                 x: middle(r.stage).x - Math.cos(r.axisYaw) * 15 + r.side.x * 8,
                 z: middle(r.stage).z - Math.sin(r.axisYaw) * 15 + r.side.z * 8,

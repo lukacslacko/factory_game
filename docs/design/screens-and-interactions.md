@@ -116,11 +116,11 @@ A notification briefly explains what changed and points to a physical object or 
 
 Actionable arrivals create or update one work card per receiving job. Advance notice, revised ETA, arrival and unloading progress update that card instead of creating duplicates. Ordinary events can remain in the log without generating work. The illustrated three-column board is optional to open and can be filtered by owner, location, type or urgency.
 
-| Column | Meaning | Examples |
-| --- | --- | --- |
-| To do | Work needs an owner or a next action, including a future arrival that needs preparation | Receive the fuel drum; prepare a bay for 12 poles; arrange the concrete train's receiving track |
-| Doing | A person, crew or the player has taken responsibility; show active, scheduled, waiting or blocked as a substatus | Ben clearing the bay; Eli laying paving; unloading in progress |
-| Done | The card's recorded completion condition has actually occurred | The 12 L refueling transfer completed; 40 slabs received |
+| Column | Meaning                                                                                                          | Examples                                                                                        |
+| ------ | ---------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
+| To do  | Work needs an owner or a next action, including a future arrival that needs preparation                          | Receive the fuel drum; prepare a bay for 12 poles; arrange the concrete train's receiving track |
+| Doing  | A person, crew or the player has taken responsibility; show active, scheduled, waiting or blocked as a substatus | Ben clearing the bay; Eli laying paving; unloading in progress                                  |
+| Done   | The card's recorded completion condition has actually occurred                                                   | The 12 L refueling transfer completed; 40 slabs received                                        |
 
 Moving or assigning a card changes organization and responsibility, not physical reality. Starting work can move it into Doing. A blocked active job remains there with an explicit reason. Actual completion moves a physical task to Done. A personal reminder can be marked done manually, clearly identified as a reminder.
 
@@ -135,3 +135,7 @@ For the poles, the notice exposes long-item storage and lifting needs before the
 This round settles a proposed screen family and interaction language. It does not select an engine or implement a simulation. The exact controls for driving and lifting, material catalog, quantitative handling limits and rules for receiving discrepancies still need review.
 
 The artwork includes illustrative people, values and previews. The definitions and numerical examples in this document are the reference for intended behavior. Future feedback should be appended to the design journal and reflected here without presenting proposals as confirmed decisions.
+
+## Rail work crew controls
+
+The parent rail work inspector offers two compact selectors: Staging equipment and Installation equipment, with an explicit save action. Both blank means the usual single-machine workflow. Current machine, operator, support-worker and stock IDs remain linked in ordinary records. Equipment registers and inspectors offer Support worker selection; worker records link their supported equipment and permit release. The current panel phase distinguishes staging withdrawal, waiting for installation crew, and actual placement.
