@@ -139,3 +139,8 @@ Validation: 445 sequential simulation/native-host tests, both TypeScript builds,
 ## Native information-panel fix — v0.20.5
 
 Fix the upper-right close control by rejecting empty record IDs, preventing missing supplier-locomotive references on road deliveries from reopening a dismissed panel. Postpone live register and inspector refresh during a real button press so releases are not lost. The focused real-input regression passes all 13 checks and fails against the old UI; native UI, freight and recovery checks pass. The packaged GPU/bridge integration passes in 17.31 seconds with a sampled 449.1 MB memory peak. Publish Apple Silicon Mac build 208 and source; the browser deployment remains 0.18.0.
+
+
+## Native stockyard traffic recovery — v0.20.6
+
+Publish Apple Silicon Mac build 209 and source. Tight stockyard departures now use a checked straight reverse maneuver before continuing forward. Automatic empty equipment clears loaded traffic and retains its assignment while waiting to return; manual driving and active lifting remain protected. Construction refreshes slab-setting docks blocked by completed structures. The complete 456-test suite, both TypeScript builds, and packaged native GPU/bridge integration pass. Install the verified bundle and confirm the reported forklift reaches its train in the real yard, then leave it paused and saved. Previous app and save backups remain private. Browser hosting remains at 0.18.0.

@@ -370,6 +370,7 @@ export function reconcileEquipmentAssignments(s: State): void {
     e.path = [];
     e.work = 0;
     e.trafficGoal = undefined;
+    e.trafficYieldEquipment = undefined;
     e.trafficReverse = undefined;
     e.blockedBy = undefined;
     e.trafficWait = 0;

@@ -795,6 +795,37 @@ export function machineRoute(
   return null;
 }
 
+/** A tight pocket may require reversing before any forward route is possible.
+ * Only commit the short retreat if its opposite-gear continuation also fits.
+ * The caller retains the destination in trafficGoal and replans after retreat.
+ */
+export function machineRetreatRoute(
+  s: State,
+  e: Equipment,
+  goal: Point,
+  staticObstacles: Rect[],
+  allowWorkerYield = false,
+  finalYaw?: number,
+): Point[] | null {
+  const yaw = e.yaw ?? (e.heading * Math.PI) / 2;
+  for (const distance of [1.25, 2.5, 4, 6]) {
+    const point = { x: e.x - Math.cos(yaw) * distance, z: e.z - Math.sin(yaw) * distance };
+    const retreat = machineRoute(
+      s,
+      { ...e, reverse: true },
+      point,
+      staticObstacles,
+      40,
+      allowWorkerYield,
+    );
+    if (retreat?.length !== 1) continue;
+    const withdrawn = { ...e, ...point, yaw, reverse: false, path: [] };
+    if (machineRoute(s, withdrawn, goal, staticObstacles, 250, allowWorkerYield, finalYaw))
+      return retreat;
+  }
+  return null;
+}
+
 // Walking around a stopped vehicle needs its actual oriented footprint. An
 // axis-aligned bounding box can surround a pedestrian who is already safely
 // beside a turning truck, preventing every possible escape from that box.

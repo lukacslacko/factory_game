@@ -79,6 +79,7 @@ import {
   navigationActors,
   walkRoute,
   machineRoute,
+  machineRetreatRoute,
   equipmentBoxes,
   boxOverlap,
   boxRect,
@@ -1255,8 +1256,118 @@ function backOffForPedestrian(s: State, e: Equipment, w: Worker, goal: Point): b
   return false;
 }
 
+/** Address an automatic empty blocker, preserving active safe approach work. */
+function parkTrafficBlocker(
+  s: State,
+  p: Equipment,
+  otherMachine: Equipment | undefined,
+  goal: Point,
+): boolean {
+  // A crew turning at its dock is still active, but has no driving path.
+  // Answer a mutual clearance request instead of waiting for the moving
+  // machine to yield to an empty actor whose movement tick never runs.
+  const otherRailWork = otherMachine?.job
+    ? s.jobs.find((j) => j.id === otherMachine.job)?.railWork
+    : undefined;
+  const stationaryWorkBlocker =
+    otherMachine?.blockedBy === p.id &&
+    s.elapsed - (p.trafficBlockedSince ?? s.elapsed) > 3 &&
+    (!otherMachine.work ||
+      (otherRailWork && ['source-approach', 'panel-approach'].includes(otherRailWork.phase))) &&
+    !!(otherMachine.job || otherMachine.deliveryOrder);
+  if (
+    otherMachine &&
+    !otherMachine.cargo &&
+    !otherMachine.assemblyLoad &&
+    !otherMachine.path.length &&
+    ((!otherMachine.job && !otherMachine.deliveryOrder) || stationaryWorkBlocker) &&
+    !otherMachine.transportOrder &&
+    !otherMachine.refueling &&
+    otherMachine.fuel > 0 &&
+    s.elapsed >= (otherMachine.trafficRetry || 0)
+  ) {
+    const operator = s.workers.find(
+      (w) => w.id === otherMachine.operator && w.vehicle === otherMachine.id && w.duty === 'auto',
+    );
+    if (operator) {
+      const away = Math.atan2(otherMachine.z - p.z, otherMachine.x - p.x);
+      // Parking must clear the requester's departure turn as well as its dock.
+      // Arrival headings vary with the accepted route, so check both machines'
+      // turning envelopes rather than assuming the parked machine's old yaw.
+      const clearance = [p, goal].flatMap((point) =>
+        Array.from({ length: 16 }, (_, i) =>
+          equipmentBoxes(p, { ...point, yaw: (i * Math.PI) / 8 }),
+        ).flat(),
+      );
+      for (const distance of [5, 8, 11])
+        for (const offset of [Math.PI / 2, -Math.PI / 2, Math.PI / 4, -Math.PI / 4, 0]) {
+          const target = {
+            x: otherMachine.x + Math.cos(away + offset) * distance,
+            z: otherMachine.z + Math.sin(away + offset) * distance,
+          };
+          if (
+            Array.from({ length: 16 }, (_, i) =>
+              equipmentBoxes(otherMachine, { ...target, yaw: (i * Math.PI) / 8 }),
+            )
+              .flat()
+              .some((a) => clearance.some((b) => boxOverlap(a, b, 0.2)))
+          )
+            continue;
+          for (const reverse of [false, true]) {
+            const parking = machineRoute(
+              s,
+              { ...otherMachine, reverse },
+              target,
+              pedestrianObstacles(s),
+              40,
+              true,
+            );
+            if (parking?.length) {
+              // Active handling resumes at its original dock after the
+              // requester passes; an idle machine simply parks at the target.
+              otherMachine.trafficGoal ??= stationaryWorkBlocker
+                ? { x: otherMachine.x, z: otherMachine.z }
+                : { ...target };
+              otherMachine.trafficYieldEquipment = stationaryWorkBlocker ? p.id : undefined;
+              otherMachine.path = parking;
+              otherMachine.reverse = reverse;
+              otherMachine.trafficReverse = reverse || undefined;
+              otherMachine.trafficWait = 0;
+              operator.status = 'Parking clear of traffic';
+              p.trafficWait = 0;
+              return true;
+            }
+          }
+        }
+      otherMachine.trafficRetry = s.elapsed + 1.5;
+    }
+  }
+  return false;
+}
+
 function tickMove(s: State, p: Worker | Equipment, dt: number, speed: number) {
   const vehicle = 'kind' in p;
+  if (vehicle && p.trafficYieldEquipment && !p.path.length) {
+    const requester = s.equipment.find((q) => q.id === p.trafficYieldEquipment);
+    const dock = p.trafficGoal;
+    if (
+      requester &&
+      dock &&
+      (((requester.cargo || requester.path.length) &&
+        (dist(requester, dock) < 8 || requester.path.some((point) => dist(point, dock) < 8))) ||
+        equipmentBoxes(p, { ...dock, yaw: p.yaw }).some((a) =>
+          equipmentBoxes(requester).some((b) => boxOverlap(a, b, 0.35)),
+        ))
+    ) {
+      // An unloaded requester can still be parked on the original work dock.
+      // Ask its real automatic driver to clear it before ending the handshake.
+      if (!requester.cargo && !requester.path.length) parkTrafficBlocker(s, p, requester, dock);
+      p.velocity = 0;
+      recordTrafficBlockage(s, p, requester.id);
+      return;
+    }
+    p.trafficYieldEquipment = undefined;
+  }
   // A job handler may have populated a route during the walking wait.
   // Protect the accepted escape centrally, after the reverse leg finishes.
   if (vehicle && p.trafficYieldWorker && !p.trafficReverse) {
@@ -1285,9 +1396,17 @@ function tickMove(s: State, p: Worker | Equipment, dt: number, speed: number) {
         p.path = path;
         p.trafficGoal = undefined;
         p.blockedBy = undefined;
-      } else
+      } else {
+        const retreat =
+          !p.cargo && machineRetreatRoute(s, p, p.trafficGoal, pedestrianObstacles(s), true);
+        if (retreat) {
+          p.path = retreat;
+          p.reverse = true;
+          p.trafficReverse = true;
+        }
         p.blockedBy ||=
           equipmentMoveBlocked(s, p, p.trafficGoal) || 'No clear route to work destination';
+      }
     }
     if (!p.path.length && p.trafficGoal)
       recordTrafficBlockage(s, p, p.blockedBy || 'the work destination');
@@ -1339,7 +1458,13 @@ function tickMove(s: State, p: Worker | Equipment, dt: number, speed: number) {
       if (yielding) stepAside(s, yielding, { ...p, path: [p.trafficGoal] }, true);
       if (!yielding?.path.length) p.trafficYieldWorker = undefined;
     }
-    if (vehicle && !p.path.length && p.trafficGoal && !p.trafficYieldWorker) {
+    if (
+      vehicle &&
+      !p.path.length &&
+      p.trafficGoal &&
+      !p.trafficYieldWorker &&
+      !p.trafficYieldEquipment
+    ) {
       const goal = p.trafficGoal;
       p.trafficGoal = undefined;
       p.path =
@@ -1416,56 +1541,7 @@ function tickMove(s: State, p: Worker | Equipment, dt: number, speed: number) {
       )
         stepAside(s, w, p);
     }
-  if (
-    vehicle &&
-    otherMachine &&
-    !otherMachine.cargo &&
-    !otherMachine.path.length &&
-    !otherMachine.job &&
-    !otherMachine.deliveryOrder &&
-    !otherMachine.transportOrder &&
-    !otherMachine.refueling &&
-    otherMachine.fuel > 0
-  ) {
-    const operator = s.workers.find(
-      (w) => w.id === otherMachine.operator && w.vehicle === otherMachine.id && w.duty === 'auto',
-    );
-    if (operator) {
-      const away = Math.atan2(otherMachine.z - p.z, otherMachine.x - p.x);
-      for (const offset of [Math.PI / 2, -Math.PI / 2, Math.PI / 4, -Math.PI / 4, 0]) {
-        const target = {
-          x: otherMachine.x + Math.cos(away + offset) * 5,
-          z: otherMachine.z + Math.sin(away + offset) * 5,
-        };
-        if (
-          equipmentBoxes(otherMachine, { ...target, yaw: otherMachine.yaw }).some((a) =>
-            equipmentBoxes(p, { ...goal, yaw: p.yaw }).some((b) => boxOverlap(a, b, 0.2)),
-          )
-        )
-          continue;
-        for (const reverse of [false, true]) {
-          const parking = machineRoute(
-            s,
-            { ...otherMachine, reverse },
-            target,
-            pedestrianObstacles(s),
-            40,
-            true,
-          );
-          if (parking?.length) {
-            otherMachine.path = parking;
-            otherMachine.trafficGoal = { ...target };
-            otherMachine.reverse = reverse;
-            otherMachine.trafficReverse = reverse || undefined;
-            otherMachine.trafficWait = 0;
-            operator.status = 'Parking clear of traffic';
-            p.trafficWait = 0;
-            return;
-          }
-        }
-      }
-    }
-  }
+  if (vehicle && parkTrafficBlocker(s, p, otherMachine, goal)) return;
   if (
     vehicle &&
     (!p.trafficGoal || ((p.trafficWait || 0) > 3 && otherMachine?.blockedBy === p.id)) &&
@@ -1498,6 +1574,7 @@ function tickMove(s: State, p: Worker | Equipment, dt: number, speed: number) {
     );
     if (withdrawal?.length === 1) {
       p.trafficGoal ??= { ...goal };
+      if (!p.cargo && otherMachine.cargo) p.trafficYieldEquipment = otherMachine.id;
       p.path = withdrawal;
       p.reverse = true;
       p.trafficReverse = true;
@@ -1510,6 +1587,7 @@ function tickMove(s: State, p: Worker | Equipment, dt: number, speed: number) {
         const escape = machineRoute(s, { ...p, reverse }, target, pedestrianObstacles(s), 40, true);
         if (escape?.length) {
           p.trafficGoal ??= { ...goal };
+          if (!p.cargo && otherMachine.cargo) p.trafficYieldEquipment = otherMachine.id;
           p.path = escape;
           p.reverse = reverse;
           p.trafficReverse = reverse || undefined;
@@ -1528,6 +1606,24 @@ function tickMove(s: State, p: Worker | Equipment, dt: number, speed: number) {
     if (path?.length) {
       p.reverse = reverse;
       p.trafficReverse = reverse || undefined;
+    }
+  }
+  if (!path && vehicle && !p.cargo) {
+    const destination = p.trafficGoal || goal;
+    const retreat = machineRetreatRoute(s, p, destination, pedestrianObstacles(s), true);
+    if (retreat) {
+      p.trafficGoal ??= { ...destination };
+      p.path = retreat;
+      p.reverse = true;
+      p.trafficReverse = true;
+      p.trafficWait = 0;
+      event(
+        s,
+        'Traffic',
+        p.id,
+        `${p.id} backing clear of ${blocker} before continuing to its work destination.`,
+      );
+      return;
     }
   }
   if (!path && !vehicle) {
@@ -1672,6 +1768,7 @@ export function releaseWorker(s: State, wid: string): string {
       e.path = [];
       e.velocity = 0;
       e.trafficGoal = undefined;
+      e.trafficYieldEquipment = undefined;
       e.trafficReverse = undefined;
       e.trafficYieldWorker = undefined;
       e.trafficWait = 0;
@@ -2925,6 +3022,7 @@ function tickJob(s: State, j: Job, dt: number) {
     if (next) {
       e.path = next;
       e.trafficGoal = undefined;
+      e.trafficYieldEquipment = undefined;
       e.trafficWait = 0;
       e.trafficRetry = s.elapsed + 3;
       j.reason = '';
@@ -2966,6 +3064,10 @@ function tickJob(s: State, j: Job, dt: number) {
     })
   )
     return;
+  if (e.trafficGoal) {
+    j.reason = 'Returning to the work destination after traffic clearance';
+    return;
+  }
   if (j.phase === 'Board equipment' && !op.path.length) {
     if (op.transition) return;
     if (op.vehicle !== e.id) {
@@ -3293,6 +3395,23 @@ export function tick(s: State, dt: number) {
       }
     }
     if (e.transportOrder) continue;
+    // Handling can be blocked before either actor has a driving path. An
+    // empty crew waiting to turn must also yield to a loaded neighbor whose
+    // approach planner is waiting for this same occupied working space.
+    if (!e.path.length && !e.cargo && e.blockedBy && !e.trafficYieldEquipment) {
+      const requester = s.equipment.find((q) => q.id === e.blockedBy);
+      if (requester?.cargo && !requester.path.length) {
+        const work = s.jobs.find((j) => j.id === requester.job);
+        const delivery = s.orders.find((o) => o.id === requester.deliveryOrder);
+        const goal =
+          work?.handling?.destinationDock ||
+          work?.railWork?.railDock ||
+          delivery?.unload?.drop ||
+          requester;
+        recordTrafficBlockage(s, requester, e.id);
+        parkTrafficBlocker(s, requester, e, goal);
+      }
+    }
     const active = e.path.length > 0 || e.work > 0 || !!e.trafficGoal;
     if (active && e.fuel > 0 && !e.refueling) {
       const used = Math.min(e.fuel, dt * (e.work ? 0.014 : 0.008));

@@ -75,6 +75,7 @@ export function migrateLegacyRailJobs(s: State, api: LegacyRailAPI) {
       j.reason = 'Imported forklift load will be placed on staging supports for an excavator';
       e.path = [];
       e.trafficGoal = undefined;
+      e.trafficYieldEquipment = undefined;
       e.velocity = 0;
       const w = s.workers.find((w) => w.id === j.worker);
       if (w) w.path = [];

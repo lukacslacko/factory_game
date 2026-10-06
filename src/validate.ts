@@ -22,6 +22,7 @@ const motion = (p: any) =>
   (p.trafficGoal === undefined || point(p.trafficGoal)) &&
   (p.trafficReverse === undefined || typeof p.trafficReverse === 'boolean') &&
   (p.trafficYieldWorker === undefined || typeof p.trafficYieldWorker === 'string') &&
+  (p.trafficYieldEquipment === undefined || typeof p.trafficYieldEquipment === 'string') &&
   (p.trafficBlockedNotice === undefined || typeof p.trafficBlockedNotice === 'boolean') &&
   (p.trafficBlockedSince === undefined ||
     (finite(p.trafficBlockedSince) && p.trafficBlockedSince >= 0)) &&

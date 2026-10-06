@@ -37,6 +37,8 @@ export type Motion = {
   trafficGoal?: Point;
   /** Pedestrian whose walking escape must finish after a withdrawal. */
   trafficYieldWorker?: string;
+  /** Keep clear until the addressed equipment has passed the work dock. */
+  trafficYieldEquipment?: string;
   trafficRetry?: number;
   /** Physical blockage duration; route retries must not reset this clock. */
   trafficBlockedSince?: number;

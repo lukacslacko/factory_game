@@ -6,7 +6,7 @@ This is the first playable native migration. The original browser application an
 
 ## Download or open on this Mac
 
-[Download the Apple Silicon Mac app](https://github.com/lukacslacko/factory_game/releases/tag/v0.20.5), unzip it, and open **Plant 01.app**. This checkpoint targets macOS 14 or newer.
+[Download the Apple Silicon Mac app](https://github.com/lukacslacko/factory_game/releases/tag/v0.20.6), unzip it, and open **Plant 01.app**. This checkpoint targets macOS 14 or newer.
 
 Open the **Plant 01.app** built beside the repository in `outputs/`. It includes the Godot runner, Node runtime, simulation, terrain maps, and license notices. It is a local app for this Mac, not a notarized public release.
 
@@ -109,7 +109,7 @@ For parallel unloading tracks or a future runaround, select **Turnout**, choose 
 A stop cannot remain across a completed rail joint. The crew preserves it as a real asset, moves it aside and carries surplus stops into storage. Switches still require a worker to throw their lever. Train drop-off, owned shunting and installing turnouts into an already continuous track remain separate tracked work. Paid scrapping is tracked in [issue #35](https://github.com/lukacslacko/factory_game/issues/35).
 
 
-### Receive multi-car trains — v0.20.5
+### Receive multi-car trains — v0.20.6
 
 Open **Railway → + Receiving point** to name an interval on the original `BOOTSTRAP-SIDING`. Its offset is measured from the siding's western start; length is centered there. An unloading or transfer point can receive supplier freight. The full locomotive and all cars must fit between the mainline switch and the siding's end; protected buffer stops can further restrict access. Five flatcars fit a sufficiently long interval; larger consists remain queued with their required length and receive no arrival invoice. Other factory-track designations await commissioned shunting.
 
@@ -139,3 +139,9 @@ Physical rail loops are supported. Close them with exact, opposing endpoints and
 ## Information panels — v0.20.5
 
 Click **×** in the upper-right corner of an information panel to dismiss it and clear the yard selection. Click an asset or register ID to open it again. Live updates wait until a button press finishes, so they cannot replace a control halfway through your click.
+
+## Automatic departure from cramped stockyards — v0.20.6
+
+Receiving equipment checks its complete moving footprint and final pickup heading before departing. If it cannot turn beside stored material, it can back straight into clear space, then shift to forward and continue around the stockyard. The work destination survives this maneuver and saving. Automatic workers yield to the reversing machine. A missing or blocked route keeps unloading waiting; equipment must reach the freight car before engaging its load. Existing fixed stock is never shifted invisibly to make room.
+
+Automatic empty equipment can also move clear during a rail pickup approach, keeping its original work assignment. It waits until the loaded vehicle has passed before returning. Empty vehicles parked on that return spot are asked to move; manually controlled operators keep player control. Parking leaves clearance for turns and loads. Slab placement rechecks its approach if new construction occupies an earlier planned dock, and chooses another reachable side of the same cell.

@@ -85,6 +85,7 @@ export function pauseDeliveryHandling(s: State, equipmentId: string): string {
   e.velocity = 0;
   e.work = 0;
   e.trafficGoal = undefined;
+  e.trafficYieldEquipment = undefined;
   e.trafficReverse = undefined;
   e.trafficWait = 0;
   o.note = `Unloading paused for manual repositioning of ${e.id}; ${w.id} retains the load and assignment`;
@@ -126,6 +127,7 @@ export function resumeDeliveryHandling(s: State, equipmentId: string): string {
   e.velocity = 0;
   e.work = 0;
   e.trafficGoal = undefined;
+  e.trafficYieldEquipment = undefined;
   e.trafficReverse = undefined;
   e.trafficRetry = undefined;
   e.trafficWait = 0;

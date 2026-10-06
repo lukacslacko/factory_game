@@ -1576,7 +1576,7 @@ export function tickRailWork(s: State, j: Job, dt: number, api: RailWorkAPI): bo
   const r = j.railWork!;
   // Traffic recovery owns movement until the physical escape is complete.
   // An empty path during pedestrian clearance is not arrival at a rail dock.
-  if (e.trafficGoal && (e.path.length || e.trafficYieldWorker)) {
+  if (e.trafficGoal && (e.path.length || e.trafficYieldWorker || e.trafficYieldEquipment)) {
     if (r.panel.state === 'carried') followLoad(r, e, 'panel', dt);
     if (r.buffer?.carried) followLoad(r, e, 'buffer', dt);
     j.reason = e.trafficYieldWorker

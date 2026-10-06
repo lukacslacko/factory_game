@@ -286,3 +286,10 @@ The final storage regression also reserves the entire footprint of a queued relo
 Final verification: **350/350** fresh regressions pass in 292.10 seconds, with 120 frozen source/test inputs unchanged. The final integrated browser run passes actual relocation-button and ground clicks, inherited equipment assignment, physical completed relocation, exported fixture, local SQL, existing rail/construction/delivery controls, and all 21 register width checks. Browser page errors and error logs are empty. Heavy simulation and browser checks run sequentially with a 384 MB Node heap limit. Production verification and deployment are recorded separately after they complete.
 
 Independent production verification passes the 0.18.0 menu/guide, relocated stock save and inspector control, relocation SQL columns, prior delivery recovery/whole-run crew/batch/location/support-worker saves, nighttime and completed 147-job example imports, local SQL/WebAssembly and all three guide images. Page errors, browser warnings, failed requests and external requests are empty. The same tested nine assets deployed successfully at 20:11 UTC. A paused-yard sample averages 16.67 ms/frame; this is not a large-factory performance claim.
+
+
+## Native stockyard traffic recovery — v0.20.6
+
+All **456/456** sequential simulation/native-host tests pass in **321.09 seconds**, including the full starter-base scenario and new regressions for checked reverse departures, safe clearance by active empty equipment, persistent yielding across save/reload, manual-control protection, and alternative slab docks after construction changes the geometry. Node runs with a 384 MB heap cap. Both TypeScript builds pass.
+
+The packaged Apple Silicon app passes its real native GPU/bridge integration in **8.66 seconds**, with a sampled **416.5 MB** peak under the 45-second/2 GB watchdog. A private copy of the reported yard physically unloads and stores all twenty slabs in 208.4 simulated seconds, with existing stock unchanged. In the installed app, EQ-0429 backs clear and reaches the train; leave the real yard paused and saved. Private gameplay data stays outside the repository and release.

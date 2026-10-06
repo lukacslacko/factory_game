@@ -40,6 +40,7 @@ import {
   equipmentBoxes,
   walkRoute,
   machineRoute,
+  machineRetreatRoute,
   staticObstacleRects,
   personTouchesBox,
   workerMoveBlocked,
@@ -553,6 +554,28 @@ function riggingPoint(source: Point, item: Item): Point {
     z: source.z + 1.9,
   };
 }
+function pickupRoute(s: State, e: Equipment, pickup: Point, api: DeliveryAPI) {
+  const obstacles = api.obstacles(s);
+  for (const reverse of [false, true]) {
+    const path = machineRoute(s, { ...e, reverse }, pickup, obstacles, 250, true, -Math.PI / 2);
+    if (path) return { path, reverse, retreat: false };
+  }
+  const path = machineRetreatRoute(s, e, pickup, obstacles, true, -Math.PI / 2);
+  return path ? { path, reverse: true, retreat: true } : null;
+}
+function beginPickupRoute(
+  e: Equipment,
+  pickup: Point,
+  planned: NonNullable<ReturnType<typeof pickupRoute>>,
+) {
+  e.path = planned.path;
+  e.reverse = planned.reverse;
+  e.trafficReverse = planned.reverse || undefined;
+  e.trafficGoal = planned.retreat ? { ...pickup } : undefined;
+  e.trafficYieldEquipment = undefined;
+  e.blockedBy = undefined;
+  e.trafficWait = 0;
+}
 function startUnloading(s: State, o: Order, api: DeliveryAPI, preferred?: string, manual = false) {
   preferred ??= o.operatorId;
   const item = pendingOrderLine(o)!.item as Item,
@@ -626,13 +649,13 @@ function startUnloading(s: State, o: Order, api: DeliveryAPI, preferred?: string
       source.z +
       Math.max(e.kind === 'excavator' ? (m.d < 2 ? 4.6 : 4) : 3.85, Math.ceil(m.d / 2 + 1.55)),
   };
-  const approachPath = route(e, pickup, api.obstacles(s), 1.1);
+  const approachPath = pickupRoute(s, e, pickup, api);
   const walkingFrom =
     w.vehicle && w.vehicle !== e.id ? machineStep(s.equipment.find((q) => q.id === w.vehicle)!) : w;
   const workerPath =
     w.vehicle === e.id ? [] : route(walkingFrom, boardPoint(e), api.obstacles(s), 0.15);
   if (!approachPath || !workerPath) {
-    o.note = 'Machine or operator cannot reach the unloading face';
+    waiting(s, o, 'Machine or operator cannot reach the unloading face', 'approach', api);
     return false;
   }
   const sourceY = (o.mode === 'rail' ? 1.3 : 1.15) + (slot.qty - qty) * parcelPitch(item);
@@ -786,6 +809,7 @@ function resumeLoadedRoute(
   e.reverse = planned.reverse;
   e.trafficReverse = planned.reverse || undefined;
   e.trafficGoal = undefined;
+  e.trafficYieldEquipment = undefined;
   e.blockedBy = undefined;
   e.trafficWait = 0;
 }
@@ -837,12 +861,35 @@ function unloadTick(s: State, o: Order, dt: number, api: DeliveryAPI) {
       w.vehicle = e.id;
       e.operator = w.id;
     }
-    e.path = route(e, t.pickup, api.obstacles(s), 1.1) || [];
-    e.reverse = false;
+    if (s.elapsed < (e.trafficRetry || 0)) return;
+    const planned = pickupRoute(s, e, t.pickup, api);
+    if (!planned) {
+      e.trafficRetry = s.elapsed + 1.5;
+      o.note = 'No clear machine route to the unloading face; checking again';
+      deliveryBlockageNotice(s, o, o.note);
+      return;
+    }
+    beginPickupRoute(e, t.pickup, planned);
+    w.status = 'Driving to unload';
     set('approach');
   } else if (t.phase === 'approach') {
-    o.note = `${w.name} driving ${e.id} to the load`;
-    if (e.path.length) return;
+    o.note = e.blockedBy
+      ? `Route to unloading face blocked by ${e.blockedBy}; checking a safe maneuver`
+      : e.trafficGoal
+        ? `${w.name} backing ${e.id} clear before driving to the load`
+        : `${w.name} driving ${e.id} to the load`;
+    if (e.path.length || e.trafficGoal) return;
+    if (dist(e, t.pickup) > 0.15) {
+      if (s.elapsed < (e.trafficRetry || 0)) return;
+      e.trafficRetry = s.elapsed + 1.5;
+      const planned = pickupRoute(s, e, t.pickup, api);
+      if (planned) beginPickupRoute(e, t.pickup, planned);
+      else {
+        o.note = 'No clear machine route to the unloading face; checking again';
+        deliveryBlockageNotice(s, o, o.note);
+      }
+      return;
+    }
     const candidate = { ...e };
     const aligned = turn(candidate, -Math.PI / 2, dt, 1.2);
     const blocker = equipmentSweepBlocked(s, e, candidate);
@@ -933,7 +980,7 @@ function unloadTick(s: State, o: Order, dt: number, api: DeliveryAPI) {
   } else if (t.phase === 'clear') {
     cargoFollow(t, e, t.sourceY + 0.42);
     e.lift = t.cargo!.y;
-    if (e.path.length) {
+    if (e.path.length || e.trafficGoal) {
       o.note = 'Backing clear of the carrier';
       return;
     }
@@ -1085,7 +1132,7 @@ function unloadTick(s: State, o: Order, dt: number, api: DeliveryAPI) {
     s.revision++;
   } else if (t.phase === 'back-away') {
     o.note = 'Withdrawing forks / lifting tackle';
-    if (e.path.length) return;
+    if (e.path.length || e.trafficGoal) return;
     release(s, o, api);
     if (o.arrived >= o.qty) {
       if (o.status === 'unloading') finish(s, o, api);

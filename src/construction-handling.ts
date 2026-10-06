@@ -531,7 +531,44 @@ function at(
   dt: number,
   api: RailWorkAPI,
 ) {
-  if (e.path.length) return false;
+  if (e.path.length || e.trafficGoal) return false;
+  const h = j.handling;
+  if (
+    h?.phase === 'carry' &&
+    equipmentMoveBlocked({ ...s, workers: [], equipment: [e], orders: [] }, e, {
+      ...p,
+      yaw: facing(p, target),
+    })
+  ) {
+    // Construction can complete beside a previously planned setting dock.
+    // Refresh an invalid dock around fixed geometry, keeping the same slab,
+    // site and supported payload; never mistake a stale route for arrival.
+    if (s.elapsed < (e.trafficRetry || 0)) return false;
+    e.trafficRetry = s.elapsed + 1.5;
+    const alternative = dock(
+      { ...s, jobs: s.jobs.filter((q) => q.id !== j.id) },
+      e,
+      target,
+      h.reach,
+      api,
+    );
+    if (alternative) {
+      h.destinationDock = { ...alternative.point };
+      h.destinationClear = { ...alternative.clear };
+      p = h.destinationDock;
+      s.revision++;
+      api.event(
+        s,
+        'Traffic',
+        e.id,
+        `Updated ${j.id}'s handling dock around newly occupied space; keeping its original placement target.`,
+      );
+    } else {
+      j.reason =
+        'Planned handling dock is occupied; waiting for another reachable setting position';
+      return false;
+    }
+  }
   if (dist(e, p) > 0.045) {
     let reverse = !!e.reverse;
     let path = machineRoute(s, e, p, groundObstacles(s, api), 200, true);
