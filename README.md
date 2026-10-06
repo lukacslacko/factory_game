@@ -2,7 +2,7 @@
 
 ## Native game
 
-The playable Godot migration uses the approved Concept C art and a separate local simulation process. Open **Plant 01.app** in the surrounding `outputs/` folder, or double-click **Open Plant 01.command** for development. No browser is required. [Download the Mac app](https://github.com/lukacslacko/factory_game/releases/tag/v0.20.0). See [native game instructions](native/README.md) and [migration notes](docs/native-migration.md). The browser game and static visual proof remain available below.
+The playable Godot migration uses the approved Concept C art and a separate local simulation process. Open **Plant 01.app** in the surrounding `outputs/` folder, or double-click **Open Plant 01.command** for development. No browser is required. [Download the Mac app](https://github.com/lukacslacko/factory_game/releases/tag/v0.20.1). See [native game instructions](native/README.md) and [migration notes](docs/native-migration.md). The browser game and static visual proof remain available below.
 
 
 A playable first version of the fantasy chemistry plant game. Build and operate the construction yard before chemical production arrives: hire a crew, receive physical materials, move equipment, pave ground, extend track, and assemble a small base.
@@ -13,7 +13,7 @@ The world uses a true perspective 3D camera, with a meter grid, dimensional stoc
 
 ## Rail reception checkpoint
 
-Native v0.20.0 receives a material batch as one supplier train with separately identified, capacity-limited freight cars. Choose a named point on the original receiving siding and an unloading stockyard, then open the delivery and click **Start unloading** when the train stops. Each car and locomotive is inspectable; SQL includes per-car manifests. **Railway → Rail help** explains the controls in simple paragraphs.
+Native v0.20.1 receives a material batch as one supplier train with separately identified, capacity-limited freight cars. Choose a named point on the original receiving siding and an unloading stockyard, then open the delivery and click **Start unloading** when the train stops. Each car and locomotive is inspectable; SQL includes per-car manifests. **Railway → Rail help** explains the controls in simple paragraphs.
 
 This first operations checkpoint keeps the supplier locomotive attached. Through reception infrastructure, physical uncoupling, owned shunting, splitting cars between destinations, return-train assembly and requesting a pickup locomotive remain on the [rail operations roadmap](https://github.com/lukacslacko/factory_game/issues/22).
 
@@ -25,7 +25,7 @@ An independent [Godot visual study](native-proof/README.md) recreates the concep
 
 ## Play
 
-The private game Site is **https://plant-01-starter-yard.lukacslacko.chatgpt.site**. The browser deployment remains **0.18.0**; the native checkpoint is **0.20.0**. Browser deployment status is recorded in `docs/publishing.md`. Sign in with the account that owns the Site. Local and hosted browser saves are separate; use Export save / Import save to transfer a yard.
+The private game Site is **https://plant-01-starter-yard.lukacslacko.chatgpt.site**. The browser deployment remains **0.18.0**; the native checkpoint is **0.20.1**. Browser deployment status is recorded in `docs/publishing.md`. Sign in with the account that owns the Site. Local and hosted browser saves are separate; use Export save / Import save to transfer a yard.
 
 On this Mac, double-click **Start Plant 01.command**. It starts the included local server and opens the game at **http://127.0.0.1:4173/**. Keep its Terminal window open while playing; Control-C stops the server.
 
@@ -239,3 +239,5 @@ Purchase supports mixed batches with a packing preview, displayed unit and quant
 Terrain rendering separates overlapping receiving surfaces and corrects depth artifacts in distant ground shadows. Decorative vegetation uses stable world-space candidates: clearing a paved or worn area removes affected plants without moving unrelated plants elsewhere.
 
 In v0.13, long-panel deliveries use the machine’s actual loaded route, including top-ups of partial curved-panel stacks. Select equipment to see its route and destination. A dashed line shows intended travel when no route is currently available; the inspector gives the assignment phase and blockage details. Existing saved deliveries resume without resetting cargo.
+
+Creative mode is available in the native Yard toolbar: new paving, buildings and connected rail layouts appear completed immediately, including foundations, without material orders or construction charges. The mode saves with the yard and can be turned off at any time.

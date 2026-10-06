@@ -1,0 +1,40 @@
+{
+  "version": "0.20.1",
+  "nativeUIChecks": 7,
+  "ui": {
+    "name": "creative-ui",
+    "elapsed_seconds": 1.01,
+    "peak_resident_bytes": 154828800,
+    "returncode": 0,
+    "stopped_reason": null
+  },
+  "packagedApp": {
+    "name": "creative-packaged",
+    "elapsed_seconds": 15.97,
+    "peak_resident_bytes": 390283264,
+    "returncode": 0,
+    "stopped_reason": null
+  },
+  "isolated": true,
+  "actualYardUsedForTests": false,
+  "simulationAndHostTests": {
+    "passed": 420,
+    "failed": 0,
+    "elapsedSeconds": 307.231437625,
+    "nodeHeapLimitMB": 384
+  },
+  "liveYardUpgrade": {
+    "preserved": true,
+    "creativeEnabled": true,
+    "paused": true,
+    "workers": 12,
+    "equipment": 5,
+    "rails": 24,
+    "jobs": 169,
+    "costRecords": 244,
+    "idsUnchanged": true,
+    "costsUnchanged": true,
+    "elapsedDuringUpgradeSeconds": 1.8,
+    "testStateImported": false
+  }
+}

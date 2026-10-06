@@ -42,6 +42,7 @@ var severity_filter: OptionButton
 var inspector: PanelContainer
 var inspector_scroll: ScrollContainer
 var grid_button: CheckButton
+var creative_button: CheckButton
 var lighting_button: CheckButton
 var inspector_body: VBoxContainer
 var time_label: Label
@@ -302,6 +303,11 @@ func _build_yard_controls() -> void:
 	light.text="Dusk"
 	light.toggled.connect(func(value: bool) -> void: lighting_requested.emit(value))
 	camera_bar.add_child(light)
+	creative_button=CheckButton.new()
+	creative_button.text="Creative"
+	creative_button.tooltip_text="Place completed paving, buildings, rails and buffer stops immediately. Includes building foundations; no materials, workers or construction charges. Existing work is unchanged. Turn off to resume normal planning. Saved with this yard."
+	creative_button.toggled.connect(func(value: bool) -> void: _send("creative",{"enabled":value}))
+	camera_bar.add_child(creative_button)
 	_button(camera_bar,"+ Purchase / hire",_open_purchase)
 	var tool_panel: PanelContainer = PanelContainer.new()
 	tool_panel.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_WIDE)
@@ -452,6 +458,7 @@ func update_snapshot(message: Dictionary) -> void:
 		for key: String in message.get("catalog",{}).get(category,{}): catalog[key]=message.catalog[category][key]
 	continue_button.disabled=not bool(message.get("storage",{}).get("hasSave",false))
 	time_label.text=_clock(state.get("time",0))
+	creative_button.set_pressed_no_signal(bool(state.get("creative",false)))
 	pause_button.text="▶" if bool(state.get("paused",true)) else "Ⅱ"
 	var active: int = 0
 	var queued: int = 0
@@ -461,7 +468,7 @@ func update_snapshot(message: Dictionary) -> void:
 	var total: float = 0
 	for cost: Dictionary in _records("costs"): total+=float(cost.get("amount",0))
 	total=float(message.get("summaries",{}).get("totalCosts",total))
-	summary_label.text="%d workers · %d working · %d queued · %s"%[_records("workers").size(),active,queued,_money(total)]
+	summary_label.text=("CREATIVE · " if bool(state.get("creative",false)) else "")+"%d workers · %d working · %d queued · %s"%[_records("workers").size(),active,queued,_money(total)]
 	var unseen: int = 0
 	for notice: Dictionary in _records("notices"):
 		if not bool(notice.get("seen",false)): unseen+=1
@@ -1275,6 +1282,7 @@ func _build_rail_help() -> void:
 
 func _rail_help_paragraphs() -> Array[String]:
 	return [
+		"Test layouts quickly with Creative. Turn on Creative in the Yard camera toolbar, then use Pave, the building tools, or the rail tools as usual. New placements are completed immediately, including building foundations, without materials, workers or construction charges. Rails still connect at actual endpoints and placement still respects occupied space. Existing work is unchanged. The setting is saved with your yard; turn it off to return to normal construction.",
 		"Receive one train with several cars. Open Purchase / hire, choose Rail, and enter all the material quantities for the batch. Each car carries up to 48 metric tons, subject to its physical deck space. The preview shows the number of cars and the train length; the complete train must fit the receiving siding. Workers still arrive by bus and equipment arrives on lowloaders.",
 		"Name a receiving point. In Railway, click + Receiving point to mark a usable interval on BOOTSTRAP-SIDING. Choose its name, its offset along the track, and the usable length centered at that offset. Select this point while ordering or in the train's delivery inspector before its approach begins. Automatic reception chooses a fitting position on that same siding. Names on other tracks are currently designations for future shunting, rather than supplier destinations.",
 		"Choose where to unload. Designate a physical stockyard in the Yard view. Select it when placing the rail order, or open the order in Deliveries and choose and apply its unloading stockyard. Cargo will be stored in that yard; a full or inaccessible yard produces a visible waiting reason instead of silently sending cargo somewhere else. Wait until the train has stopped at its receiving point, apply the destination, and click Start unloading.",

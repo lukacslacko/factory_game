@@ -327,6 +327,8 @@ export interface ShedAssembly {
   };
 }
 export interface Job extends Rect {
+  /** Created directly in creative mode, without consuming delivered stock. */
+  creative?: boolean;
   /** Another panel's active staging pass owns this panel's reserved or carried material. */
   railStagingBatch?: string;
   track?: TrackPiece;
@@ -527,6 +529,8 @@ export interface State {
   elapsed: number;
   speed: number;
   paused: boolean;
+  /** Direct, cost-free placement of completed assets for testing. */
+  creative?: boolean;
   next: number;
   revision: number;
   workers: Worker[];

@@ -190,6 +190,7 @@ export function createState(): State {
     elapsed: 0,
     speed: 1,
     paused: false,
+    creative: false,
     next: 1,
     revision: 1,
     workers: [],
@@ -344,7 +345,7 @@ export function addZone(s: State, r: Rect, name = 'Stockyard') {
 export function removeZone(s: State, zid: string) {
   const zone = s.zones.find((z) => z.id === zid);
   if (!zone) return 'Stockyard not found.';
-  if (s.orders.some(o => o.status !== 'done' && o.railFreight?.storageZoneId === zid))
+  if (s.orders.some((o) => o.status !== 'done' && o.railFreight?.storageZoneId === zid))
     return 'This stockyard is assigned to an incoming or active freight train. Choose another unloading destination first.';
   if (
     s.stacks.some((t) => (t.qty > 0 || t.item === 'diesel') && overlap(t, zone)) ||
@@ -408,11 +409,25 @@ export function purchaseBatch(
   const packed = packPurchase(lines, mode);
   const railLoads = packed.filter((load) => load.mode === 'rail');
   if (railLoads.length > 100) throw new Error('Order at most 100 rail cars in one supplier train.');
-  if (options.railLocationId && !s.railLocations?.some((l) => l.id === options.railLocationId && l.trackId === 'BOOTSTRAP-SIDING' && l.route === 'straight' && ['unloading', 'transfer'].includes(l.kind)))
+  if (
+    options.railLocationId &&
+    !s.railLocations?.some(
+      (l) =>
+        l.id === options.railLocationId &&
+        l.trackId === 'BOOTSTRAP-SIDING' &&
+        l.route === 'straight' &&
+        ['unloading', 'transfer'].includes(l.kind),
+    )
+  )
     throw new Error('Choose an unloading or transfer point on the original receiving siding.');
   if (options.storageZoneId && !s.zones.some((z) => z.id === options.storageZoneId))
     throw new Error('Choose an existing destination stockyard.');
-  const loads = [...(railLoads.length ? [{ mode: 'rail' as const, manifest: aggregateRailManifest(railLoads) }] : []), ...packed.filter((load) => load.mode !== 'rail')];
+  const loads = [
+    ...(railLoads.length
+      ? [{ mode: 'rail' as const, manifest: aggregateRailManifest(railLoads) }]
+      : []),
+    ...packed.filter((load) => load.mode !== 'rail'),
+  ];
   const ids: string[] = [];
   for (const load of loads) {
     const manifest = load.manifest,
@@ -436,7 +451,15 @@ export function purchaseBatch(
       qty,
       arrived: 0,
       ...(manifest.length > 1 || load.mode === 'rail' ? { manifest } : {}),
-      ...(load.mode === 'rail' ? { railFreight: { ...makeRailFreight(railLoads, manifest, (prefix) => id(s, prefix)), receptionLocationId: options.railLocationId || undefined, storageZoneId: options.storageZoneId || undefined } } : {}),
+      ...(load.mode === 'rail'
+        ? {
+            railFreight: {
+              ...makeRailFreight(railLoads, manifest, (prefix) => id(s, prefix)),
+              receptionLocationId: options.railLocationId || undefined,
+              storageZoneId: options.storageZoneId || undefined,
+            },
+          }
+        : {}),
       mode: load.mode,
       status: 'ordered',
       eta: s.time + 180 + (s.orders.filter((o) => o.status !== 'done').length % 3) * 45,
@@ -453,7 +476,12 @@ export function purchaseBatch(
     };
     s.orders.push(order);
     ids.push(oid);
-    event(s, 'Order', oid, `Ordered ${orderDescription(order)} by ${load.mode} on ${order.railFreight ? `${order.railFreight.cars.length}-car supplier train` : 'one carrier'}.`);
+    event(
+      s,
+      'Order',
+      oid,
+      `Ordered ${orderDescription(order)} by ${load.mode} on ${order.railFreight ? `${order.railFreight.cars.length}-car supplier train` : 'one carrier'}.`,
+    );
   }
   s.revision++;
   return ids;
@@ -611,6 +639,70 @@ export function moveRailStock(
   return { job: j, error: '' };
 }
 
+/** Creative placement completes only newly created records; existing real work is untouched. */
+export function setCreativeMode(s: State, enabled: boolean) {
+  s.creative = enabled;
+  event(
+    s,
+    'Creative',
+    'SITE',
+    enabled
+      ? 'Creative mode on: new placements are completed immediately without materials, crews or charges.'
+      : 'Creative mode off: new placements require normal construction.',
+  );
+  s.revision++;
+}
+function completeCreativePlacement(s: State, jobs: Job[]) {
+  for (const j of jobs) {
+    if (j.status !== 'todo') continue;
+    j.creative = true;
+    j.delivered = true;
+    if (j.kind === 'slab') s.paving[key(j.x, j.z)] = j.id;
+    else if (j.kind === 'rail') {
+      for (const p of railCells(j)) delete s.paving[key(p.x, p.z)];
+      s.rails.push({
+        id: id(s, 'rail'),
+        x: j.x,
+        z: j.z,
+        rotation: j.rotation,
+        length: trackGeometry(j).length,
+        item: j.item,
+        ...(j.track ? { track: { ...j.track, origin: { ...j.track.origin } } } : {}),
+      });
+    } else if (j.kind === 'bufferStop' && j.bufferTarget) {
+      ensureBuffers(s).push({
+        ...j.bufferTarget,
+        id: id(s, 'buffer'),
+        y: 0.2,
+        secured: true,
+        carried: false,
+        source: j.id,
+      });
+    } else {
+      s.buildings.push({
+        id: id(s, 'building'),
+        kind: j.kind as BuildKind,
+        x: j.x,
+        z: j.z,
+        w: j.w,
+        d: j.d,
+        rotation: j.rotation,
+        name: label(j.kind),
+        source: j.id,
+        connected:
+          j.kind === 'lamp' ? s.utilities.power : j.kind === 'sanitary' ? s.utilities.water : true,
+      });
+    }
+    complete(s, j);
+  }
+  if (jobs.length)
+    event(
+      s,
+      'Creative',
+      jobs.at(-1)!.id,
+      `Directly placed ${jobs.length} completed construction records; no materials consumed or construction charges.`,
+    );
+}
 export function plan(
   s: State,
   kind: BuildKind,
@@ -622,6 +714,7 @@ export function plan(
   const r = footprint(kind, x, z, rotation),
     error = validPlan(s, kind, r);
   if (error) return { error };
+  const firstNewJob = s.jobs.length;
   let parentId: string | undefined;
   if (kind !== 'slab') {
     // Adjacent panels form one stretch, while each remains a real physical job.
@@ -669,6 +762,10 @@ export function plan(
       for (let pz = r.z; pz < r.z + r.d; pz++)
         if (s.paving[key(px, pz)]) {
           const target = 'pave:' + key(px, pz);
+          if (s.creative) {
+            delete s.paving[key(px, pz)];
+            continue;
+          }
           removeBuilding(s, target);
           const recovery = s.jobs.find(
             (j) =>
@@ -682,6 +779,7 @@ export function plan(
   }
   const job = newJob(s, kind, r, rotation, undefined, parentId);
   if (kind === 'rail') groupConnectedRailWork(s);
+  if (s.creative) completeCreativePlacement(s, s.jobs.slice(firstNewJob));
   event(s, 'Planning', job.id, `Planned ${label(kind)} at ${r.x}, ${r.z}.`);
   s.revision++;
   return { job, error: '' };
@@ -719,7 +817,7 @@ export function validRailLayout(
   // Legal connections are exact opposing rail ports, including both incoming
   // tails of a converging turnout. Cell proximity alone cannot make a joint.
   const external = trackMacroPorts(pieces[0]);
-  const ports = trackOpenPorts(s, true);
+  const ports = trackOpenPorts(s, !s.creative);
   const entries = external.filter((p) => p.end === 'entry');
   if (!entries.every((entry) => ports.some((port) => portsConnect(port, entry, 0.02, 0.02))))
     return flow === 'converging'
@@ -810,6 +908,10 @@ export function planRailLayout(
   for (const p of occupied)
     if (s.paving[key(p.x, p.z)]) {
       const target = 'pave:' + key(p.x, p.z);
+      if (s.creative) {
+        delete s.paving[key(p.x, p.z)];
+        continue;
+      }
       removeBuilding(s, target);
       const job = s.jobs.find((j) => j.target === target && j.status === 'todo');
       if (job) job.parentId = group.id;
@@ -822,6 +924,25 @@ export function planRailLayout(
     return j;
   });
   groupConnectedRailWork(s);
+  if (s.creative) {
+    // Preserve buffer identities, moving an incoming stop to the new open end.
+    // Extra stops after a convergence remain parked beside the old joint.
+    const ports = trackMacroPorts(canonical);
+    const incoming = ports.filter((p) => p.end === 'entry');
+    const touched = ensureBuffers(s).filter(
+      (b) => !b.carried && incoming.some((p) => dist(b, p) < 0.15),
+    );
+    completeCreativePlacement(s, jobs);
+    const exits = ports.filter(
+      (p) => p.end === 'exit' && openBufferEndpoint(s, p) && !bufferAt(s, p),
+    );
+    touched.forEach((b, index) => {
+      const exit = exits[index];
+      if (exit) Object.assign(b, { x: exit.x, z: exit.z, yaw: exit.yaw, secured: true });
+      else Object.assign(b, { z: b.z + 4, secured: false });
+      if (b.id === 'BUFFER-001') Object.assign(s.buffer, { x: b.x, z: b.z });
+    });
+  }
   event(
     s,
     'Planning',
@@ -932,6 +1053,7 @@ export function setTurnoutRoute(s: State, railId: string, route: 'straight' | 'b
 }
 
 export function pave(s: State, r: Rect) {
+  const firstNewJob = s.jobs.length;
   let count = 0;
   let parentId: string | undefined;
   for (let z = r.z; z < r.z + r.d; z++)
@@ -943,7 +1065,8 @@ export function pave(s: State, r: Rect) {
       }
     }
   if (count) {
-    event(s, 'Planning', '', `Planned ${count} m² of paving.`);
+    if (s.creative) completeCreativePlacement(s, s.jobs.slice(firstNewJob));
+    event(s, 'Planning', '', `${s.creative ? 'Placed' : 'Planned'} ${count} m² of paving.`);
     s.revision++;
   }
   return count;
@@ -1637,6 +1760,7 @@ export function planBufferStop(s: State, endpoint: Point): { job?: Job; error: s
   ensureBuffers(s);
   const j = newJob(s, 'bufferStop', { x: port.x - 1, z: port.z - 1, w: 2, d: 2 });
   j.bufferTarget = { x: port.x, z: port.z, yaw: port.yaw };
+  if (s.creative) completeCreativePlacement(s, [j]);
   event(s, 'Planning', j.id, `Install purchased buffer stop at E${port.x}, S${port.z}.`);
   s.revision++;
   return { job: j, error: '' };

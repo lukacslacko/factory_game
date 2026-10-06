@@ -48,6 +48,7 @@ export function validateState(value: any): asserts value is State {
     fail('invalid simulation clock');
   if (![1, 3, 10].includes(s.speed) || typeof s.paused !== 'boolean' || typeof s.name !== 'string')
     fail('invalid site settings');
+  if (s.creative !== undefined && typeof s.creative !== 'boolean') fail('invalid creative mode');
   const lists = [
     'workers',
     'equipment',
@@ -575,6 +576,11 @@ export function validateState(value: any): asserts value is State {
     )
       fail('invalid work order');
     if (
+      j.creative !== undefined &&
+      (typeof j.creative !== 'boolean' || (j.creative && (j.status !== 'done' || !j.delivered)))
+    )
+      fail('invalid creative placement record');
+    if (
       j.status === 'doing' &&
       ((!s.workers.some((w: any) => w.id === j.worker) &&
         !(
@@ -949,7 +955,8 @@ export function validateState(value: any): asserts value is State {
       if (!material && !crew) fail('incompatible items on one carrier');
       if (crew && (o.mode !== 'road' || o.qty > CREW_BUS_SEATS)) fail('overfilled crew bus');
       if (
-        material && !o.railFreight &&
+        material &&
+        !o.railFreight &&
         (!['road', 'rail'].includes(o.mode) ||
           orderMass(o) > FREIGHT_CAPACITY[o.mode as 'road' | 'rail'] ||
           orderDeckLength(lines) > FREIGHT_DECK_LENGTH[o.mode as 'road' | 'rail'])

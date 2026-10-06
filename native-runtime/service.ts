@@ -211,15 +211,25 @@ function reportingRows() {
     inbox: state.notices,
     railway: state.rails,
     buffers: bufferAssets(state),
-    freightCars: state.orders.flatMap((o) => (o.railFreight?.cars || []).map((car, index) => ({
-      ...car, orderId: o.id, status: o.status, ...railFreightCarPose(o, index),
-      receptionLocationId: o.railFreight?.receptionLocationId,
-      storageZoneId: o.railFreight?.storageZoneId,
-    }))),
-    locomotives: state.orders.filter((o) => o.railFreight).map((o) => ({
-      id: o.railFreight!.locomotiveId, orderId: o.id, ownership: 'Supplier',
-      status: o.status, ...o.vehicle,
-    })),
+    freightCars: state.orders.flatMap((o) =>
+      (o.railFreight?.cars || []).map((car, index) => ({
+        ...car,
+        orderId: o.id,
+        status: o.status,
+        ...railFreightCarPose(o, index),
+        receptionLocationId: o.railFreight?.receptionLocationId,
+        storageZoneId: o.railFreight?.storageZoneId,
+      })),
+    ),
+    locomotives: state.orders
+      .filter((o) => o.railFreight)
+      .map((o) => ({
+        id: o.railFreight!.locomotiveId,
+        orderId: o.id,
+        ownership: 'Supplier',
+        status: o.status,
+        ...o.vehicle,
+      })),
     locations: state.railLocations || [],
     movements: state.movements.slice(-1000).reverse(),
   };
@@ -397,12 +407,16 @@ async function dispatch(action: string, a: any) {
     case 'shutdown':
       return { shuttingDown: true };
     case 'purchase_batch':
-      return { orders: Sim.purchaseBatch(state, a.lines, a.mode, {
-        railLocationId: a.railLocationId, storageZoneId: a.storageZoneId,
-      }) };
+      return {
+        orders: Sim.purchaseBatch(state, a.lines, a.mode, {
+          railLocationId: a.railLocationId,
+          storageZoneId: a.storageZoneId,
+        }),
+      };
     case 'configure_rail_freight': {
       const error = configureRailFreight(state, a.orderId, {
-        railLocationId: a.railLocationId, storageZoneId: a.storageZoneId,
+        railLocationId: a.railLocationId,
+        storageZoneId: a.storageZoneId,
       });
       if (error) throw new Error(error);
       return {};
@@ -427,7 +441,8 @@ async function dispatch(action: string, a: any) {
         capacity: FREIGHT_CAPACITY[a.mode as 'road' | 'rail'],
         railCars: railLoads.length,
         trainLength: railLoads.length ? 26.1 + Math.max(0, railLoads.length - 1) * 17.6 : 0,
-        transportCost: (railLoads.length ? 240 : 0) + loads.filter(l => l.mode === 'road').length * 90,
+        transportCost:
+          (railLoads.length ? 240 : 0) + loads.filter((l) => l.mode === 'road').length * 90,
       };
     }
     case 'starter_order':
@@ -435,6 +450,11 @@ async function dispatch(action: string, a: any) {
       return {};
     case 'buy_missing':
       return { units: Sim.buyMissing(state) };
+    case 'creative':
+      if (typeof a.enabled !== 'boolean')
+        throw new Error('Choose whether creative mode is on or off.');
+      Sim.setCreativeMode(state, a.enabled);
+      return { creative: !!state.creative };
     case 'pause':
       state.paused = typeof a.paused === 'boolean' ? a.paused : !state.paused;
       return { paused: state.paused };

@@ -472,8 +472,21 @@ test('native freight reception exposes car IDs, named routing, unloading control
   const { saveRailLocation } = await import('../src/rail-locations');
   const s = Sim.createState();
   assert.equal(Sim.addZone(s, { x: 35, z: 28, w: 24, d: 15 }, 'Freight destination'), '');
-  assert.equal(saveRailLocation(s, { name: 'Reception A', kind: 'unloading', trackId: 'BOOTSTRAP-SIDING', route: 'straight', offset: 50, length: 70 }), undefined);
-  const [oid] = Sim.purchaseBatch(s, [{ item: 'slab', qty: 200 }], 'rail', { railLocationId: s.railLocations![0].id, storageZoneId: s.zones[0].id });
+  assert.equal(
+    saveRailLocation(s, {
+      name: 'Reception A',
+      kind: 'unloading',
+      trackId: 'BOOTSTRAP-SIDING',
+      route: 'straight',
+      offset: 50,
+      length: 70,
+    }),
+    undefined,
+  );
+  const [oid] = Sim.purchaseBatch(s, [{ item: 'slab', qty: 200 }], 'rail', {
+    railLocationId: s.railLocations![0].id,
+    storageZoneId: s.zones[0].id,
+  });
   for (let n = 0; n < 5000 && s.orders[0].status !== 'unloading'; n++) Sim.tick(s, 0.1);
   assert.equal(s.orders[0].status, 'unloading');
   assert.equal(s.orders[0].arrived, 0, 'Received train waits for the player to begin unloading');
@@ -483,7 +496,10 @@ test('native freight reception exposes car IDs, named routing, unloading control
   const host = await launch(dir);
   t.after(() => host.close());
   const c = host.client;
-  const preview = await c.ok('purchase_preview', { lines: [{ item: 'slab', qty: 200 }], mode: 'rail' });
+  const preview = await c.ok('purchase_preview', {
+    lines: [{ item: 'slab', qty: 200 }],
+    mode: 'rail',
+  });
   assert.equal(preview.railCars, 2);
   assert.equal(preview.trainLength, 43.7);
   assert.equal(preview.transportCost, 240);
@@ -498,8 +514,14 @@ test('native freight reception exposes car IDs, named routing, unloading control
   assert.equal(inspected.entity.orderId, oid);
   const loco = await c.ok('inspect', { id: s.orders[0].railFreight!.locomotiveId });
   assert.equal(loco.type, 'locomotives');
-  assert.equal((await c.request('configure_rail_freight', { orderId: oid, railLocationId: '' })).ok, false, 'Approaching/received trains cannot be rerouted');
-  const rows = await c.ok('sql', { sql: 'SELECT SUM(qty) AS ordered, SUM(arrived) AS received FROM freight_car_lines;' });
+  assert.equal(
+    (await c.request('configure_rail_freight', { orderId: oid, railLocationId: '' })).ok,
+    false,
+    'Approaching/received trains cannot be rerouted',
+  );
+  const rows = await c.ok('sql', {
+    sql: 'SELECT SUM(qty) AS ordered, SUM(arrived) AS received FROM freight_car_lines;',
+  });
   assert.deepEqual(rows[0].values, [[200, 0]]);
   const premature = await c.request('unload', { orderId: oid, workerId: 'none' });
   assert.equal(premature.ok, false);
@@ -508,5 +530,40 @@ test('native freight reception exposes car IDs, named routing, unloading control
   await c.ok('save');
   const saved = Sim.load(await fs.readFile(path.join(dir, 'yard.json'), 'utf8'));
   assert.equal(saved.orders[0].railFreight!.unloadRequested, true);
-  assert.deepEqual(saved.orders[0].railFreight!.cars.map(car => car.id), cars.map((car:any)=>car.id));
+  assert.deepEqual(
+    saved.orders[0].railFreight!.cars.map((car) => car.id),
+    cars.map((car: any) => car.id),
+  );
+});
+
+test('native creative toggle instantly places completed assets and persists without changing normal planning', async (t) => {
+  const host = await launch();
+  t.after(() => host.close());
+  await host.client.ok('new_game', { mode: 'empty' });
+  await host.client.ok('pause', { paused: true });
+  assert.equal((await host.client.request('creative', { enabled: 'yes' })).ok, false);
+  assert.deepEqual(await host.client.ok('creative', { enabled: true }), { creative: true });
+  assert.equal((await host.client.ok('plan', { kind: 'shed', x: 60, z: 30 })).job.status, 'done');
+  assert.equal((await host.client.ok('pave', { rect: { x: 50, z: 30, w: 2, d: 3 } })).count, 6);
+  assert.ok(
+    (
+      await host.client.ok('plan_rail', {
+        layout: 'straight',
+        x: 125,
+        z: 5,
+        heading: 0,
+        hand: 1,
+        snap: false,
+      })
+    ).jobs.every((j: any) => j.status === 'done'),
+  );
+  await host.client.ok('save');
+  const stored = Sim.load(await fs.readFile(path.join(host.dir, 'yard.json'), 'utf8'));
+  assert.equal(stored.creative, true);
+  assert.equal(stored.buildings.length, 1);
+  assert.equal(stored.rails.length, 1);
+  assert.equal(stored.orders.length, 0);
+  assert.equal(stored.costs.length, 0);
+  await host.client.ok('creative', { enabled: false });
+  assert.equal((await host.client.ok('plan', { kind: 'office', x: 80, z: 30 })).job.status, 'todo');
 });
