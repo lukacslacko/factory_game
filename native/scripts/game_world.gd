@@ -210,6 +210,7 @@ func _apply_pose(model:Node3D,p:Dictionary)->void:
 
 func _sync_statics()->void:
 	var live:Dictionary={}
+	var planned_tracks:Dictionary={}
 	for data in state.get("buildings",[]):
 		var id:=str(data.id); live[id]=true
 		var key:=JSON.stringify(data)
@@ -238,7 +239,9 @@ func _sync_statics()->void:
 		model.rotation.y=-float(data.get("yaw",0))
 	for entry in render.get("railGeometry",[]):
 		var id:=str(entry.id)
-		if bool(entry.get("planned",false)):continue
+		if bool(entry.get("planned",false)):
+			planned_tracks[id]=entry.geometry
+			continue
 		live[id]=true
 		var key:=JSON.stringify(entry.geometry)
 		if static_keys.get(id,"")!=key:
@@ -255,10 +258,14 @@ func _sync_statics()->void:
 	for job in state.get("jobs",[]):
 		if str(job.get("status","")) in ["done","canceled"]:continue
 		var id:=str(job.id)+"/plan"; live[id]=true
-		var key:=str(job.x)+"/"+str(job.z)+"/"+str(job.w)+"/"+str(job.d)+"/"+str(job.status)
+		var geometry:Dictionary=planned_tracks.get(str(job.id),{})
+		var key:=JSON.stringify([job.x,job.z,job.w,job.d,job.status,job.kind,geometry])
 		if static_keys.get(id,"")!=key:
 			_drop_static(id); var group:=Node3D.new(); add_child(group)
-			_outline(group,job,Color("c4af6c") if str(job.status)=="doing" else Color("8aa6a1"),.145 if _surface_height(job)>0 else .018,true)
+			group.name="PlannedConstruction";group.set_meta("ghost",true)
+			var color:=Color("ffc45c") if str(job.status)=="doing" else Color("42d5ff")
+			if not geometry.is_empty():_rail_ghost(group,geometry,color)
+			else:_construction_ghost(group,job,color)
 			statics[id]=group; static_keys[id]=key
 	var buffer_live:bool=true
 	for work in render.get("railWork",[]):
@@ -368,7 +375,7 @@ func entity_position(id:String)->Vector3:
 func preview(rect:Dictionary,valid:bool)->void:
 	_clear_children(preview_node)
 	if rect.is_empty():return
-	_outline(preview_node,rect,Color("79c7a1") if valid else Color("dd765c"),.15)
+	_construction_ghost(preview_node,rect,Color("54f1b2") if valid else Color("ff7168"))
 
 func set_selected(id:String)->void:
 	selected=id; _update_selection()
@@ -595,18 +602,80 @@ func _ray_aabb(origin:Vector3,direction:Vector3,box:AABB)->float:
 
 func preview_track(geometries:Array,valid:bool)->void:
 	_clear_children(preview_node)
-	var color:=Color("79c7a1") if valid else Color("dd765c")
+	var color:=Color("54f1b2") if valid else Color("ff7168")
 	for geometry in geometries:
 		if geometry.has("geometry"):geometry=geometry.geometry
-		for path in geometry.get("paths",[]):
-			var points:Array=path.get("points",[])
+		_rail_ghost(preview_node,geometry,color)
+
+func _ghost_material(color:Color,alpha:float=1.0,priority:int=2)->StandardMaterial3D:
+	var material:=StandardMaterial3D.new()
+	material.albedo_color=Color(color,alpha)
+	material.shading_mode=BaseMaterial3D.SHADING_MODE_UNSHADED
+	# Planning annotations remain visible through grass and stock rather than
+	# resembling already built objects or casting physical shadows.
+	material.no_depth_test=true
+	# Explicit transparent draw priorities put fill below dark edging below
+	# the bright core, even with depth testing disabled.
+	material.transparency=BaseMaterial3D.TRANSPARENCY_ALPHA
+	material.render_priority=priority
+	return material
+
+func _finish_ghost(batch:RefCounted,parent:Node3D)->void:
+	var first:int=parent.get_child_count()
+	batch.finish(parent)
+	for index in range(first,parent.get_child_count()):
+		var mesh:=parent.get_child(index) as MeshInstance3D
+		mesh.cast_shadow=GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		mesh.set_meta("ghost",true)
+
+func _ghost_edge(batch:RefCounted,a:Vector3,b:Vector3,ink:Material,color:Material,width:float=.11)->void:
+	var length:=a.distance_to(b)
+	if length<.001:return
+	var yaw:float=-atan2(b.z-a.z,b.x-a.x)
+	batch.box((a+b)*.5,Vector3(length,.016,width+.10),ink,yaw)
+	batch.box((a+b)*.5+Vector3(0,.015,0),Vector3(length,.012,width),color,yaw)
+
+func _rail_ghost(parent:Node3D,geometry:Dictionary,color:Color)->void:
+	var batch:=R.Batch.new()
+	var ink:=_ghost_material(Color("123c4a"),1.0,1)
+	var bright:=_ghost_material(color)
+	var wash:=_ghost_material(color,.12,0)
+	for path in geometry.get("paths",[]):
+		var points:Array=path.get("points",[])
+		var traveled:float=0.0;var next_tie:float=.28
+		for index in range(points.size()-1):
+			var a:=Vector3(float(points[index].x),.20,float(points[index].z))
+			var b:=Vector3(float(points[index+1].x),.20,float(points[index+1].z))
+			var length:float=a.distance_to(b)
+			if length<.001:continue
+			var normal:=Vector3(-(b.z-a.z),0,b.x-a.x).normalized()
+			var yaw:float=-atan2(b.z-a.z,b.x-a.x)
+			batch.box((a+b)*.5-Vector3(0,.065,0),Vector3(length,.006,2.0),wash,yaw)
 			for side in [-1,1]:
-				var rail:Array=[]
-				for point in points:
-					var yaw:float=float(point.get("yaw",0))
-					rail.append({"x":float(point.x)-sin(yaw)*.7525*side,"z":float(point.z)+cos(yaw)*.7525*side})
-				_path_lines(preview_node,rail,color,.15)
-		for cell in geometry.get("cells",[]):_outline(preview_node,{"x":cell.x,"z":cell.z,"w":1,"d":1},color,.018,true)
+				_ghost_edge(batch,a+normal*R.RAIL_OFFSET*side,b+normal*R.RAIL_OFFSET*side,ink,bright,.12)
+			while next_tie<traveled+length:
+				var center:=a.lerp(b,(next_tie-traveled)/length)-Vector3(0,.035,0)
+				_ghost_edge(batch,center-normal*.96,center+normal*.96,ink,bright,.07)
+				next_tie+=.625
+			traveled+=length
+	_finish_ghost(batch,parent)
+
+func _construction_ghost(parent:Node3D,rect:Dictionary,color:Color)->void:
+	var x:float=float(rect.get("x",0));var z:float=float(rect.get("z",0))
+	var w:float=float(rect.get("w",1));var d:float=float(rect.get("d",1))
+	var batch:=R.Batch.new();var ink:=_ghost_material(Color("123c4a"),1.0,1);var bright:=_ghost_material(color)
+	batch.box(Vector3(x+w*.5,.15,z+d*.5),Vector3(w,.006,d),_ghost_material(color,.12,0))
+	var corners:Array[Vector3]=[Vector3(x,.18,z),Vector3(x+w,.18,z),Vector3(x+w,.18,z+d),Vector3(x,.18,z+d)]
+	for index in range(4):_ghost_edge(batch,corners[index],corners[(index+1)%4],ink,bright)
+	var kind:String=str(rect.get("kind",""))
+	var height:float=3.0 if kind in ["office","sanitary"] else 4.3 if kind in ["shed","store"] else 0.0
+	if height>0:
+		for index in range(4):
+			var at:Vector3=corners[index]+Vector3(0,height*.5,0)
+			batch.box(at,Vector3(.15,height,.15),ink)
+			batch.box(at+Vector3(.005,0,.005),Vector3(.075,height,.075),bright)
+			_ghost_edge(batch,corners[index]+Vector3(0,height,0),corners[(index+1)%4]+Vector3(0,height,0),ink,bright)
+	_finish_ghost(batch,parent)
 
 func _attachment_pose(pose:Dictionary,parent_id:String,carried:bool)->Dictionary:
 	var value:=pose.duplicate()

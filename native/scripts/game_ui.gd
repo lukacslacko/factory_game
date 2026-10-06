@@ -318,6 +318,7 @@ func _build_yard_controls() -> void:
 	_button(rail_row,"Left / right",func() -> void: _send("rail_hand",{}))
 	_button(rail_row,"Buy missing",func() -> void: _send("buy_missing",{}))
 	tool_label=_label(rail_row,"Select · 1 m grid")
+	tool_label.tooltip_text="Construction ghosts: cyan queued, amber underway. Placement preview: green valid, red invalid."
 	tool_label.size_flags_horizontal=Control.SIZE_EXPAND_FILL
 	tool_label.horizontal_alignment=HORIZONTAL_ALIGNMENT_RIGHT
 

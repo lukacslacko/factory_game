@@ -59,7 +59,7 @@ func _ready() -> void:
 	get_tree().auto_accept_quit = false
 	get_window().title = "Plant 01 | Native factory game"
 	test_mode = "--native-self-test" in OS.get_cmdline_user_args()
-	capture_mode = "--native-capture" in OS.get_cmdline_user_args() or "--fixture-capture" in OS.get_cmdline_user_args() or "--camera-capture" in OS.get_cmdline_user_args()
+	capture_mode = "--native-capture" in OS.get_cmdline_user_args() or "--fixture-capture" in OS.get_cmdline_user_args() or "--camera-capture" in OS.get_cmdline_user_args() or "--ghost-capture" in OS.get_cmdline_user_args()
 	_setup_environment()
 	world = GameWorld.new()
 	add_child(world)
@@ -99,6 +99,8 @@ func _ready() -> void:
 	print("NATIVE_GAME_STARTED ", JSON.stringify({"engine":Engine.get_version_info().string,"data_directory":client.data_directory}))
 	if test_mode:
 		_run_self_test.call_deferred()
+	elif "--ghost-capture" in OS.get_cmdline_user_args():
+		_run_ghost_capture.call_deferred()
 	elif "--camera-capture" in OS.get_cmdline_user_args():
 		_run_camera_capture.call_deferred()
 	elif "--fixture-capture" in OS.get_cmdline_user_args():
@@ -352,6 +354,7 @@ func _placement_preview(point: Vector3) -> void:
 		if placement_rotation % 2 and tool != "relocate":
 			size = Vector2i(size.y,size.x)
 		rect = {"x":floori(point.x),"z":floori(point.z),"w":size.x,"d":size.y}
+	rect["kind"] = tool
 	world.preview(rect,true)
 
 func _place(a: Vector3, b: Vector3) -> void:
@@ -757,6 +760,43 @@ func _run_camera_capture() -> void:
 	FileAccess.open("res://captures/camera-render-results.json",FileAccess.WRITE).store_string(JSON.stringify(report,"\t"))
 	_test_assert(changed_frames > 140,"Pan advances on drawing frames between sparse mouse events")
 	print("CAMERA_RENDER_CHECK ",JSON.stringify(report))
+	_begin_close()
+
+func _run_ghost_capture() -> void:
+	await _wait_connection()
+	var result: Dictionary = await _await_reply(client.send("new_game",{"mode":"example"}))
+	_test_assert(result.get("ok",false),"Ghost review uses a real paused example yard")
+	await _await_reply(client.send("pause",{"paused":true}))
+	for plan: Dictionary in [
+		{"layout":"curve","x":125,"z":5,"heading":0,"hand":1,"snap":false},
+		{"layout":"straight","x":145,"z":25,"heading":1,"hand":1,"snap":false},
+		{"layout":"turnout","x":145,"z":30,"heading":1,"hand":1,"snap":false}]:
+		result = await _await_reply(client.send("plan_rail",plan))
+		_test_assert(result.get("ok",false),"Plan real "+str(plan.layout)+" rail ghosts: "+str(result.get("error","")))
+	for plan: Dictionary in [{"kind":"office","x":152,"z":24},{"kind":"shed","x":152,"z":36}]:
+		result = await _await_reply(client.send("plan",plan))
+		_test_assert(result.get("ok",false),"Plan real building ghost: "+str(result.get("error","")))
+	await get_tree().create_timer(0.5).timeout
+	ui.show_tab("Yard")
+	target = Vector3(141,0,31);distance = 96;pitch = deg_to_rad(50);yaw = deg_to_rad(-15)
+	_update_camera(0,true)
+	_set_grid(true)
+	ui.toast.hide()
+	await get_tree().create_timer(1.0).timeout
+	await _save_capture("ghost-plans-day.png")
+	_set_lighting(true)
+	await get_tree().create_timer(1.0).timeout
+	await _save_capture("ghost-plans-dusk.png")
+	_set_lighting(false)
+	result = await _await_reply(client.send("rail_preview",{"layout":"straight","x":145,"z":50,"heading":1,"snap":false}))
+	_test_assert(result.get("ok",false),"Real cursor rail preview geometry")
+	world.preview_track(result.result.get("geometries",[]),true)
+	await get_tree().create_timer(1.0).timeout
+	await _save_capture("ghost-preview-valid.png")
+	world.preview_track(result.result.get("geometries",[]),false)
+	await get_tree().create_timer(0.7).timeout
+	await _save_capture("ghost-preview-invalid.png")
+	print("GHOST_CAPTURE_COMPLETE ",JSON.stringify({"jobs":state.get("jobs",[]).size(),"railPlans":world.render.get("railGeometry",[]).size()}))
 	_begin_close()
 
 func _run_fixture_capture() -> void:

@@ -1,0 +1,53 @@
+{
+  "version": "0.19.2",
+  "date": "2026-10-06",
+  "ghost_checks": 61,
+  "passed": true,
+  "captures": {
+    "jobs": 82,
+    "rail_plans": 14,
+    "images": [
+      "ghost-plans-day",
+      "ghost-plans-dusk",
+      "ghost-preview-valid",
+      "ghost-preview-invalid"
+    ]
+  },
+  "runs": {
+    "ghost-import": {
+      "name": "ghost-import",
+      "elapsed_seconds": 3.04,
+      "peak_resident_bytes": 635551744,
+      "returncode": 0,
+      "stopped_reason": null
+    },
+    "ghost-smoke": {
+      "name": "ghost-smoke",
+      "elapsed_seconds": 1.02,
+      "peak_resident_bytes": 228409344,
+      "returncode": 0,
+      "stopped_reason": null
+    },
+    "ghost-visual-final": {
+      "name": "ghost-visual-final",
+      "elapsed_seconds": 8.62,
+      "peak_resident_bytes": 584237056,
+      "returncode": 0,
+      "stopped_reason": null
+    },
+    "ghost-renderer-regression": {
+      "name": "ghost-renderer-regression",
+      "elapsed_seconds": 1.02,
+      "peak_resident_bytes": 236748800,
+      "returncode": 0,
+      "stopped_reason": null
+    },
+    "ghost-packaged-integration": {
+      "name": "ghost-packaged-integration",
+      "elapsed_seconds": 6.61,
+      "peak_resident_bytes": 295665664,
+      "returncode": 0,
+      "stopped_reason": null
+    }
+  }
+}
