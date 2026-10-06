@@ -508,3 +508,12 @@ The creator likes the stronger ghosts but reports nervous subpixel vibration and
 Outcome: 115 focused checks pass, including ordinary depth testing, opaque depth-writing strokes, soil/paving heights, neighboring paving exclusion and cached-plan updates. A static GPU fixture reproduced cyan ghosts painting over an opaque obstacle: 204 pixels with native TAA and 207 with Retina-style FSR2; both drop to zero. Over 12 consecutive frames per configuration, mean ghost-edge-region variation on an 8-bit scale falls from 9.0971 to 0.8511 with FSR2 (about 91%), and from 0.7752 to 0.6384 with native TAA. These are fixed-camera fixture measurements, not a claim of zero temporal noise in every scene. Four real-game daylight/dusk/placement captures retain clear outlines with natural vegetation occlusion. The GPU comparison completed in 19.74 seconds at 506.7 MB sampled peak; an initial test-harness frame wait hit its 40-second watchdog and was corrected to explicit draws. The real-game capture passes in 8.62 seconds at 584.9 MB, and the bundled v0.19.3 app integration passes in 6.62 seconds at 287.5 MB. All test state is isolated from the creator’s saved yard.
 
 The updated app reopened and continued the creator’s original saved yard successfully, preserving its six workers, $97,732 cost record and queued construction. Workers and a forklift were reviewed during paving with the corrected ground markings. No test plans were added to that yard.
+
+
+## October 6, 2026 — remove decorative roadside powerline
+
+The creator reports dotted shadows from overhead electrical wires. Since buried electrical construction is already planned in GitHub issue #13, they request a minimal change: stop placing roadside poles/wires, retaining all assets. Extract the existing native corridor powerline builder into an unused helper. Public road and railway remain intact, player-built equipment and utilities are unaffected, and the static concept/proof assets remain available. This is only the removal of decorative placement, not implementation of underground cabling.
+
+Validation: the existing headless renderer regression passes in 1.51 seconds with 247.3 MB sampled peak resident memory; native build passes. The player’s current yard was saved before replacing the app.
+
+Outcome: the updated v0.19.4 app was opened and visually reviewed. The roadside poles, overhead wires and dotted shadows are absent. The original yard continues with eight workers and its $126,668 recorded costs; no test plans or gameplay changes were introduced.

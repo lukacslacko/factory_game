@@ -463,17 +463,21 @@ func _corridor()->void:
 		var x:float=i*.25;var t:=x/25.0;branch.append({"x":x,"z":5*(3*t*t-2*t*t*t)})
 	paths.append({"points":branch});paths.append({"points":[{"x":25,"z":5},{"x":125,"z":5}]})
 	_track_paths(group,paths,true)
+
+# Retained roadside asset builder; the playable corridor has no overhead
+# powerline while underground electrical construction is tracked in issue #13.
+func _roadside_powerline(parent:Node3D)->void:
 	var steel:=G.mat("54615e",.57,.35); var wood:=G.mat("7c704b",.90)
 	for x in range(-140,301,28):
-		G.cylinder(group,Vector3(x,4.1,-19.5),.13,8.2,wood,12)
-		G.box(group,Vector3(x,7.65,-19.5),Vector3(.18,.17,2.1),steel)
+		G.cylinder(parent,Vector3(x,4.1,-19.5),.13,8.2,wood,12)
+		G.box(parent,Vector3(x,7.65,-19.5),Vector3(.18,.17,2.1),steel)
 		for z in [-20.25,-19.5,-18.75]:
-			G.cylinder(group,Vector3(x,7.85,z),.06,.20,G.mat("c9d1c6",.38),12)
+			G.cylinder(parent,Vector3(x,7.85,z),.06,.20,G.mat("c9d1c6",.38),12)
 			if x<272:
 				var previous:=Vector3(x,7.97,z)
 				for step in range(1,9):
 					var t:float=step/8.0;var next:=Vector3(x+t*28,7.97-.58*sin(t*PI),z)
-					G.rod(group,previous,next,.012,steel,6);previous=next
+					G.rod(parent,previous,next,.012,steel,6);previous=next
 
 func _track_paths(parent:Node3D,paths:Array,ballast:bool)->void:
 	var b:=R.Batch.new(); var m:=Models.materials(); var rail:Array=[G.mat("dbddd5",.18,.88),G.mat("955532",.82,.26),m.steel]
