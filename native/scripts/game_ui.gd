@@ -76,7 +76,7 @@ var pending_confirmation: Callable
 var tool_label: Label
 var release_control_button: Button
 var group_expansion: Dictionary = {}
-var turnout_flow: OptionButton
+var rail_tool_buttons: Dictionary = {}
 var buffer_endpoint_window: Window
 var purchase_reception: OptionButton
 var purchase_stockyard: OptionButton
@@ -327,12 +327,13 @@ func _build_yard_controls() -> void:
 		_button(row,str(choices[key]),func() -> void: _select_tool(key))
 	var rail_row: HBoxContainer = HBoxContainer.new()
 	tools.add_child(rail_row)
-	for key: String in {"railStraight":"Straight rail","railCurve":"90° curve","railTurnout":"Turnout"}:
-		_button(rail_row,{"railStraight":"Straight rail","railCurve":"90° curve","railTurnout":"Turnout"}[key],func() -> void: _select_tool(key))
-	turnout_flow=_option(rail_row,["Diverging turnout","Converging turnout"])
-	turnout_flow.size_flags_horizontal=Control.SIZE_SHRINK_BEGIN
-	turnout_flow.tooltip_text="Diverging: one incoming track splits into two. Converging: two incoming tracks join one; click the straight incoming endpoint and point toward the junction."
-	turnout_flow.item_selected.connect(func(index: int) -> void: _send("rail_flow",{"flow":"converging" if index==1 else "diverging"}))
+	var rail_choices: Dictionary = {"railStraight":"Straight rail","railCurve":"90° curve","railTurnout":"Diverging switch","railConverging":"Converging switch"}
+	for key: String in rail_choices:
+		var rail_button: Button = _button(rail_row,str(rail_choices[key]),func() -> void: _select_tool(key))
+		rail_button.toggle_mode=true
+		rail_tool_buttons[key]=rail_button
+	(rail_tool_buttons["railTurnout"] as Button).tooltip_text="One incoming track splits into two. Click the incoming endpoint and point away from it."
+	(rail_tool_buttons["railConverging"] as Button).tooltip_text="Two incoming tracks join one. Click the straight incoming endpoint and point toward the junction; incoming tracks must be 5 meters apart."
 	_button(rail_row,"Rotate R",func() -> void: _send("rotate",{}))
 	_button(rail_row,"Left / right",func() -> void: _send("rail_hand",{}))
 	_button(rail_row,"Buy missing",func() -> void: _send("buy_missing",{}))
@@ -345,6 +346,8 @@ func _build_yard_controls() -> void:
 
 func _select_tool(kind: String) -> void:
 	active_tool=kind
+	for key: String in rail_tool_buttons:
+		(rail_tool_buttons[key] as Button).set_pressed_no_signal(key==kind)
 	_switch_tab("Yard")
 	_update_control_banner()
 	if not selected_id.is_empty(): entity_selected.emit(selected_id)
@@ -1034,7 +1037,8 @@ func _update_control_banner() -> void:
 		tool_label.text="Manual driving · %s"%(vehicle_id if not vehicle_id.is_empty() else controlled_worker)
 		tool_label.tooltip_text="Automatic work stays suspended until you return this worker to automatic duty. Click the yard to drive or walk."
 	else:
-		tool_label.text="Select · 1 m grid" if active_tool=="select" else "%s · click / drag the yard"%active_tool
+		var tool_name: String = (rail_tool_buttons[active_tool] as Button).text if rail_tool_buttons.has(active_tool) else active_tool
+		tool_label.text="Select · 1 m grid" if active_tool=="select" else "%s · click / drag the yard"%tool_name
 		tool_label.tooltip_text="Construction ghosts: cyan queued, amber underway. Placement preview: green valid, red invalid."
 
 func _equipment_inspector(equipment: Dictionary) -> void:
@@ -1342,9 +1346,9 @@ func _rail_help_paragraphs() -> Array[String]:
 		"Use real handling equipment. An owned machine and its operator unload the cars, and a ground helper rigs loads that require one. Workers must be on duty and the machine must be allowed to receive deliveries. Clicking a car in Railway opens its manifest; its order ID opens the delivery controls. You can change the stockyard between lifts to direct the remaining cargo to a different yard. An ongoing lift keeps its current destination.",
 		"Track progress and departure. The Railway freight-car register shows each car's remaining load and links it to the parent train order. Deliveries shows the train's waiting reason, assigned equipment, and unloading phase. Cars retain their individual IDs and cargo records when you save. The current supplier locomotive remains coupled during unloading and departs with the complete empty train when unloading is finished.",
 		"The next rail operations are locomotive handoff, an owned shunter and driver, coupling and uncoupling selected cars, transfer between named locations, and forming an empty return train for a requested mainline locomotive. These controls are not available in this checkpoint. The present multi-car records, named reception intervals, and explicit unloading destinations are the foundation for those operations.",
-		"Build the track layout first. Straight rails, curves, and diverging or converging turnouts are available in the Yard tools. A converging turnout joins two parallel incoming tracks 5 meters apart. Install buffer stops at open endpoints from Railway; redundant stops are physically carried to stockyard storage. Track designations alone do not provide a train route or certify clearance.",
+		"Build the track layout first. Use the Straight rail, 90° curve, Diverging switch, and Converging switch buttons in the Yard tools. Each button selects that construction type directly. A converging turnout joins two parallel incoming tracks 5 meters apart. Install buffer stops at open endpoints from Railway; redundant stops are physically carried to stockyard storage. Track designations alone do not provide a train route or certify clearance.",
 		"Recover installed track from its inspector. Select a panel in Yard or Railway, then click Recover this rail panel. Curves and turnouts also offer Recover whole assembly to recover their installed panels together. A worker unfastens the panels and equipment carries them to physical stockyard storage; attached buffer stops are recovered first. Keep the track free of trains and active construction, and provide accessible stockyard space. The original main line and receiving siding are protected. In Creative, recovery is immediate.",
-		"Replace straight track with a switch by recovering the panels that occupy its complete footprint, then using the turnout tool at the newly exposed endpoint. Recovery opens both sides of a gap; plan from the endpoint facing the new track and leave enough room for the turnout and its branch. Merely crossing rails does not join them. Converging turnouts need parallel incoming ends aligned 5 meters apart.",
+		"Replace straight track with a switch by recovering the panels that occupy its complete footprint, then selecting Diverging switch or Converging switch at the newly exposed endpoint. Recovery opens both sides of a gap; plan from the endpoint facing the new track and leave enough room for the turnout and its branch. Merely crossing rails does not join them. Converging turnouts need parallel incoming ends aligned 5 meters apart.",
 		"Rail layouts can form loops. To close one, the two open endpoints must coincide and face in opposite directions, with matching rail geometry and enough clear space. The grid does not make a crossing into a junction; use turnouts for branches and joins. Loops are physical track connections in this version, while supplier reception remains restricted to the original siding and owned shunting is still planned."
 	]
 

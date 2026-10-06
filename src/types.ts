@@ -110,6 +110,8 @@ export interface Equipment extends Point, Move, Motion {
 export interface Stack extends Rect {
   /** Physical panels in shared preparation stock; canceled IDs retain resumable, unreserved steel. */
   railStagingJobs?: string[];
+  /** Recovered component identity for each layer, bottom to top; null means new steel. */
+  railAssetIds?: (string | null)[];
   trackHand?: 1 | -1;
   baseHeight?: number;
   yaw?: number;
@@ -350,7 +352,7 @@ export interface Job extends Rect {
   id: string;
   kind: BuildKind | 'refuel' | 'remove' | 'throwSwitch' | 'moveStock';
   /** Exact-source physical rail relocation, never a construction material demand. */
-  stockMove?: { sourceId: string; destination: Rect; yaw: number };
+  stockMove?: { sourceId: string; destination: Rect; yaw: number; mergeId?: string };
   /** Installed steel remains in the network until its joints and slings are released. */
   railRecovery?: {
     railId: string;
@@ -382,6 +384,8 @@ export interface Job extends Rect {
   cancel?: boolean;
   resumeJob?: string;
   assetId?: string;
+  /** Physical identities of a carried rail batch, bottom to top. */
+  railAssetIds?: (string | null)[];
   recoveryStack?: Stack;
   retryAt?: number;
   retryRevision?: number;

@@ -151,3 +151,10 @@ Publish Apple Silicon Mac build 209 and source. Tight stockyard departures now u
 Publish Apple Silicon Mac build 210 and source. All six rail panel/module types stack eight high (2.85 meters with spacers), using bounded physical footprints and actual vehicle payload, deck-length and equipment lift limits. Existing saved freight retains its original parcel arrangement and current lift. Add stock capacity/height in the inspector and telescoping forklift mast support for high-stack handling. All 478 simulation/native-host regressions, both builds, the native headless geometry/UI check and packaged GPU/bridge integration pass.
 
 Save and pause the creator's current yard at D1 13:54:29 through the actual game controls, then close it. Retain private backups of both yard and previous app. Install the verified bundle and reopen: the existing yard appears behind its normal Continue dialog, paused and byte-identical to the checkpoint. Browser hosting remains 0.18.0. No private gameplay data is published.
+
+
+## Native direct switch tools and recovery stacking — v0.20.8
+
+Publish Apple Silicon Mac build 211 and source. Separate diverging/converging switch tools remove the leaked convergence setting that blocked straight rails and curves. Creative and physical recovery fill compatible finite stockyard stacks up to eight high, with original rail identities retained per layer. Keep private saves, diagnostic records and captures outside the source and package. Preserve the currently open creative yard with a paused checkpoint and previous-app backup before installation.
+
+Verified 491 complete sequential regressions, 208 focused handling tests, and 54 final layer-validation/recovery/native-service tests; both builds; 58 switch, 23 recovery UI and 3,621 geometry assertions. Final packaged integration: 8.61 seconds, sampled 366.1 MB peak. The last save-import guard and its regression are checked after the complete suite begins. Install and publish the same self-contained build, leaving the private Creative yard paused and unchanged.

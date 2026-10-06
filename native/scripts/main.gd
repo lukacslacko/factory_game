@@ -40,7 +40,6 @@ var placing: bool = false
 var tool: String = "select"
 var placement_rotation: int = 0
 var rail_hand: int = 1
-var rail_flow: String = "diverging"
 var selected_id: String = ""
 var follow: bool = false
 var controlled_worker: String = ""
@@ -226,11 +225,6 @@ func _command(action: String, args: Dictionary = {}) -> void:
 	if action == "rotate":
 		_rotate_placement()
 		return
-	if action == "rail_flow":
-		rail_flow = "converging" if str(args.get("flow","")) == "converging" else "diverging"
-		preview_key = ""
-		preview_dirty = true
-		return
 	if action == "rail_hand":
 		rail_hand = -rail_hand
 		preview_dirty = true
@@ -351,7 +345,7 @@ func _placement_preview(point: Vector3) -> void:
 		return
 	var rect := _rect(click_point if placing else point,point)
 	if tool not in ["slab", "zone"]:
-		var sizes := {"office":Vector2i(6,3),"sanitary":Vector2i(3,2),"shed":Vector2i(8,6),"store":Vector2i(6,4),"lamp":Vector2i(1,1),"fence":Vector2i(3,1),"power":Vector2i(1,1),"water":Vector2i(1,1),"railStraight":Vector2i(5,2),"railCurve":Vector2i(20,20),"railTurnout":Vector2i(20,7),"parking":Vector2i(3,5),"relocate":Vector2i(5,2)}
+		var sizes := {"office":Vector2i(6,3),"sanitary":Vector2i(3,2),"shed":Vector2i(8,6),"store":Vector2i(6,4),"lamp":Vector2i(1,1),"fence":Vector2i(3,1),"power":Vector2i(1,1),"water":Vector2i(1,1),"railStraight":Vector2i(5,2),"railCurve":Vector2i(20,20),"railTurnout":Vector2i(20,7),"railConverging":Vector2i(20,7),"parking":Vector2i(3,5),"relocate":Vector2i(5,2)}
 		var size: Vector2i = sizes.get(tool,Vector2i(1,1))
 		if tool == "relocate":
 			for stack: Dictionary in state.get("stacks",[]):
@@ -362,14 +356,19 @@ func _placement_preview(point: Vector3) -> void:
 	rect["kind"] = tool
 	world.preview(rect,true)
 
+func _rail_placement_args(point: Vector3) -> Dictionary:
+	# Flow belongs to the switch tool, never to a persistent dropdown mode.
+	# Keep previews and committed plans identical when changing rail tools.
+	var layout := {"railStraight":"straight","railCurve":"curve","railTurnout":"turnout","railConverging":"turnout"}
+	return {"layout":layout[tool],"x":roundi(point.x),"z":roundi(point.z),"heading":placement_rotation,"hand":rail_hand,"snap":true,"flow":"converging" if tool=="railConverging" else "diverging"}
+
 func _place(a: Vector3, b: Vector3) -> void:
 	var rect := _rect(a,b)
 	match tool:
 		"slab": client.send("pave", {"rect":rect})
 		"zone": client.send("zone", {"rect":rect,"name":"Stockyard %d" % (state.get("zones",[]).size()+1)})
-		"railStraight", "railCurve", "railTurnout":
-			var layout := {"railStraight":"straight","railCurve":"curve","railTurnout":"turnout"}
-			client.send("plan_rail", {"layout":layout[tool],"x":roundi(a.x),"z":roundi(a.z),"heading":placement_rotation,"hand":rail_hand,"snap":true,"flow":rail_flow})
+		"railStraight", "railCurve", "railTurnout", "railConverging":
+			client.send("plan_rail", _rail_placement_args(a))
 		"drive":
 			var worker_id := controlled_worker
 			for e: Dictionary in state.get("equipment",[]):
@@ -533,11 +532,10 @@ func _process(dt: float) -> void:
 	if preview_dirty and preview_clock >= 0.18 and tool.begins_with("rail"):
 		preview_clock = 0.0
 		preview_dirty = false
-		var key := "%s:%d:%d:%d:%d:%s" % [tool,roundi(preview_point.x),roundi(preview_point.z),placement_rotation,rail_hand,rail_flow]
+		var key := "%s:%d:%d:%d:%d" % [tool,roundi(preview_point.x),roundi(preview_point.z),placement_rotation,rail_hand]
 		if key != preview_key:
 			preview_key = key
-			var layout := {"railStraight":"straight","railCurve":"curve","railTurnout":"turnout"}
-			preview_request = client.send("rail_preview", {"layout":layout[tool],"x":roundi(preview_point.x),"z":roundi(preview_point.z),"heading":placement_rotation,"hand":rail_hand,"snap":true,"flow":rail_flow})
+			preview_request = client.send("rail_preview", _rail_placement_args(preview_point))
 	if closing:
 		close_clock += dt
 		if close_clock > 4.5:

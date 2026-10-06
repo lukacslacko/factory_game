@@ -1,3 +1,4 @@
+import { appendRailLayers, incomingRailLayers } from './rail-stock';
 export { orderLines, orderDescription, orderMass, itemMass } from './procurement';
 import { orderLines, orderDescription, pendingOrderLine, freightStackLimit } from './procurement';
 import { railFreightCarPose, railReceptionPlan, railStopDistance } from './rail-freight';
@@ -502,9 +503,7 @@ function chooseStorage(
   const loaded = { ...e, cargo: { item, qty: 1 } };
   const unavailable = (r: Rect) => clearance.some((area) => overlap(area, r));
   const incoming = (id: string) =>
-    s.orders
-      .filter((o) => o.unload?.mergeId === id && o.unload.phase !== 'back-away')
-      .reduce((n, o) => n + o.unload!.qty, 0) +
+    incomingRailLayers(s, id) +
     s.jobs
       .filter((j) => j.recoveryStack?.id === id)
       .reduce((n, j) => n + (j.recoveryStack?.qty || 0), 0);
@@ -513,6 +512,7 @@ function chooseStorage(
     .filter(
       (t) =>
         t.item === item &&
+        (!item.startsWith('rail') || item === 'rail' || (t.trackHand ?? 1) === 1) &&
         inDestination(t) &&
         t.qty > 0 &&
         t.qty + incoming(t.id) < m.max &&
@@ -1103,7 +1103,8 @@ function unloadTick(s: State, o: Order, dt: number, api: DeliveryAPI) {
     if (t.clock < 1) return;
     let stack = s.stacks.find((q) => q.id === t.mergeId);
     if (stack) {
-      stack.qty += t.qty;
+      if (item.startsWith('rail')) appendRailLayers(stack, Array(t.qty).fill(null));
+      else stack.qty += t.qty;
     } else {
       stack = {
         ...t.destination,

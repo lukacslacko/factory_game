@@ -1,3 +1,4 @@
+import { appendRailLayers, takeRailLayers, recoveryStackCandidates } from './rail-stock';
 import { bufferAssets, bufferAt, ensureBuffers, openBufferEndpoint, bufferSource } from './buffers';
 import {
   trackGeometry,
@@ -1917,7 +1918,8 @@ export function removeRailInfrastructure(
       return `Recovery already planned for ${r.id}.`;
   }
   // Preflight the entire instant edit before changing anything. Storage stays finite in Creative.
-  const creativeSpots = new Map<string, Rect>();
+  const creativeSpots = new Map<string, { rect: Rect; mergeId?: string }>();
+  const committedStacks = new Map<string, string>();
   if (s.creative) {
     const preview = structuredClone(s);
     for (const r of rails) {
@@ -1930,10 +1932,19 @@ export function removeRailInfrastructure(
         { id: r.id, item: r.item || ('rail' as Item) },
       ]) {
         if (creativeSpots.has(asset.id)) continue;
-        const spot = allocate(preview, asset.item);
+        const hand = r.track?.hand ?? 1;
+        const merge = recoveryStackCandidates(preview, asset.item, hand)[0];
+        const spot = merge || allocate(preview, asset.item);
         if (!spot)
           return `Recovery needs stockyard space for ${asset.id}. Enlarge or add a stockyard first.`;
-        creativeSpots.set(asset.id, spot);
+        creativeSpots.set(asset.id, {
+          rect: { x: spot.x, z: spot.z, w: spot.w, d: spot.d },
+          mergeId: merge?.id,
+        });
+        if (merge) {
+          appendRailLayers(merge, [asset.id]);
+          continue;
+        }
         preview.stacks.push({
           ...spot,
           id: `recovery-preview-${asset.id}`,
@@ -1941,6 +1952,8 @@ export function removeRailInfrastructure(
           qty: 1,
           reserved: 0,
           source: 'preview',
+          trackHand: asset.item.startsWith('rail') ? hand : undefined,
+          assetId: asset.id,
         });
       }
     }
@@ -1961,7 +1974,7 @@ export function removeRailInfrastructure(
         s.buffers = s.buffers!.filter((t) => t.id !== b.id);
         const stockId = id(s, 'stack');
         s.stacks.push({
-          ...creativeSpots.get(b.id)!,
+          ...creativeSpots.get(b.id)!.rect,
           id: stockId,
           item: 'bufferStop',
           qty: 1,
@@ -1972,20 +1985,26 @@ export function removeRailInfrastructure(
         movement(s, 'bufferStop', 1, b.id, stockId, 'Buffer stop recovered in Creative mode');
       }
       const item = r.item || 'rail',
-        spot = creativeSpots.get(r.id)!;
+        destination = creativeSpots.get(r.id)!;
       s.rails = s.rails.filter((t) => t.id !== r.id);
-      const stockId = id(s, 'stack');
-      s.stacks.push({
-        ...spot,
-        id: stockId,
-        item,
-        qty: 1,
-        reserved: 0,
-        source: r.id,
-        assetId: r.id,
-        trackHand: r.track?.hand ?? 1,
-      });
-      movement(s, item, 1, r.id, stockId, 'Installed rail recovered in Creative mode');
+      const targetId =
+        destination.mergeId && (committedStacks.get(destination.mergeId) || destination.mergeId);
+      let stock = s.stacks.find((t) => t.id === targetId);
+      if (!stock) {
+        stock = {
+          ...destination.rect,
+          id: id(s, 'stack'),
+          item,
+          qty: 0,
+          reserved: 0,
+          source: r.id,
+          trackHand: r.track?.hand ?? 1,
+        };
+        s.stacks.push(stock);
+        committedStacks.set(`recovery-preview-${r.id}`, stock.id);
+      }
+      appendRailLayers(stock, [r.id]);
+      movement(s, item, 1, r.id, stock.id, 'Installed rail recovered in Creative mode');
       const j = newJob(s, 'remove', railFootprint(r), r.rotation, r.id, group.id);
       j.item = item;
       j.railRecovery = {
@@ -3105,10 +3124,11 @@ function tickJob(s: State, j: Job, dt: number) {
         j.reason = 'Reserved stock unavailable';
         return;
       }
-      stack.qty -= j.qty;
+      const picked = stack.item.startsWith('rail') ? takeRailLayers(stack, j.qty) : undefined;
+      if (!picked) stack.qty -= j.qty;
       stack.reserved -= j.qty;
       e.cargo = { item: j.item!, qty: j.qty };
-      j.assetId = stack.assetId;
+      j.assetId = picked ? picked[0] || undefined : stack.assetId;
       movement(s, j.item!, j.qty, stack.id, e.id, 'Construction pickup');
       j.stack = undefined;
       const p = machineApproach(s, e, j);

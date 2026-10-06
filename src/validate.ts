@@ -172,6 +172,17 @@ export function validateState(value: any): asserts value is State {
   }
   for (const j of s.jobs) {
     if (
+      j.railAssetIds !== undefined &&
+      (!j.item?.startsWith('rail') ||
+        !Array.isArray(j.railAssetIds) ||
+        j.railAssetIds.length !== (j.railWork?.stagingBatch?.qty || 1) ||
+        j.railAssetIds.some((id: unknown) => id !== null && (typeof id !== 'string' || !id)) ||
+        new Set(j.railAssetIds.filter((id: unknown) => id !== null)).size !==
+          j.railAssetIds.filter((id: unknown) => id !== null).length)
+    )
+      fail('invalid carried rail layer identities');
+
+    if (
       j.bufferTarget !== undefined &&
       (j.kind !== 'bufferStop' || !point(j.bufferTarget) || !finite(j.bufferTarget.yaw))
     )
@@ -405,6 +416,16 @@ export function validateState(value: any): asserts value is State {
   }
   for (const t of s.stacks) {
     if (
+      t.railAssetIds !== undefined &&
+      (!t.item?.startsWith('rail') ||
+        !Array.isArray(t.railAssetIds) ||
+        t.railAssetIds.length !== t.qty ||
+        t.railAssetIds.some((id: unknown) => id !== null && (typeof id !== 'string' || !id)) ||
+        new Set(t.railAssetIds.filter((id: unknown) => id !== null)).size !==
+          t.railAssetIds.filter((id: unknown) => id !== null).length)
+    )
+      fail('invalid recovered rail layer identities');
+    if (
       t.railStagingJobs !== undefined &&
       (!t.item?.startsWith('rail') ||
         !Array.isArray(t.railStagingJobs) ||
@@ -532,6 +553,7 @@ export function validateState(value: any): asserts value is State {
         !j.item?.startsWith('rail') ||
         !MATERIALS[j.item as keyof typeof MATERIALS] ||
         j.qty !== 1 ||
+        (m.mergeId !== undefined && typeof m.mergeId !== 'string') ||
         !finite(m.yaw) ||
         !point(m.destination) ||
         (j.railRecovery &&

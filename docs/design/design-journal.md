@@ -726,3 +726,16 @@ Review catches a forklift-rendering consequence of the taller stack: the carriag
 Both TypeScript builds pass. The packaged native app's actual GPU/bridge integration passes in 9.14 seconds with a sampled 358.5 MB memory peak under the 45-second/2 GB watchdog, using an isolated temporary yard. Save and pause the current yard through the real controls before replacement; retain its private checkpoint and previous app as recoverable backups.
 
 Final verification passes all 478 sequential simulation/native-host tests in 311.09 seconds with all 120 recorded TypeScript/test/package inputs unchanged. Install v0.20.7 build 210 after saving and pausing the creator's actual yard at D1 13:54:29, retaining private previous-app and save backups. Reopen the app: the original yard is visible behind the normal Continue dialog, still paused. Its save remains byte-identical to the pre-install checkpoint. No test yard replaces it.
+
+
+## 2026-10-06 — Direct switch buttons and compact recovered steel
+
+The creator reports that selecting Converging turnout makes straight rails and curves impossible to place, and requests separate diverging/converging buttons without a dropdown. Also, recovered installed rails take individual storage slots in Creative rather than stacking.
+
+Remove the shared persistent turnout-flow state from native placement. Give Straight rail, 90° curve, Diverging switch and Converging switch independent tool selections, with visible selected buttons. Preview and placement use the same tool-derived arguments; only Converging switch passes converging flow. Update the in-game help.
+
+Recovery preflights compatible partial stacks before new ground slots, including each panel of an instant whole-assembly edit. Keep finite capacity, material type, actual curve/module handedness, and reservations. Normal recovery retains real unbolting, lifting, transport, lowering onto the current stack top, and withdrawal. Shared receiving capacity is reserved so incoming deliveries cannot overfill an ongoing recovery destination. Existing separately stored panels do not teleport together.
+
+A recovered multi-panel stack needs per-layer asset identity rather than one ID for the whole pile. Store original component IDs bottom to top, with null for new supplier steel; update layers during pickup, batch staging, installation, and delivery top-ups. Keep existing singleton identity readable. Verify that rebuilding takes the top recovered panel's ID without duplicating installed identities, including across reload.
+
+Final review adds validation of carried batch layer IDs, preventing a malformed save from creating extra inventory. Verification: 491 complete sequential tests, 208 handling tests, then 54 final validation/recovery/native-service tests pass. Both builds and the packaged GPU/bridge check pass. Native switch, recovery and stack geometry checks pass 58, 23 and 3,621 assertions. Install v0.20.8 build 211 with the creator's current Creative yard paused, retaining its private checkpoint and previous app; test data remains isolated.

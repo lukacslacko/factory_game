@@ -1,0 +1,46 @@
+{
+  "version": "0.20.8",
+  "build": 211,
+  "switch_button_checks": 58,
+  "recovery_ui_checks": 23,
+  "stack_geometry_checks": 3621,
+  "focused_handling_tests": 208,
+  "checks": [
+    {
+      "name": "v0208-switch-tools",
+      "elapsed_seconds": 1.52,
+      "peak_resident_bytes": 285163520,
+      "returncode": 0,
+      "stopped_reason": null
+    },
+    {
+      "name": "v0208-recovery-ui",
+      "elapsed_seconds": 1.01,
+      "peak_resident_bytes": 160464896,
+      "returncode": 0,
+      "stopped_reason": null
+    },
+    {
+      "name": "v0208-stacks",
+      "elapsed_seconds": 2.53,
+      "peak_resident_bytes": 349519872,
+      "returncode": 0,
+      "stopped_reason": null
+    },
+    {
+      "name": "v0208-release-package",
+      "elapsed_seconds": 8.61,
+      "peak_resident_bytes": 366084096,
+      "returncode": 0,
+      "stopped_reason": null
+    }
+  ],
+  "private_data_included": false,
+  "final_layer_validation_tests": 54,
+  "full_suite": {
+    "tests": 491,
+    "pass": 491,
+    "duration_ms": 308506.114458,
+    "final_followup": "Carried-layer import guard and its regression added after full-suite start; 54 final targeted tests pass."
+  }
+}

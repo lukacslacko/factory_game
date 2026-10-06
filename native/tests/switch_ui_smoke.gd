@@ -16,6 +16,7 @@ class FakeClient:
 var failures:Array[String]=[]
 var checks:int=0
 var actions:Array[Dictionary]=[]
+var tools:Array[String]=[]
 func _initialize()->void:_run.call_deferred()
 func _check(value:bool,label:String)->void:
 	checks+=1
@@ -42,12 +43,16 @@ func _run()->void:
 	fixture.render.railOpenEndpoints=[{"id":"END:RAIL-9001:1","x":125,"z":5,"yaw":0,"trackId":"RAIL-9001","panelId":"RAIL-9001","route":"straight","occupiedBy":"BUFFER-001"},{"id":"END:RAIL-9002:1","x":150,"z":5,"yaw":0,"trackId":"RAIL-9002","panelId":"RAIL-9002","route":"straight","occupiedBy":""}]
 	var ui:=UI.new();root.add_child(ui);ui.setup()
 	ui.command.connect(func(action:String,args:Dictionary)->void:actions.append({"action":action,"args":args}))
+	ui.tool_selected.connect(func(kind:String)->void:tools.append(kind))
 	ui.update_snapshot(fixture)
 	ui.receive_reply({"action":"new_game","ok":true})
 	_check(ui.catalog.has("bufferStop"),"Purchase catalog includes physical buffer stops")
-	_check(ui.turnout_flow.item_count==2,"Turnout placement exposes diverging and converging choices")
-	ui.turnout_flow.selected=1;ui.turnout_flow.item_selected.emit(1)
-	_check(actions.back()=={"action":"rail_flow","args":{"flow":"converging"}},"Converging choice emits the explicit flow mode")
+	_check(_button(ui.screen,"Diverging switch")!=null and _button(ui.screen,"Converging switch")!=null,"Both switch directions have direct placement buttons")
+	_check(_button(ui.screen,"Turnout")==null,"The ambiguous single Turnout button is removed")
+	(ui.rail_tool_buttons["railConverging"] as Button).pressed.emit()
+	_check(tools.back()=="railConverging" and ui.active_tool=="railConverging","Converging switch button selects its independent rail tool")
+	_check((ui.rail_tool_buttons["railConverging"] as Button).button_pressed and not (ui.rail_tool_buttons["railTurnout"] as Button).button_pressed,"Selected switch tool has a visible active state")
+	_check(ui.tool_label.text.begins_with("Converging switch"),"Construction banner clearly names the selected switch direction")
 	ui.show_tab("Railway")
 	_check(ui.tables.size()==5 and ui.tables[2].rows.size()==2 and ui.tables[3].rows.size()==2,"Railway register lists actual endpoints and independent buffers")
 	var endpoints:Control=ui.tables[2]
@@ -114,16 +119,29 @@ func _run()->void:
 	_check(before==after,"Fastening a buffer preserves all crossbar vertices without a final sideways jump")
 	_check(not world.models.has("JOB-9003/handling"),"Finished buffer installation removes its temporary handling model")
 	var main:=MainHarness.new();root.add_child(main);main.world=world;main.ui=ui;var client:=FakeClient.new();main.client=client;main.add_child(client);main.add_child(main.camera);main.add_child(main.sun)
-	main._command("rail_flow",{"flow":"converging"})
-	_check(main.rail_flow=="converging" and main.preview_dirty,"Turnout mode updates the native placement preview")
-	main.tool="railTurnout";main._place(Vector3(150,0,5),Vector3(150,0,5))
-	_check(not client.sent.is_empty() and client.sent.back().args.get("flow")=="converging","Native rail placement sends convergence through the runtime API")
-	main.preview_point=Vector3(150,0,5);main.preview_dirty=true;main._process(.2)
-	_check(client.sent.back().action=="rail_preview" and client.sent.back().args.get("flow")=="converging","Native exact turnout preview uses the selected convergence mode")
-	main._command("rail_flow",{"flow":"diverging"})
-	_check(main.rail_flow=="diverging","Player can return to ordinary diverging turnout construction")
-	main._process(.2)
-	_check(client.sent.back().action=="rail_preview" and client.sent.back().args.get("flow")=="diverging","Changing mode refreshes the preview even at the same cursor location")
+	ui.tool_selected.connect(main._select_tool)
+	main.placement_rotation=2;main.rail_hand=-1
+	# Exercise the exact old failure: choose convergence, then another rail
+	# tool, without moving the cursor or touching another hidden mode.
+	for selection: Dictionary in [
+		{"tool":"railConverging","layout":"turnout","flow":"converging"},
+		{"tool":"railStraight","layout":"straight","flow":"diverging"},
+		{"tool":"railCurve","layout":"curve","flow":"diverging"},
+		{"tool":"railConverging","layout":"turnout","flow":"converging"},
+		{"tool":"railTurnout","layout":"turnout","flow":"diverging"}]:
+		(ui.rail_tool_buttons[selection.tool] as Button).pressed.emit()
+		_check(main.tool==selection.tool,"Actual %s button updates the native placement tool"%selection.tool)
+		main._placement_preview(Vector3(150,0,5));main._process(.2)
+		var expected: Dictionary = {"layout":selection.layout,"flow":selection.flow,"x":150,"z":5,"heading":2,"hand":-1,"snap":true}
+		_check(client.sent.back()=={"action":"rail_preview","args":expected},"%s preview uses only its own flow and keeps orientation"%selection.tool)
+		main._place(Vector3(150,0,5),Vector3(150,0,5))
+		_check(client.sent.back()=={"action":"plan_rail","args":expected},"%s placement matches the preview after convergence selection"%selection.tool)
+		var pressed_count: int = 0
+		for key: String in ui.rail_tool_buttons:
+			if (ui.rail_tool_buttons[key] as Button).button_pressed: pressed_count+=1
+		_check(pressed_count==1,"Only the selected %s placement button stays active"%selection.tool)
+	ui._select_tool("select")
+	_check(not (ui.rail_tool_buttons["railTurnout"] as Button).button_pressed and not (ui.rail_tool_buttons["railConverging"] as Button).button_pressed,"Selecting another tool clears both switch indicators")
 	# Old saves contain only {x,z} in state.buffer. The bridge resolves
 	# protected orientation/provenance without mutating the imported save.
 	var legacy:Dictionary=fixture.duplicate(true)

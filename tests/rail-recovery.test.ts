@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import * as S from '../src/sim';
 import { trackGeometry, trackNetwork, trackOpenPorts } from '../src/track';
 import { bufferAssets } from '../src/buffers';
+import { railStagingStackOwned } from '../src/railwork';
 import { setJobEquipment } from '../src/jobs';
 import { seedHandlingResources, tickUntil } from './support/yard';
 import type { State } from '../src/types';
@@ -216,7 +217,9 @@ test('whole curve recovery keeps six correctly handed curved modules as finite s
     recovered.reduce((n, t) => n + t.qty, 0),
     6,
   );
-  assert(recovered.every((t) => t.trackHand === 1 && t.assetId));
+  assert.equal(recovered.length, 1);
+  assert.equal(recovered[0].railAssetIds?.length, 6);
+  assert(recovered.every((t) => t.trackHand === 1));
   assert.equal(bufferAssets(s).length, 0);
   S.load(S.save(s));
 });
@@ -363,4 +366,56 @@ test('historical switch operation remains readable when the complete installed t
     s.jobs.some((j) => j.kind === 'throwSwitch' && j.status === 'done' && j.target === points.id),
   );
   S.load(S.save(s));
+});
+
+test('physical recovery lowers onto compatible stock, preserving layers, height and finite capacity', () => {
+  const { s, e, j, rail } = fixture();
+  const stack = {
+    id: S.id(s, 'stack'),
+    item: 'rail' as const,
+    qty: 2,
+    reserved: 0,
+    source: 'delivered',
+    x: 120,
+    z: 28,
+    w: 5,
+    d: 3,
+    railAssetIds: undefined as (string | null)[] | undefined,
+  };
+  s.stacks.push(stack);
+  let loweredOntoStack = false;
+  tickUntil(
+    s,
+    () => j.status === 'done',
+    1200,
+    () => {
+      if (j.stockMove?.mergeId)
+        assert.equal(railStagingStackOwned(s, stack.id), j.status !== 'done');
+      if (j.railWork?.panel.state === 'staged') {
+        loweredOntoStack = true;
+        assert.equal(j.railWork.panel.y, 0.72);
+        assert.equal(stack.qty, 3);
+        assert.equal(stack.reserved, j.status === 'done' ? 0 : 1);
+      }
+    },
+  );
+  assert(loweredOntoStack);
+  assert.equal(j.stockMove?.mergeId, stack.id);
+  assert.equal(s.stacks.filter((t) => t.item === 'rail').length, 1);
+  assert.deepEqual(stack.railAssetIds, [null, null, rail.id]);
+  assert.equal(stack.reserved, 0);
+  assert.equal(e.cargo, undefined);
+  S.load(S.save(s));
+});
+
+test('save import cannot enlarge or corrupt the identities of a carried recovered panel', () => {
+  const { s, j, rail } = fixture();
+  tickUntil(s, () => j.railWork?.panel.state === 'carried', 900);
+  assert.deepEqual(j.railAssetIds, [rail.id]);
+  S.load(S.save(s));
+  for (const invalid of [[], [rail.id, 'RAIL-9010'], [4], ['']]) {
+    const corrupt = JSON.parse(S.save(s));
+    corrupt.jobs.find((k: { id: string }) => k.id === j.id).railAssetIds = invalid;
+    assert.throws(() => S.load(JSON.stringify(corrupt)), /carried rail layer identities/);
+  }
 });

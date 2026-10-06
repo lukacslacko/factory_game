@@ -1,3 +1,4 @@
+import { appendRailLayers, takeRailLayers, recoveryStackCandidates } from './rail-stock';
 import { recoverySource, railRecoveryConflict } from './rail-recovery';
 import { bufferAt, syncBufferAsset, railBufferShouldBeStored } from './buffers';
 import type {
@@ -70,9 +71,10 @@ export function railStagingStackOwned(s: State, stackId: string): boolean {
     return true;
   return s.jobs.some(
     (j) =>
-      ['rail', 'moveStock'].includes(j.kind) &&
+      (['rail', 'moveStock'].includes(j.kind) || !!j.railRecovery) &&
       !['done', 'canceled'].includes(j.status) &&
-      ((j.railWork?.panel.state === 'staged' && j.railWork.panel.stackId === stackId) ||
+      ((j.railRecovery && j.stockMove?.mergeId === stackId) ||
+        (j.railWork?.panel.state === 'staged' && j.railWork.panel.stackId === stackId) ||
         (j.legacyRailHandoff === 'staged' && stack?.source === j.id)),
   );
 }
@@ -164,10 +166,16 @@ function transition(s: State, j: Job, phase: RailWorkPhase, from?: RailWorkPose)
   s.revision++;
 }
 
-function blocked(s: State, r: Rect, api: RailWorkAPI) {
+function landingObstacles(s: State, j: Job, api: RailWorkAPI) {
+  const obstacles = api.obstacles(s);
+  return j.stockMove?.mergeId
+    ? obstacles.filter((o) => (o as Rect & { id?: string }).id !== j.stockMove!.mergeId)
+    : obstacles;
+}
+function blocked(s: State, r: Rect, api: RailWorkAPI, j?: Job) {
   if (r.x < -12 || r.x + r.w > 220 || r.z < 7 || r.z + r.d > 110) return true;
   return (
-    api.obstacles(s).some((o) => overlap(o, r, 0.15)) ||
+    (j ? landingObstacles(s, j, api) : api.obstacles(s)).some((o) => overlap(o, r, 0.15)) ||
     s.rails.some((t) => railCells(t).some((p) => overlap(r, { ...p, w: 1, d: 1 }))) ||
     s.jobs.some((j) => j.status === 'doing' && j.railWork && overlap(j.railWork.stage, r))
   );
@@ -279,7 +287,7 @@ function chooseStaging(s: State, j: Job, e: Equipment, api: RailWorkAPI, deferFo
     const stage = j.stockMove.destination,
       p = center(stage),
       yaw = j.stockMove.yaw;
-    if (blocked(s, stage, api)) return undefined;
+    if (blocked(s, stage, api, j)) return undefined;
     const side = { x: -Math.sin(yaw), z: Math.cos(yaw) },
       forward = { x: Math.cos(yaw), z: Math.sin(yaw) };
     const fork = e.kind === 'forklift';
@@ -481,24 +489,31 @@ function initialize(s: State, j: Job, e: Equipment, api: RailWorkAPI) {
     return false;
   }
   if (j.railRecovery && !j.stockMove) {
-    const spot = api.allocate?.(s, railItem(j), undefined, (rect) => {
-      const preview = {
-        ...j,
-        stockMove: { sourceId: j.railRecovery!.railId, destination: rect, yaw: 0 },
-      };
-      return !!stagingPreview(
+    const accessible = (rect: Rect, mergeId?: string, yaw = 0) =>
+      !!stagingPreview(
         s,
-        preview,
+        { ...j, stockMove: { sourceId: j.railRecovery!.railId, destination: rect, yaw, mergeId } },
         { ...e, cargo: { item: railItem(j), qty: 1, yaw: 0 } },
         api,
       );
-    });
+    const merge = recoveryStackCandidates(
+      s,
+      railItem(j),
+      j.railRecovery.rail.track?.hand ?? 1,
+    ).find((t) => accessible(t, t.id, t.yaw || 0));
+    const spot = merge || api.allocate?.(s, railItem(j), undefined, (rect) => accessible(rect));
     if (!spot) {
       j.reason = 'Rail recovery needs a clear, accessible rail storage slot in a stockyard';
       return false;
     }
-    j.stockMove = { sourceId: j.railRecovery.railId, destination: { ...spot }, yaw: 0 };
+    j.stockMove = {
+      sourceId: j.railRecovery.railId,
+      destination: { x: spot.x, z: spot.z, w: spot.w, d: spot.d },
+      yaw: merge?.yaw || 0,
+      mergeId: merge?.id,
+    };
   }
+
   const geometry =
     (j.kind === 'moveStock' || j.railRecovery) && j.stockMove
       ? {
@@ -1399,7 +1414,7 @@ function animatePose(r: RailWork, to: RailWorkPose, seconds: number, pose: RailW
 function stagePanel(s: State, j: Job, e: Equipment, api: RailWorkAPI) {
   const r = j.railWork!;
   const qty = r.stagingBatch?.qty || 1;
-  const id = r.panel.stackId || api.id(s, 'stack');
+  const id = j.stockMove?.mergeId || r.panel.stackId || api.id(s, 'stack');
   let stack = s.stacks.find((t) => t.id === id);
   if (!stack) {
     stack = {
@@ -1411,11 +1426,18 @@ function stagePanel(s: State, j: Job, e: Equipment, api: RailWorkAPI) {
       source: r.stagingBatch ? railCrewGroup(s, j)?.id || j.parentId || j.id : j.id,
       yaw: stageYaw(r),
       trackHand: suppliedHand(r),
-      assetId: j.railRecovery?.railId || j.assetId,
     };
     s.stacks.push(stack);
   }
-  stack.qty = qty;
+  const before = stack.qty;
+  appendRailLayers(
+    stack,
+    j.railAssetIds ||
+      Array.from({ length: qty }, (_, i) =>
+        i === 0 ? j.railRecovery?.railId || j.assetId || null : null,
+      ),
+  );
+  j.railAssetIds = undefined;
   // Keep the identity of every physically deposited panel, including canceled
   // members. Their unreserved steel can be reclaimed when the work is resumed.
   stack.railStagingJobs =
@@ -1424,7 +1446,7 @@ function stagePanel(s: State, j: Job, e: Equipment, api: RailWorkAPI) {
       : r.stagingBatch?.jobIds.slice() || (j.railStageOnly ? [j.id] : undefined);
   stack.reserved =
     j.kind === 'moveStock' || j.railRecovery
-      ? 1
+      ? stack.reserved + 1
       : stack.railStagingJobs
         ? stack.railStagingJobs.filter((id) =>
             s.jobs.some(
@@ -1442,7 +1464,7 @@ function stagePanel(s: State, j: Job, e: Equipment, api: RailWorkAPI) {
   r.panel.stackId = id;
   r.panel.state = 'staged';
   Object.assign(r.panel, center(r.stage), {
-    y: surface(s, center(r.stage)) + (stack.baseHeight || 0),
+    y: surface(s, center(r.stage)) + (stack.baseHeight || 0) + before * RAIL_PANEL_PITCH,
     yaw: stageYaw(r),
   });
   e.cargo = undefined;
@@ -1475,7 +1497,8 @@ function collectStagedPanel(s: State, j: Job, e: Equipment, api: RailWorkAPI) {
     j.reason = 'Reserved staged rail panel is unavailable';
     return false;
   }
-  t.qty--;
+  const picked = takeRailLayers(t, 1);
+  j.assetId = picked[0] || undefined;
   t.reserved--;
   if (t.railStagingJobs) t.railStagingJobs = t.railStagingJobs.filter((id) => id !== j.id);
   e.cargo = { item: railItem(j), qty: 1, yaw: r.panel.yaw };
@@ -1859,10 +1882,11 @@ export function tickRailWork(s: State, j: Job, dt: number, api: RailWorkAPI): bo
         j.railRecovery.lifted = true;
         s.revision++;
       } else {
-        stack.qty -= qty;
+        j.railAssetIds = takeRailLayers(stack, qty);
         stack.reserved -= qty;
       }
-      j.assetId = j.railRecovery?.railId || (qty === 1 ? stack.assetId : undefined);
+      if (j.railRecovery) j.railAssetIds = [j.railRecovery.railId];
+      j.assetId = qty === 1 ? j.railAssetIds?.[0] || undefined : undefined;
       e.cargo = { item: railItem(j), qty, yaw: r.panel.yaw };
       if (r.stagingBatch)
         for (const id of r.stagingBatch.jobIds) {
@@ -1963,9 +1987,14 @@ export function tickRailWork(s: State, j: Job, dt: number, api: RailWorkAPI): bo
       j.reason = `Waiting for ${stagingBlockers.join(', ')} to clear rail staging before lowering`;
       return true;
     }
-    if (api.obstacles(s).some((o) => overlap(o, r.stage, 0.15))) {
+    if (landingObstacles(s, j, api).some((o) => overlap(o, r.stage, 0.15))) {
       j.reason =
         'Rail staging landing space has become obstructed; clear the supported-panel footprint';
+      return true;
+    }
+    const merge = s.stacks.find((t) => t.id === j.stockMove?.mergeId);
+    if (j.stockMove?.mergeId && (!merge || merge.qty >= MATERIALS[railItem(j)].max)) {
+      j.reason = 'Reserved recovery stack is unavailable or full; clear its receiving space';
       return true;
     }
     r.clock += dt;
@@ -1975,6 +2004,7 @@ export function tickRailWork(s: State, j: Job, dt: number, api: RailWorkAPI): bo
         ...stagePoint,
         y:
           surface(s, stagePoint) +
+          (merge ? (merge.baseHeight || 0) + merge.qty * RAIL_PANEL_PITCH : 0) +
           (j.legacyRailHandoff === 'carried' || (j.railStageOnly && e.kind === 'forklift')
             ? 0.06
             : 0),

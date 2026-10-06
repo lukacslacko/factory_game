@@ -6,7 +6,7 @@ This is the first playable native migration. The original browser application an
 
 ## Download or open on this Mac
 
-[Download the Apple Silicon Mac app](https://github.com/lukacslacko/factory_game/releases/tag/v0.20.7), unzip it, and open **Plant 01.app**. This checkpoint targets macOS 14 or newer.
+[Download the Apple Silicon Mac app](https://github.com/lukacslacko/factory_game/releases/tag/v0.20.8), unzip it, and open **Plant 01.app**. This checkpoint targets macOS 14 or newer.
 
 Open the **Plant 01.app** built beside the repository in `outputs/`. It includes the Godot runner, Node runtime, simulation, terrain maps, and license notices. It is a local app for this Mac, not a notarized public release.
 
@@ -154,3 +154,10 @@ Straight panels, curved panels, and every turnout module (points, frog, closure 
 Use Purchase / hire to order multiple quantities together. Eight complete turnout sets require eight of each turnout module and 24 straight panels; the batch fits one three-car supplier train. Road deliveries split by the 12-ton payload limit: a truck carries at most six points modules or seven curved/frog/closure/exit panels, even though stockyards hold eight per stack. Freight cars retain their 48-ton payload and 16-meter deck limits. The excavator lifts at most 6 tons and the forklift 2.5 tons per trip, taking actual layers from the top and adding them onto storage.
 
 Existing trains and trucks keep their original stack sizes and positions after the update, including an active unloading lift. New deliveries use the higher stack limit, and existing partial stockyard stacks can receive more pieces up to eight.
+
+
+## Switch controls and recovered rail stacks — v0.20.8
+
+Use the separate **Diverging switch** and **Converging switch** buttons in Yard. Selecting Straight rail or 90° curve always selects normal rail construction; a previous convergence selection cannot affect those tools. Rotate R and Left / right adjust the selected layout as before. The selected rail button is highlighted.
+
+Recovered rails fill compatible partial stockyard stacks before allocating another footprint, in Creative and normal construction. Each rail material stacks eight high; differently handed curve and switch modules remain separate. Active handling and reserved preparation stock are excluded. When recovering normally, the excavator lowers the panel onto the actual top of the stack. Every recovered panel keeps its original identity through storage, transport, save/reload, and subsequent installation. Existing separate stacks stay in place; future recovery fills available compatible stacks.
