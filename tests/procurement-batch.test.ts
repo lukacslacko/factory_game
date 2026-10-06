@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import * as S from '../src/sim.ts';
 import { shipmentLots, orderLines, orderMass } from '../src/delivery.ts';
 import { FREIGHT_CAPACITY, FREIGHT_DECK_LENGTH, orderDeckLength } from '../src/procurement.ts';
+import { requestRailUnloading } from '../src/rail-freight';
 import { seedHandlingResources, tickUntil } from './support/yard.ts';
 
 for (const mode of ['road', 'rail'] as const) {
@@ -32,6 +33,10 @@ for (const mode of ['road', 'rail'] as const) {
       ['slab', 'diesel'],
     );
     assert.ok(lots[0].x + 0.5 <= lots[1].x - 0.5, 'Deck lots do not overlap');
+    if (mode === 'rail') {
+      tickUntil(s, () => o.status === 'unloading', 900);
+      assert.equal(requestRailUnloading(s, o.id), undefined);
+    }
     tickUntil(s, () => !!o.unload && o.unload.item === 'slab', 900);
     s = S.load(S.save(s));
     o = s.orders[0];
@@ -110,11 +115,19 @@ test('batch preview packs freight by payload and physical deck length and crew b
     ];
     const loads = S.planPurchaseBatch(lines, mode);
     const ids = S.purchaseBatch(s, lines, mode);
-    assert.equal(ids.length, loads.length);
+    assert.equal(ids.length, mode === 'rail' ? 1 : loads.length);
     for (const id of ids) {
       const o = s.orders.find((o) => o.id === id)!;
-      assert.ok(orderMass(o) <= FREIGHT_CAPACITY[mode]);
-      assert.ok(orderDeckLength(orderLines(o)) <= FREIGHT_DECK_LENGTH[mode]);
+      if (o.railFreight) {
+        assert.equal(o.railFreight.cars.length, loads.length);
+        for (const car of o.railFreight.cars) {
+          assert.ok(car.mass <= FREIGHT_CAPACITY.rail);
+          assert.ok(car.deckLength <= FREIGHT_DECK_LENGTH.rail);
+        }
+      } else {
+        assert.ok(orderMass(o) <= FREIGHT_CAPACITY[mode]);
+        assert.ok(orderDeckLength(orderLines(o)) <= FREIGHT_DECK_LENGTH[mode]);
+      }
     }
   }
   const loads = S.planPurchaseBatch(

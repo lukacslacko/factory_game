@@ -206,10 +206,31 @@ static func carrier(parent:Node3D,kind:String)->Node3D:
 	root.set_meta("forward","+X" if kind=="rail" else "-Z")
 	return root
 
-static func flatcar(parent:Node3D)->Node3D:
+static func flatcar(parent:Node3D,length:float=16.0,identification:String="FLAT 014 · 40 t")->Node3D:
 	var root:=Node3D.new(); parent.add_child(root); var b:=R.Batch.new(); var m:=materials()
-	R._flatcar(root,b,Vector3.ZERO,[m.bright_steel,G.mat("955532",.82,.26),m.steel],m.black,m.steel,m.wood,m.bright_steel,false,16.0)
-	b.finish(root); root.set_meta("forward","+X"); return root
+	R._flatcar(root,b,Vector3.ZERO,[m.bright_steel,G.mat("955532",.82,.26),m.steel],m.black,m.steel,m.wood,m.bright_steel,false,length,false,identification)
+	b.finish(root)
+	for index in range(2):
+		var bogie:=rail_bogie(root,false);bogie.name="RailBogie"+str(index)
+		bogie.position.x=(-1.0 if index==0 else 1.0)*(length*.5-2.5)
+	root.set_meta("forward","+X");root.set_meta("deck_length",length)
+	return root
+
+static func rail_bogie(parent:Node3D,locomotive:bool=false)->Node3D:
+	var root:=Node3D.new();parent.add_child(root);var m:=materials();var b:=R.Batch.new()
+	var radius:float=.355 if locomotive else .32
+	var axle_y:float=.705 if locomotive else .67
+	b.box(Vector3(0,.80 if locomotive else .76,0),Vector3(1.9,.19,1.96 if locomotive else 1.75),m.black)
+	for dx in [-.6,.6]:
+		G.rod(root,Vector3(dx,axle_y,-1.06),Vector3(dx,axle_y,1.06),.065,m.steel)
+		for side in [-1,1]:
+			var wheel:=G.cylinder(root,Vector3(dx,axle_y,side*.76),radius,.15,m.steel,24);wheel.rotation.x=PI*.5
+			var hub:=G.cylinder(root,Vector3(dx,axle_y,side*.86),.15 if locomotive else .105,.025,m.bright_steel,16);hub.rotation.x=PI*.5
+	for side in [-1,1]:
+		b.box(Vector3(0,.69,side*.91),Vector3(1.9,.14,.10),m.steel)
+		for spring_x in [-.14,.14]:G.cylinder(root,Vector3(spring_x,.78,side*.87),.06,.18,m.black,10)
+	b.finish(root)
+	return root
 
 static func _locomotive(parent:Node3D)->Node3D:
 	var n:=Node3D.new(); parent.add_child(n); var m:=materials()
@@ -221,12 +242,9 @@ static func _locomotive(parent:Node3D)->Node3D:
 		for x in [-1.7,0,1.7,3.4]:
 			for y in [1.42,1.67,1.92,2.17]: G.box(n,Vector3(x,y,z*.83),Vector3(.9,.025,.028),m.black)
 	G.beveled_box(n,Vector3(-3.1,4.17,0),Vector3(2.91,.13,2.54),m.cream)
-	for bogie in [-3.1,3.1]:
-		G.beveled_box(n,Vector3(bogie,.80,0),Vector3(1.9,.19,1.96),m.black)
-		for dx in [-.59,.59]:
-			for side in [-1,1]:
-				var wheel:=G.cylinder(n,Vector3(bogie+dx,.705,side*.76),.355,.15,m.steel,24); wheel.rotation.x=PI*.5
-				var hub:=G.cylinder(n,Vector3(bogie+dx,.705,side*.86),.15,.025,m.bright_steel); hub.rotation.x=PI*.5
+	for index in range(2):
+		var bogie:=rail_bogie(n,true);bogie.name="RailBogie"+str(index)
+		bogie.position.x=-3.1 if index==0 else 3.1
 	for x in [-5.15,5.15]:
 		G.beveled_box(n,Vector3(x,1.18,0),Vector3(.18,.38,2.6),m.yellow)
 		G.box(n,Vector3(x*1.019,1.18,0),Vector3(.035,.22,.70),m.black)

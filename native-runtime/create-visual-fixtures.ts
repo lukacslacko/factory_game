@@ -5,6 +5,7 @@ import path from 'node:path';
 import assert from 'node:assert/strict';
 import * as S from '../src/sim';
 import { setEquipmentAssistant } from '../src/work-crews';
+import { requestRailUnloading } from '../src/rail-freight';
 import { renderState } from './render';
 import type { State } from '../src/types';
 import { requestLowFuelService } from '../tests/support/yard';
@@ -15,6 +16,10 @@ let ticks = 0;
 function advance(s: State, predicate: () => boolean, seconds = 2400, inspect?: () => void) {
   for (let n = 0; n < Math.ceil(seconds / 0.1); n++) {
     if (predicate()) return;
+    // QA represents the player explicitly starting each received rail train.
+    for (const order of s.orders)
+      if (order.railFreight && order.status === 'unloading' && !order.railFreight.unloadRequested)
+        assert.equal(requestRailUnloading(s, order.id), undefined);
     S.tick(s, 0.1);
     ticks++;
     inspect?.();

@@ -49,7 +49,7 @@ func _run()->void:
 	ui.turnout_flow.selected=1;ui.turnout_flow.item_selected.emit(1)
 	_check(actions.back()=={"action":"rail_flow","args":{"flow":"converging"}},"Converging choice emits the explicit flow mode")
 	ui.show_tab("Railway")
-	_check(ui.tables.size()==4 and ui.tables[2].rows.size()==2 and ui.tables[3].rows.size()==2,"Railway register lists actual endpoints and independent buffers")
+	_check(ui.tables.size()==5 and ui.tables[2].rows.size()==2 and ui.tables[3].rows.size()==2,"Railway register lists actual endpoints and independent buffers")
 	var endpoints:Control=ui.tables[2]
 	var endpoint_item:TreeItem=endpoints.tree.get_root().get_first_child().get_next()
 	endpoint_item.select(0)

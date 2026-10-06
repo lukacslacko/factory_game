@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import * as S from '../src/sim.ts';
+import { requestRailUnloading } from '../src/rail-freight';
 import { carrierRects, shipmentLots } from '../src/delivery.ts';
 import { seedHandlingResources, tickUntil } from './support/yard.ts';
 import { dist } from '../src/path.ts';
@@ -14,6 +15,10 @@ for (const mode of ['road', 'rail'] as const) {
     const e = seedHandlingResources(s, 'forklift'),
       [oid] = S.purchase(s, 'slab', 8, mode);
     const eid = e.id;
+    if (mode === 'rail') {
+      tickUntil(s, () => s.orders[0].status === 'unloading');
+      assert.equal(requestRailUnloading(s, oid), undefined);
+    }
     tickUntil(
       s,
       () =>

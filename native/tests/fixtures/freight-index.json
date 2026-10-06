@@ -1,0 +1,68 @@
+{
+  "shots": [
+    {
+      "name": "approach",
+      "filename": "freight-approach.json",
+      "focus": {
+        "x": 16,
+        "z": 3
+      },
+      "orderId": "PO-0005",
+      "description": "Real three-car supplier train following the curved siding entrance; body and bogies use separate track samples.",
+      "status": "approaching",
+      "cars": [
+        {
+          "id": "CAR-0007",
+          "x": 23.943238365638628,
+          "z": 4.578272219210433,
+          "yaw": 0.07700654328860815
+        },
+        {
+          "id": "CAR-0008",
+          "x": 6.759346203311443,
+          "z": 1.2157207780755954,
+          "yaw": 0.21495268606578494
+        },
+        {
+          "id": "CAR-0009",
+          "x": -10.70100000000079,
+          "z": 0,
+          "yaw": 0
+        }
+      ],
+      "elapsed": 209.59999999999238
+    },
+    {
+      "name": "received",
+      "filename": "freight-received.json",
+      "focus": {
+        "x": 75,
+        "z": 8
+      },
+      "orderId": "PO-0005",
+      "description": "Whole three-car supplier train stopped at the named receiving interval, awaiting explicit unload to North rail stockyard.",
+      "status": "unloading",
+      "cars": [
+        {
+          "id": "CAR-0007",
+          "x": 87.95000000000002,
+          "z": 5,
+          "yaw": 0
+        },
+        {
+          "id": "CAR-0008",
+          "x": 70.35000000000002,
+          "z": 5,
+          "yaw": 0
+        },
+        {
+          "id": "CAR-0009",
+          "x": 52.75000000000003,
+          "z": 5,
+          "yaw": 0
+        }
+      ],
+      "elapsed": 223.99999999999156
+    }
+  ]
+}

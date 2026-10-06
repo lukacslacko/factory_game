@@ -377,7 +377,30 @@ export interface OrderLine {
   qty: number;
   arrived: number;
 }
+/** One physical flatcar with a stable identity and its own cargo accounting. */
+export interface RailFreightCar {
+  id: string;
+  kind: 'flatcar';
+  manifest: (OrderLine & { orderLineIndex: number })[];
+  length: number;
+  width: number;
+  wheelbase: number;
+  centerOffset: number;
+  /** Original payload mass, in kilograms; tare is accounted separately. */
+  mass: number;
+  tareMass: number;
+  deckLength: number;
+}
+export interface RailFreight {
+  locomotiveId: string;
+  cars: RailFreightCar[];
+  receptionLocationId?: string;
+  storageZoneId?: string;
+  stopDistance?: number;
+  unloadRequested?: boolean;
+}
 export interface Order {
+  railFreight?: RailFreight;
   /** Manual recovery pauses only site handling; an empty carrier still departs. */
   unloadPaused?: boolean;
   unloadOperatorDuty?: Worker['duty'];
@@ -433,6 +456,8 @@ export interface UnloadTask {
   /** Fixed during handling, even after this line is emptied on the carrier. */
   item?: Item;
   lineIndex?: number;
+  carId?: string;
+  carLineIndex?: number;
   equipmentId: string;
   operatorId: string;
   riggerId?: string;

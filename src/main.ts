@@ -13,6 +13,7 @@ import './styles.css';
 import { World } from './world';
 import { equipmentIntent } from './equipment-intent';
 import { orderLines, orderDescription, orderMass } from './procurement';
+import { configureRailFreight, requestRailUnloading } from './rail-freight';
 import * as Sim from './sim';
 import {
   EQUIPMENT_ACTIVITIES,
@@ -183,14 +184,15 @@ function renderCart() {
       const weight = lines.reduce((n, l) => n + itemMass(l.item) * l.qty, 0);
       const total =
         lines.reduce((n, l) => n + catalogEntry(l.item).price * l.qty, 0) +
-        loads.reduce((n, l) => n + (l.mode === 'rail' ? 240 : 90), 0);
-      summary = `${weight ? massLabel(weight) + ' cargo · ' : ''}${[materials.length ? `${materials.length} ${purchaseTransport === 'rail' ? 'train' : 'truck'} load${materials.length === 1 ? '' : 's'}` : '', buses.length ? `${buses.length} crew bus${buses.length === 1 ? '' : 'es'}` : '', dedicated ? `${dedicated} dedicated deliver${dedicated === 1 ? 'y' : 'ies'}` : ''].filter(Boolean).join(' · ')} · ${money(total)}`;
+        loads.filter((l) => l.mode === 'road').length * 90 +
+        (loads.some((l) => l.mode === 'rail') ? 240 : 0);
+      summary = `${weight ? massLabel(weight) + ' cargo · ' : ''}${[materials.length ? (purchaseTransport === 'rail' ? `1 train · ${materials.length} flatcar${materials.length === 1 ? '' : 's'}` : `${materials.length} truck load${materials.length === 1 ? '' : 's'}`) : '', buses.length ? `${buses.length} crew bus${buses.length === 1 ? '' : 'es'}` : '', dedicated ? `${dedicated} dedicated deliver${dedicated === 1 ? 'y' : 'ies'}` : ''].filter(Boolean).join(' · ')} · ${money(total)}`;
     }
   } catch (error) {
     summary = (error as Error).message;
     valid = false;
   }
-  el.innerHTML = `<div class="cart-head"><b>Order batch</b><span id="batch-summary" aria-live="polite">${esc(summary)}</span></div>${lines.length ? `<div class="cart-lines">${lines.map((l) => `<div><span>${esc(label(l.item))}</span><b>${l.qty}</b><span>${itemMass(l.item) ? massLabel(itemMass(l.item) * l.qty) : l.item in ROLES ? 'Passengers' : 'Service'}</span>${btn('cart-remove:' + l.item, '×', 'small', 'aria-label="Remove ' + esc(label(l.item)) + ' from batch"')}</div>`).join('')}</div>` : ''}<div class="cart-footer"><small>12 t truck / 48 t train · 12 seats per bus. Deck space can require another load before its weight limit.</small>${btn('cart-clear', 'Clear', 'small')}${btn('purchase-batch', 'Place batch order', 'primary', valid ? '' : 'disabled')}</div>`;
+  el.innerHTML = `<div class="cart-head"><b>Order batch</b><span id="batch-summary" aria-live="polite">${esc(summary)}</span></div>${lines.length ? `<div class="cart-lines">${lines.map((l) => `<div><span>${esc(label(l.item))}</span><b>${l.qty}</b><span>${itemMass(l.item) ? massLabel(itemMass(l.item) * l.qty) : l.item in ROLES ? 'Passengers' : 'Service'}</span>${btn('cart-remove:' + l.item, '×', 'small', 'aria-label="Remove ' + esc(label(l.item)) + ' from batch"')}</div>`).join('')}</div>` : ''}<div class="cart-footer"><small>12 t truck / 48 t flatcar · 12 seats per bus. Rail cars travel together in one train; the complete train must fit its receiving track.</small>${btn('cart-clear', 'Clear', 'small')}${btn('purchase-batch', 'Place batch order', 'primary', valid ? '' : 'disabled')}</div>`;
 }
 $('#app').innerHTML =
   `<header><button class="brand" data-action="menu"><span class="brand-mark">P<span>01</span></span><span>PLANT <b>01</b><small>STARTER YARD</small></span></button><nav id="tabs"></nav><div class="top-stats"><span id="time"></span><div class="time-controls">${btn('pause', 'Ⅱ', '', 'title="Pause / resume · Space"')} ${btn('speed:1', '1×', 'active')}${btn('speed:3', '3×')}${btn('speed:10', '10×')}</div>${btn('notices', 'Inbox <span id="notice-count">0</span>', 'inbox')}${btn('menu', '☰', 'menu-button', 'aria-label="Game menu"')}</div></header>
@@ -856,7 +858,7 @@ function openRailLocationForm() {
   const draft = railLocationDraft,
     pose = railLocationPose(state, { ...draft, id: draft.id || 'preview' });
   $('#modal-root').innerHTML =
-    `<div class="modal-shade"><section class="modal rail-location-modal" id="rail-location-form" role="dialog" aria-modal="true" aria-labelledby="rail-location-heading">${btn('close-modal', '×', 'modal-close', 'aria-label="Cancel location"')}<span class="eyebrow">RAILWAY DESIGNATION</span><h1 id="rail-location-heading">${draft.id ? 'Reposition location' : 'Name a rail location'}</h1><p>${esc(draft.trackId)} · ${esc(draft.route)} · offset ${draft.offset.toFixed(2)} m${pose ? ` · E${pose.x.toFixed(2)}, S${pose.z.toFixed(2)}` : ''}</p>${railLocationFields(draft)}<p class="note">Length is centered on the anchor and must fit a continuous installed track section. This is a map marker for future operations; supplier deliveries still use the original siding.</p><p id="rail-location-error" class="note" role="alert"></p><div class="button-stack">${btn('rail-location-save:create', draft.id ? 'Save new anchor' : 'Create designation', 'primary')}${btn('close-modal', 'Cancel')}</div></section></div>`;
+    `<div class="modal-shade"><section class="modal rail-location-modal" id="rail-location-form" role="dialog" aria-modal="true" aria-labelledby="rail-location-heading">${btn('close-modal', '×', 'modal-close', 'aria-label="Cancel location"')}<span class="eyebrow">RAILWAY DESIGNATION</span><h1 id="rail-location-heading">${draft.id ? 'Reposition location' : 'Name a rail location'}</h1><p>${esc(draft.trackId)} · ${esc(draft.route)} · offset ${draft.offset.toFixed(2)} m${pose ? ` · E${pose.x.toFixed(2)}, S${pose.z.toFixed(2)}` : ''}</p>${railLocationFields(draft)}<p class="note">Length is centered on the anchor and must fit a continuous installed track section. Supplier trains can receive at unloading or transfer points on the original siding. The complete train must fit within the designated length.</p><p id="rail-location-error" class="note" role="alert"></p><div class="button-stack">${btn('rail-location-save:create', draft.id ? 'Save new anchor' : 'Create designation', 'primary')}${btn('close-modal', 'Cancel')}</div></section></div>`;
   $('#rail-location-form input').focus();
 }
 function beginRailLocation(id?: string) {
@@ -967,7 +969,7 @@ function renderInspector(force = false) {
         ['Status', esc(status.reason)],
       ]) +
       railLocationFields(location, true) +
-      `<div class="button-stack">${btn('rail-location-save:' + location.id, 'Save designation', 'primary')}${btn('rail-location-reposition:' + location.id, 'Reposition in yard')}${btn('rail-location-delete:' + location.id, 'Delete designation', 'danger')}${btn('tab:railways', 'Railway register')}</div><p class="note">A map designation for future rail operations. It does not redirect deliveries, assign cars, build a sign, or verify a train can reach or fit here. Length is centered on this anchor.</p>`;
+      `<div class="button-stack">${btn('rail-location-save:' + location.id, 'Save designation', 'primary')}${btn('rail-location-reposition:' + location.id, 'Reposition in yard')}${btn('rail-location-delete:' + location.id, 'Delete designation', 'danger')}${btn('tab:railways', 'Railway register')}</div><p class="note">Supplier freight can receive at unloading or transfer points on the original siding. Choose the point in the delivery inspector before the train approaches; the complete train must fit within this centered interval. Other installed-track designations remain reserved for future shunting.</p>`;
   }
   if (selection.type === 'worker') {
     const w = e as Worker;
@@ -1217,6 +1219,15 @@ function renderInspector(force = false) {
         ]),
         ['Status', badge(e.status)],
         ['Transport', e.mode],
+        ...(e.railFreight
+          ? ([
+              ['Supplier locomotive', esc(e.railFreight.locomotiveId)],
+              [
+                'Freight cars',
+                esc(e.railFreight.cars.map((car: { id: string }) => car.id).join(', ')),
+              ],
+            ] as [string, unknown][])
+          : []),
         [
           'Carrier',
           e.carrierDeparted || e.status === 'done'
@@ -1236,6 +1247,24 @@ function renderInspector(force = false) {
         ['Operation', esc(e.unload?.phase || e.deployment || e.status)],
         ['Total', money(e.total)],
       ]) +
+      (e.railFreight
+        ? `<label>Receiving point <select id="freight-receiving" ${e.status !== 'ordered' ? 'disabled' : ''}><option value="">Original siding · automatic fit</option>${(
+            state.railLocations || []
+          )
+            .filter(
+              (l) =>
+                l.trackId === 'BOOTSTRAP-SIDING' &&
+                l.route === 'straight' &&
+                ['unloading', 'transfer'].includes(l.kind),
+            )
+            .map(
+              (l) =>
+                `<option value="${esc(l.id)}" ${e.railFreight.receptionLocationId === l.id ? 'selected' : ''}>${esc(l.name)} · ${l.length} m</option>`,
+            )
+            .join(
+              '',
+            )}</select></label><label>Unloading stockyard <select id="freight-storage"><option value="">Any accessible stockyard</option>${state.zones.map((z) => `<option value="${esc(z.id)}" ${e.railFreight.storageZoneId === z.id ? 'selected' : ''}>${esc(z.name)} · ${esc(z.id)}</option>`).join('')}</select></label><div class="button-stack">${btn(`rail-freight-apply:${e.id}`, 'Apply receiving / storage choices', '', e.unload || ['departing', 'done'].includes(e.status) ? 'disabled' : '')}${btn(`rail-freight-start:${e.id}`, 'Start unloading', 'primary', e.status !== 'unloading' || e.unloadPaused || e.arrived >= e.qty ? 'disabled' : '')}</div><p class="note">Each car has its own load. The supplier locomotive remains coupled in this checkpoint; shunting and empty-train collection are planned next.</p>`
+        : '') +
       `<div class="blocked">${esc(e.note)}</div><div class="button-stack">${controlled && e.status === 'unloading' && !e.unload && (!e.deployment || e.deployment === 'waiting') ? btn(`unload:${e.id}`, 'Unload with controlled operator', 'primary') : ''}${e.unload?.equipmentId || e.equipmentId ? btn(`locate:equipment:${e.unload?.equipmentId || e.equipmentId}`, 'Locate handling machine') : ''}${btn('tab:deliveries', 'Delivery register')}</div>`;
   }
   if (selection.type === 'zone') {
@@ -1873,7 +1902,7 @@ function openModal(which: string) {
     )}<h3>Rail stock access</h3><p>Rail crews try reachable matching piles and attach slings at safe exposed edges. Select a blocking outer stack and choose <b>Relocate one rail panel</b>, then click a clear position inside a stockyard. Assign an available machine in Work; its operator and rigger physically move the panel. Repeat for stacked panels until access is open. Reserved panels must first be released by canceling their waiting work. New storage placements preserve an exposed loading face.</p><h3>Physical constraints</h3><p>Leave <b>3 m clear aisles</b> for machines. Offices need the 6 t excavator; the forklift cannot lift them. Diesel drums contain 200 L and stay in place when empty. Request refueling from Equipment.</p><p>The <b>Work</b> register explains blocked assignments. Canceling rail work first places its load safely and secures the buffer. A rail panel already installed stays in place. Other loaded jobs deposit their kits at the site. Finished buildings can be dismantled and recovered.</p><h3>Vehicle work roles</h3><p>Open <b>Equipment</b> and change a machine’s <b>Automatic work</b> selector, or select it in the yard. For parallel receiving and paving, check only <b>Receiving deliveries</b> for the forklift and only <b>Paving</b> for the excavator, with an operator for each. The dropdown lets you check several job kinds together. Automatic dispatch keeps one machine on each work order or delivery across its individual tasks and lifts. Separate work orders can run in parallel. Changes finish the current job or unloading batch before switching. <b>All</b> restores shared assignments; <b>None</b> holds new work while leaving driving and refueling available.</p><h3>Work orders, parking, and shifts</h3><p><b>Work</b> starts with active orders. Expand a building or paving order; assign equipment to a parent or child. Explicit assignments override automatic roles after current work finishes. Click asset IDs to inspect assigned people, stock, or equipment. Click table headers to sort; use Column filters to narrow records.</p><p>Select equipment to choose a parking bay in the yard or enter its coordinates. Workers have Always on, daily, overnight, and custom schedules. They finish current work, park, exit, walk to the actual bus, and return next shift. Chartered trips appear in Costs.</p><p>Use <b>Activity → Export diagnostic history</b> after a problem. The local rolling record includes positions, routes, blockers, phases, and recent full yard checkpoints.</p><h3>Traffic</h3><p>Road traffic keeps right. Buses continue forward after their stop; delivery trucks back clear of their berth before departing forward. Machines yield to people and route around obstructions. Keep receiving and turning areas clear; the equipment inspector identifies any actor blocking a route.</p><h3>First-version boundaries</h3><p>A 232 × 98 m buildable yard, straight, curved and turnout rail panels, owned-equipment freight handling and simplified utility services. Request a route in a complete turnout inspector; a real worker walks to its manual lever and throws it. The Railway register lists physical endpoints and uncapped branches. New train dispatch, an owned shunter, additional terminal buffers, and chemistry are later approval checkpoints. New curved/turnout assembly recovery is deferred; canceled panels can resume from their work inspector.</p></section></div>`;
   }
   if (which === 'shop') {
-    content = `<div class="shop-head"><div><span class="eyebrow">PROCUREMENT</span><h1>People, machines & materials</h1><p>Order freely. Costs are recorded; there is no spending limit.</p></div>${btn('starter-order', 'Order starter supplies')}</div><div class="shop-options"><label>Material transport <select id="transport"><option value="road" ${purchaseTransport === 'road' ? 'selected' : ''}>Truck · 12 t loads</option><option value="rail" ${purchaseTransport === 'rail' ? 'selected' : ''}>Rail · 48 t loads</option></select></label><span>Your equipment unloads · $90 / road load · $240 / rail load</span></div><div id="purchase-cart" class="purchase-cart"></div><div class="catalog-head"><span>Item</span><span>Unit cost</span><span>Unit weight</span><span>Qty</span><span>Line weight</span><span>Order / batch</span></div>${[
+    content = `<div class="shop-head"><div><span class="eyebrow">PROCUREMENT</span><h1>People, machines & materials</h1><p>Order freely. Costs are recorded; there is no spending limit.</p></div>${btn('starter-order', 'Order starter supplies')}</div><div class="shop-options"><label>Material transport <select id="transport"><option value="road" ${purchaseTransport === 'road' ? 'selected' : ''}>Truck · 12 t loads</option><option value="rail" ${purchaseTransport === 'rail' ? 'selected' : ''}>Rail · 48 t per flatcar</option></select></label><span>Your equipment unloads · $90 / road load · $240 / supplier train</span></div><div id="purchase-cart" class="purchase-cart"></div><div class="catalog-head"><span>Item</span><span>Unit cost</span><span>Unit weight</span><span>Qty</span><span>Line weight</span><span>Order / batch</span></div>${[
       ['Crew', ROLES],
       ['Equipment', EQUIPMENT],
       ['Materials', MATERIALS],
@@ -2349,9 +2378,37 @@ async function action(value: string) {
       renderRecords(true);
       break;
     }
+    case 'rail-freight-apply': {
+      const error = configureRailFreight(state, b, {
+        railLocationId: $('#freight-receiving').hasAttribute('disabled')
+          ? state.orders.find((o) => o.id === b)?.railFreight?.receptionLocationId
+          : $('#freight-receiving') instanceof HTMLSelectElement
+            ? ($('#freight-receiving') as HTMLSelectElement).value
+            : '',
+        storageZoneId: ($('#freight-storage') as HTMLSelectElement).value,
+      });
+      toast(error || 'Receiving and unloading choices applied.', !!error);
+      persist(true);
+      renderInspector(true);
+      renderRecords(true);
+      break;
+    }
+    case 'rail-freight-start': {
+      const error = requestRailUnloading(state, b);
+      toast(error || 'Unloading requested; equipment and workers will handle each car.', !!error);
+      persist(true);
+      renderInspector(true);
+      renderRecords(true);
+      break;
+    }
     case 'unload': {
       if (controlled) {
-        const err = Sim.unloadDelivery(state, b, controlled);
+        const order = state.orders.find((o) => o.id === b);
+        const requestError =
+          order?.railFreight && !order.railFreight.unloadRequested
+            ? requestRailUnloading(state, b)
+            : undefined;
+        const err = requestError || Sim.unloadDelivery(state, b, controlled);
         toast(err || 'Operator assigned to the delivery.', !!err);
         renderInspector();
       }

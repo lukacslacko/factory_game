@@ -1,5 +1,6 @@
 export { orderLines, orderDescription, orderMass, itemMass } from './procurement';
 import { orderLines, orderDescription, pendingOrderLine } from './procurement';
+import { railFreightCarPose, railReceptionPlan, railStopDistance } from './rail-freight';
 import { workerAvailable, commuteDoor } from './workforce';
 import {
   equipmentAssistant,
@@ -92,43 +93,61 @@ export const stackHeight = (item: Item, qty: number) =>
           : item === 'diesel'
             ? 0.94
             : Math.max(0.35, qty * parcelPitch(item) + 0.35);
-export function freightPose(o: Order) {
-  return o.mode === 'rail'
-    ? carPose((o.drive?.distance ?? RAIL_STOP) - COUPLED_CENTERS, 11)
-    : { ...o.vehicle, yaw: o.drive?.yaw || 0 };
+export function freightPose(o: Order, carIndex?: number) {
+  if (o.mode !== 'rail') return { ...o.vehicle, yaw: o.drive?.yaw || 0 };
+  const index =
+    carIndex ??
+    Math.max(
+      0,
+      o.railFreight?.cars.findIndex((car) => car.manifest.some((l) => l.arrived < l.qty)) ?? 0,
+    );
+  return railFreightCarPose(o, index);
 }
 export function shipmentLots(o: Order) {
   const out: {
     index: number;
     lineIndex: number;
+    carId?: string;
+    carIndex?: number;
+    carLineIndex?: number;
     item: Item;
     qty: number;
     original: number;
     x: number;
     z: number;
   }[] = [];
-  let width = 0;
-  for (const [lineIndex, line] of orderLines(o).entries()) {
-    const m = MATERIALS[line.item as Item];
-    if (!m) continue;
-    let taken = line.arrived;
-    for (let i = 0; i < Math.ceil(line.qty / m.max); i++) {
-      const original = Math.min(m.max, line.qty - i * m.max),
-        qty = Math.max(0, original - taken);
-      taken = Math.max(0, taken - original);
-      out.push({
-        index: out.length,
-        lineIndex,
-        item: line.item as Item,
-        qty,
-        original,
-        x: width + m.w / 2,
-        z: 0,
-      });
-      width += m.w;
+  const groups = o.railFreight
+    ? o.railFreight.cars.map((car, carIndex) => ({ car, carIndex, lines: car.manifest }))
+    : [{ car: undefined, carIndex: undefined, lines: orderLines(o) }];
+  for (const group of groups) {
+    const begin = out.length;
+    let width = 0;
+    for (const [localLineIndex, line] of group.lines.entries()) {
+      const m = MATERIALS[line.item as Item];
+      if (!m) continue;
+      const lineIndex = 'orderLineIndex' in line ? Number(line.orderLineIndex) : localLineIndex;
+      let taken = line.arrived;
+      for (let i = 0; i < Math.ceil(line.qty / m.max); i++) {
+        const original = Math.min(m.max, line.qty - i * m.max),
+          qty = Math.max(0, original - taken);
+        taken = Math.max(0, taken - original);
+        out.push({
+          index: out.length,
+          lineIndex,
+          carId: group.car?.id,
+          carIndex: group.carIndex,
+          carLineIndex: group.car ? localLineIndex : undefined,
+          item: line.item as Item,
+          qty,
+          original,
+          x: width + m.w / 2,
+          z: 0,
+        });
+        width += m.w;
+      }
     }
+    for (const lot of out.slice(begin)) lot.x -= width / 2 + (o.mode === 'road' ? 1.4 : 0);
   }
-  for (const lot of out) lot.x -= width / 2 + (o.mode === 'road' ? 1.4 : 0);
   return out;
 }
 export function carrierRects(s: State): Rect[] {
@@ -465,7 +484,16 @@ export function railStoragePlacementPreservesAccess(
 ): boolean {
   return createRailStorageAccessCheck(s)(item, r, yaw);
 }
-function chooseStorage(s: State, item: Item, e: Equipment, api: DeliveryAPI) {
+function chooseStorage(
+  s: State,
+  item: Item,
+  e: Equipment,
+  api: DeliveryAPI,
+  storageZoneId?: string,
+) {
+  const zones = storageZoneId ? s.zones.filter((z) => z.id === storageZoneId) : s.zones;
+  const inDestination = (r: Rect) =>
+    zones.some((z) => r.x >= z.x && r.z >= z.z && r.x + r.w <= z.x + z.w && r.z + r.d <= z.z + z.d);
   const m = MATERIALS[item];
   const preservesRailAccess = createRailStorageAccessCheck(s);
   const clearance = constructionStorageClearance(s);
@@ -483,6 +511,7 @@ function chooseStorage(s: State, item: Item, e: Equipment, api: DeliveryAPI) {
     .filter(
       (t) =>
         t.item === item &&
+        inDestination(t) &&
         t.qty > 0 &&
         t.qty + incoming(t.id) < m.max &&
         !railStagingStackOwned(s, t.id) &&
@@ -495,7 +524,7 @@ function chooseStorage(s: State, item: Item, e: Equipment, api: DeliveryAPI) {
       return { rect: stack, merge: stack, space: m.max - stack.qty - incoming(stack.id), dock };
   }
   const candidates: Rect[] = [];
-  for (const z of s.zones)
+  for (const z of zones)
     for (let zz = z.z; zz + m.d <= z.z + z.d; zz++)
       for (let xx = z.x; xx + m.w <= z.x + z.w; xx++) {
         const r = { x: xx, z: zz, w: m.w, d: m.d };
@@ -546,7 +575,7 @@ function startUnloading(s: State, o: Order, api: DeliveryAPI, preferred?: string
   }
   const { e, w } = pair;
   const slot = shipmentLots(o).find((t) => t.qty > 0)!;
-  const source = localPoint(freightPose(o), slot.x, slot.z);
+  const source = localPoint(freightPose(o, slot.carIndex), slot.x, slot.z);
   const assignedAssistant = equipmentAssistant(s, e.id);
   const rigger =
     e.kind === 'excavator'
@@ -577,7 +606,7 @@ function startUnloading(s: State, o: Order, api: DeliveryAPI, preferred?: string
     );
     return false;
   }
-  const dest = chooseStorage(s, item, e, api);
+  const dest = chooseStorage(s, item, e, api, o.railFreight?.storageZoneId);
   if (!dest) {
     waiting(
       s,
@@ -615,6 +644,8 @@ function startUnloading(s: State, o: Order, api: DeliveryAPI, preferred?: string
   o.unload = {
     item,
     lineIndex: slot.lineIndex,
+    carId: slot.carId,
+    carLineIndex: slot.carLineIndex,
     equipmentId: e.id,
     operatorId: w.id,
     riggerId: rigger?.id,
@@ -661,6 +692,8 @@ export function requestUnloading(s: State, oid: string, wid: string, api: Delive
   const o = s.orders.find((o) => o.id === oid),
     w = s.workers.find((w) => w.id === wid);
   if (!o || o.status !== 'unloading') return 'Select a delivery waiting at its berth.';
+  if (o.railFreight && !o.railFreight.unloadRequested)
+    return 'Choose the destination stockyard and click Start unloading before assigning an operator.';
   if (!w || w.role !== 'operator' || w.job || w.deliveryOrder || w.transportOrder || w.transition)
     return 'Choose an available equipment operator.';
   if (o.item in EQUIPMENT) {
@@ -864,6 +897,10 @@ function unloadTick(s: State, o: Order, dt: number, api: DeliveryAPI) {
     e.cargo = { item, qty: t.qty };
     o.arrived += t.qty;
     if (o.manifest) o.manifest[t.lineIndex!].arrived += t.qty;
+    if (t.carId && o.railFreight) {
+      const car = o.railFreight.cars.find((c) => c.id === t.carId)!;
+      car.manifest[t.carLineIndex!].arrived += t.qty;
+    }
     t.cargo = { ...t.source, y: t.sourceY, yaw: t.sourceYaw };
     api.movement(s, item, t.qty, o.id, e.id, 'Unloaded onto site equipment');
     set('lift');
@@ -1699,7 +1736,7 @@ export function tickDelivery(s: State, o: Order, dt: number, api: DeliveryAPI) {
   const kind = deliveryKind(o);
   if (o.status !== 'ordered') {
     o.drive ??= {
-      distance: kind === 'rail' ? RAIL_STOP : roadLength(o),
+      distance: kind === 'rail' ? railStopDistance(s, o) : roadLength(o),
       velocity: 0,
       yaw: berth(o).yaw,
       travel: 0,
@@ -1717,6 +1754,14 @@ export function tickDelivery(s: State, o: Order, dt: number, api: DeliveryAPI) {
   }
   if (o.status === 'ordered') {
     if (s.time < o.eta) return;
+    if (o.railFreight) {
+      const reception = railReceptionPlan(s, o);
+      if (reception.error) {
+        waiting(s, o, reception.error, 'receiving-track', api);
+        return;
+      }
+      o.railFreight.stopDistance = reception.distance;
+    }
     const berthBusy = s.orders.some(
       (q) =>
         q.id !== o.id &&
@@ -1756,13 +1801,21 @@ export function tickDelivery(s: State, o: Order, dt: number, api: DeliveryAPI) {
   if (o.status === 'approaching' || o.status === 'departing') {
     const d = o.drive!,
       departing = o.status === 'departing';
+    if (o.railFreight && !departing) {
+      const reception = railReceptionPlan(s, o);
+      if (reception.error) {
+        d.velocity = 0;
+        waiting(s, o, reception.error, 'receiving-track', api);
+        return;
+      }
+    }
     if ((d.gearPause || 0) > 0) {
       d.gearPause = Math.max(0, (d.gearPause || 0) - dt);
       d.velocity = 0;
       return;
     }
     const rail = kind === 'rail',
-      routeEnd = rail ? RAIL_STOP : departing ? roadExitLength(o) : roadLength(o);
+      routeEnd = rail ? railStopDistance(s, o) : departing ? roadExitLength(o) : roadLength(o);
     const nextGear = rail ? undefined : roadStopDistances(o).find((p) => p > d.distance + 0.001);
     const limit =
       !rail && departing && nextGear !== undefined ? Math.min(nextGear, routeEnd) : routeEnd;
@@ -1873,6 +1926,20 @@ export function tickDelivery(s: State, o: Order, dt: number, api: DeliveryAPI) {
       o.total,
     );
     o.invoiced = true;
+  }
+  if (o.railFreight && !o.railFreight.unloadRequested) {
+    o.note = 'At receiving point; choose unloading stockyard and click Start unloading.';
+    return;
+  }
+  if (o.railFreight?.storageZoneId && !s.zones.some((z) => z.id === o.railFreight!.storageZoneId)) {
+    waiting(
+      s,
+      o,
+      'Destination stockyard no longer exists; choose another stockyard.',
+      'storage',
+      api,
+    );
+    return;
   }
   if (o.commute) commuteTick(s, o, dt, api);
   else if (o.item in MATERIALS) unloadTick(s, o, dt, api);

@@ -1,5 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { requestRailUnloading } from '../src/rail-freight';
 import * as S from '../src/sim.ts';
 import { equipmentReservedForDelivery } from '../src/delivery.ts';
 import { seedHandlingResources, tickUntil } from './support/yard.ts';
@@ -113,6 +114,8 @@ test('separate road and rail deliveries can use separate receiving machines conc
     second = s.orders.find((o) => o.id === secondId)!;
   tickUntil(s, () => first.unload?.phase === 'carry');
   forklift.workRole = 'receiving';
+  tickUntil(s, () => second.status === 'unloading');
+  assert.equal(requestRailUnloading(s, second.id), undefined);
   tickUntil(s, () => !!second.unload, 1200);
   assert.equal(first.automaticEquipment, excavator.id);
   assert.equal(second.unload!.equipmentId, forklift.id);
@@ -167,6 +170,8 @@ test('a mixed manifest hands off once when its next parcel exceeds the receiving
     'rail',
   );
   const o = s.orders[0];
+  tickUntil(s, () => o.status === 'unloading');
+  assert.equal(requestRailUnloading(s, o.id), undefined);
   tickUntil(s, () => o.unload?.phase === 'carry');
   assert.equal(o.automaticEquipment, forklift.id);
   assert.equal(o.unload!.item, 'slab');

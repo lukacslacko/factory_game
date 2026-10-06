@@ -48,6 +48,7 @@ import {
   smoothstep,
 } from './motion';
 import { shipmentLots, stackHeight, parcelPitch } from './delivery';
+import { railFreightCarPose } from './rail-freight';
 import { RAIL_PANEL_PITCH } from './railwork';
 import { trackGeometry, railCells, type TrackPiece } from './track';
 import {
@@ -2258,21 +2259,38 @@ export class World {
         o.drive?.distance ?? 0,
         alpha,
       );
-      let loadParent: THREE.Group;
+      const loadParents: { parent: THREE.Group; carIndex?: number }[] = [];
       if (kind === 'rail') {
-        const loco = ensure(`${o.id}-loco`, locomotive, selection),
-          flat = ensure(`${o.id}-flat`, flatcar, selection);
-        const locomotivePose = carPose(distance, 5),
-          flatDistance = distance - COUPLED_CENTERS,
-          wagonPose = carPose(flatDistance, 11);
+        const loco = ensure(o.railFreight?.locomotiveId || `${o.id}-loco`, locomotive, selection);
+        const locomotivePose = carPose(distance, 5);
         this.positionModel(loco, locomotivePose);
-        this.positionModel(flat, wagonPose);
-        // Bogies follow their own track tangents, rather than cutting the curve
-        // with the car body. Each vehicle has two independent two-axle bogies.
-        for (const [car, at] of [
-          [loco, distance],
-          [flat, flatDistance],
-        ] as const) {
+        const interpolated = { ...o, drive: { ...o.drive!, distance } };
+        const cars = o.railFreight?.cars || [{ id: `${o.id}-flat`, centerOffset: COUPLED_CENTERS }];
+        const vehicles = [{ model: loco, at: distance }];
+        let leadingPose = locomotivePose,
+          leadingRear = -4.2;
+        for (const [index, car] of cars.entries()) {
+          const flat = ensure(car.id, flatcar, selection);
+          const wagonPose = railFreightCarPose(interpolated, index);
+          this.positionModel(flat, wagonPose);
+          vehicles.push({ model: flat, at: distance - car.centerOffset });
+          loadParents.push({ parent: flat, carIndex: o.railFreight ? index : undefined });
+          const coupler = ensure(`${car.id}-coupler`, () => new THREE.Group(), selection);
+          const rear = localPoint(leadingPose, leadingRear, 0),
+            front = localPoint(wagonPose, 8.3, 0);
+          updateBeam(
+            coupler,
+            0,
+            new THREE.Vector3(rear.x, 0.84, rear.z),
+            new THREE.Vector3(front.x, 0.84, front.z),
+            0.095,
+            0x424b4d,
+          );
+          leadingPose = wagonPose;
+          leadingRear = -8.3;
+        }
+        // Each bogie follows its own rail tangent, including through the entry switch.
+        for (const { model: car, at } of vehicles) {
           const bodyYaw = -car.rotation.y;
           for (const bogie of car.children.filter((c) => c.name === 'bogie')) {
             const offset = bogie.userData.trackOffset ?? bogie.position.x;
@@ -2285,18 +2303,6 @@ export class World {
           }
           animateWheels(car, distance);
         }
-        const coupler = ensure(`${o.id}-coupler`, () => new THREE.Group(), selection);
-        const rear = localPoint(locomotivePose, -4.2, 0),
-          front = localPoint(wagonPose, 8.3, 0);
-        updateBeam(
-          coupler,
-          0,
-          new THREE.Vector3(rear.x, 0.84, rear.z),
-          new THREE.Vector3(front.x, 0.84, front.z),
-          0.095,
-          0x424b4d,
-        );
-        loadParent = flat;
       } else {
         const g = ensure(o.id, () => roadVehicle(kind, kind === 'bus' ? o.qty : 0), selection),
           pose = roadRenderPose(o, distance);
@@ -2315,25 +2321,26 @@ export class World {
         let passenger = 0;
         for (const child of g.children.filter((c) => c.name === 'passenger'))
           child.visible = passenger++ >= o.arrived;
-        loadParent = g;
+        loadParents.push({ parent: g });
       }
-      replaceContents(
-        loadParent,
-        'shipment',
-        o.item in MATERIALS || o.manifest?.length
-          ? `${o.item}/${o.qty}/${o.arrived}/${JSON.stringify(o.manifest || [])}`
-          : '',
-        () => {
-          const load = new THREE.Group();
-          for (const slot of shipmentLots(o)) {
-            if (slot.qty <= 0) continue;
-            const c = this.stockModel(slot.item, slot.qty);
-            c.position.set(slot.x, kind === 'rail' ? 1.3 : 1.15, slot.z);
-            load.add(c);
-          }
-          return load;
-        },
-      );
+      for (const { parent: loadParent, carIndex } of loadParents)
+        replaceContents(
+          loadParent,
+          'shipment',
+          o.item in MATERIALS || o.manifest?.length
+            ? `${o.item}/${o.qty}/${o.arrived}/${JSON.stringify(o.manifest || [])}`
+            : '',
+          () => {
+            const load = new THREE.Group();
+            for (const slot of shipmentLots(o)) {
+              if (slot.qty <= 0 || slot.carIndex !== carIndex) continue;
+              const c = this.stockModel(slot.item, slot.qty);
+              c.position.set(slot.x, kind === 'rail' ? 1.3 : 1.15, slot.z);
+              load.add(c);
+            }
+            return load;
+          },
+        );
       if (o.contractor && o.contractor.phase !== 'seated') {
         const h = ensure(`${o.id}-crew`, () => workerModel('engineer'), selection),
           pose = this.renderPose(s, `${o.id}-crew`, o.contractor, alpha);

@@ -1,4 +1,5 @@
 import { bufferAssets } from './buffers';
+import { railFreightCarPose } from './rail-freight';
 import type { State, Point, Equipment, Order, Worker, Rect } from './types';
 import { MATERIALS } from './catalog';
 import { forkTip } from './fork-geometry';
@@ -212,6 +213,29 @@ export function carrierBoxes(o: Order, pose?: Point & { yaw: number }): TrafficB
     const distance = o.drive?.distance ?? RAIL_STOP;
     const front = pose ?? carPose(distance, 5),
       back = carPose(distance - COUPLED_CENTERS, 11);
+    if (o.railFreight) {
+      // The movement caller supplies a future head pose. Derive its station by
+      // a bounded local search along the surveyed route, rather than shifting
+      // the cars rigidly sideways across the turnout.
+      let station = distance;
+      if (pose) {
+        let lo = distance - 40, hi = distance + 40;
+        for (let n = 0; n < 24; n++) {
+          const a = lo + (hi - lo) / 3, b = hi - (hi - lo) / 3;
+          const pa = carPose(a, 5), pb = carPose(b, 5);
+          if (Math.hypot(pa.x-pose.x,pa.z-pose.z) < Math.hypot(pb.x-pose.x,pb.z-pose.z)) hi=b;
+          else lo=a;
+        }
+        station=(lo+hi)/2;
+      }
+      const future = { ...o, drive: { ...o.drive!, distance: station } };
+      return [
+        { ...front, length: 8.6, width: 2.65, id: o.id },
+        ...o.railFreight.cars.map((car,index) => ({
+          ...railFreightCarPose(future,index), length: car.length, width: car.width, id:o.id,
+        })),
+      ];
+    }
     return [
       { ...front, length: 8.6, width: 2.65, id: o.id },
       { ...back, length: 16.8, width: 2.75, id: o.id },

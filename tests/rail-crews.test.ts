@@ -1,5 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { requestRailUnloading } from '../src/rail-freight';
 import * as S from '../src/sim';
 import { setRailCrew, jobEquipmentAssignment } from '../src/jobs';
 import { setEquipmentAssistant } from '../src/work-crews';
@@ -155,6 +156,8 @@ test('rail staging machine can receive ordered missing panels before the assigne
   assert.equal(S.addZone(s, { x: 24, z: 26, w: 27, d: 24 }, 'Rail crew material receiving'), '');
   const orders = S.purchase(s, 'rail', 2, 'rail');
   assert.ok(orders.length);
+  tickUntil(s, () => s.orders[0].status === 'unloading');
+  assert.equal(requestRailUnloading(s, orders[0]), undefined);
   let received = false;
   tickUntil(
     s,

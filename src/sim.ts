@@ -16,6 +16,7 @@ import {
   tickTurnoutOperation,
 } from './turnout-operation';
 import { packPurchase, orderLines, orderDescription } from './procurement';
+import { aggregateRailManifest, makeRailFreight } from './rail-freight';
 export { packPurchase as planPurchaseBatch } from './procurement';
 import { tickWorkforce, workerAvailable } from './workforce';
 import { isPausedDeliveryOperator, resumeDeliveryHandling } from './delivery-control';
@@ -343,6 +344,8 @@ export function addZone(s: State, r: Rect, name = 'Stockyard') {
 export function removeZone(s: State, zid: string) {
   const zone = s.zones.find((z) => z.id === zid);
   if (!zone) return 'Stockyard not found.';
+  if (s.orders.some(o => o.status !== 'done' && o.railFreight?.storageZoneId === zid))
+    return 'This stockyard is assigned to an incoming or active freight train. Choose another unloading destination first.';
   if (
     s.stacks.some((t) => (t.qty > 0 || t.item === 'diesel') && overlap(t, zone)) ||
     s.orders.some((o) => o.allocated && overlap(o.allocated, zone)) ||
@@ -400,9 +403,17 @@ export function purchaseBatch(
   s: State,
   lines: { item: string; qty: number }[],
   mode: 'road' | 'rail' = 'road',
+  options: { railLocationId?: string; storageZoneId?: string } = {},
 ): string[] {
-  const loads = packPurchase(lines, mode),
-    ids: string[] = [];
+  const packed = packPurchase(lines, mode);
+  const railLoads = packed.filter((load) => load.mode === 'rail');
+  if (railLoads.length > 100) throw new Error('Order at most 100 rail cars in one supplier train.');
+  if (options.railLocationId && !s.railLocations?.some((l) => l.id === options.railLocationId && l.trackId === 'BOOTSTRAP-SIDING' && l.route === 'straight' && ['unloading', 'transfer'].includes(l.kind)))
+    throw new Error('Choose an unloading or transfer point on the original receiving siding.');
+  if (options.storageZoneId && !s.zones.some((z) => z.id === options.storageZoneId))
+    throw new Error('Choose an existing destination stockyard.');
+  const loads = [...(railLoads.length ? [{ mode: 'rail' as const, manifest: aggregateRailManifest(railLoads) }] : []), ...packed.filter((load) => load.mode !== 'rail')];
+  const ids: string[] = [];
   for (const load of loads) {
     const manifest = load.manifest,
       first = manifest[0],
@@ -424,7 +435,8 @@ export function purchaseBatch(
       item: first.item,
       qty,
       arrived: 0,
-      ...(manifest.length > 1 ? { manifest } : {}),
+      ...(manifest.length > 1 || load.mode === 'rail' ? { manifest } : {}),
+      ...(load.mode === 'rail' ? { railFreight: { ...makeRailFreight(railLoads, manifest, (prefix) => id(s, prefix)), receptionLocationId: options.railLocationId || undefined, storageZoneId: options.storageZoneId || undefined } } : {}),
       mode: load.mode,
       status: 'ordered',
       eta: s.time + 180 + (s.orders.filter((o) => o.status !== 'done').length % 3) * 45,
@@ -441,7 +453,7 @@ export function purchaseBatch(
     };
     s.orders.push(order);
     ids.push(oid);
-    event(s, 'Order', oid, `Ordered ${orderDescription(order)} by ${load.mode} on one carrier.`);
+    event(s, 'Order', oid, `Ordered ${orderDescription(order)} by ${load.mode} on ${order.railFreight ? `${order.railFreight.cars.length}-car supplier train` : 'one carrier'}.`);
   }
   s.revision++;
   return ids;

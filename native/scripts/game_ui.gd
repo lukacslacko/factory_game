@@ -77,6 +77,9 @@ var release_control_button: Button
 var group_expansion: Dictionary = {}
 var turnout_flow: OptionButton
 var buffer_endpoint_window: Window
+var purchase_reception: OptionButton
+var purchase_stockyard: OptionButton
+var purchase_rail_controls: VBoxContainer
 
 func setup() -> void:
 	layer=10
@@ -353,6 +356,7 @@ func _build_menu() -> void:
 	menu.add_item("New yard…",6)
 	menu.add_item("Restore previous backup",7)
 	menu.add_item("Controls / guide",8)
+	menu.add_item("Railway management help",11)
 	menu.add_item("Open save folder",9)
 	menu.add_separator()
 	menu.add_check_item("Full-resolution 3D (slower on Retina)",10)
@@ -381,6 +385,7 @@ func _menu_action(id: int) -> void:
 		6: _show_startup()
 		7: _send("restore_backup",{})
 		9: file_requested.emit("folder")
+		11: _switch_tab("Help")
 		10:
 			var index: int = menu.get_item_index(10)
 			var enabled: bool = not menu.is_item_checked(index)
@@ -518,8 +523,11 @@ func receive_reply(message: Dictionary) -> void:
 		var preview: Dictionary = message.get("result",{})
 		var price: float = 0.0
 		for line: Dictionary in _purchase_lines(): price+=float(catalog.get(line.item,{}).get("price",0))*float(line.qty)
-		for load: Dictionary in preview.get("loads",[]): price+=240.0 if load.get("mode")=="rail" else 90.0
+		if preview.has("transportCost"):price+=float(preview.transportCost)
+		else:
+			for load: Dictionary in preview.get("loads",[]): price+=240.0 if load.get("mode")=="rail" else 90.0
 		purchase_total.text="%s cargo · %s including freight · %s carrier loads"%[_mass(float(preview.get("mass",0))),_money(price),preview.get("loads",[]).size()]
+		if int(preview.get("railCars",0))>0:purchase_total.text+=" · %d rail cars · %.1f m train"%[int(preview.railCars),float(preview.get("trainLength",0))]
 	if (message.has("rows") or message.get("action")=="sql") and active_tab=="SQL":
 		_display_sql(message)
 	refresh_pending=true
@@ -566,6 +574,7 @@ func _build_register() -> void:
 	if active_tab=="Costs": _button(heading,"Export CSV",func() -> void: file_requested.emit("costs"))
 	if active_tab=="Inbox": _button(heading,"Mark all seen",func() -> void: _send("mark_all_seen",{}))
 	if active_tab=="SQL": _build_sql(); return
+	if active_tab=="Help": _build_rail_help(); return
 	if active_tab in ["Activity","Costs"]: audit_label=_note(register_body,"")
 	var filters: HBoxContainer = HBoxContainer.new()
 	register_body.add_child(filters)
@@ -590,13 +599,18 @@ func _build_register() -> void:
 		severity_filter.item_selected.connect(func(_index: int) -> void: _refresh_register())
 	match active_tab:
 		"Railway":
-			_note(register_body,"Named locations mark track intervals. Supplier trains still use the receiving siding; shunting is a later feature.")
+			_note(register_body,"Rail batches arrive as one connected train. Select its receiving point and stockyard, then explicitly start unloading. Help describes this checkpoint and the planned locomotive handoff.")
+			_button(filters,"Rail management help",func() -> void: _switch_tab("Help"))
+			_button(filters,"+ Receiving point",func() -> void: _rail_location_form({"id":"BOOTSTRAP-SIDING","name":"Receiving siding","kind":"unloading","offset":50,"length":60}))
 			_button(filters,"+ Named location",_new_rail_location)
 			_button(filters,"+ Buffer stop",func() -> void: _buffer_endpoint_form())
 			_table(register_body,"Named locations",["ID","Name","Purpose","Track","Offset m","Length m","Status"])
 			_table(register_body,"Installed track",["ID","Piece","Position","Length m","Route","Group"])
 			_table(register_body,"Open track endpoints · select one to install a buffer stop",["ID","Track","Route","Position","Buffer / reservation"])
 			_table(register_body,"Buffer stops",["ID","Position","Secured","Carried","Source"])
+			_table(register_body,"Rail freight cars · select a car to inspect its linked delivery and manifest",["Car","Train / order","Reception","Ordered mass","Remaining mass","Storage","Status"])
+			# Keep all five dense registers visible in the standard 810-pixel window.
+			for table: Control in tables:table.tree.custom_minimum_size.y=62
 		"Materials":
 			_table(register_body,"Inventory",["Material","Delivered","Incoming","Stored","Reserved","In transit","Installed","Construction","Mass stored"])
 			_table(register_body,"Physical stacks",["ID","Material","Qty","Reserved","Footprint","Position","Source","Diesel L"])
@@ -651,7 +665,10 @@ func _refresh_register() -> void:
 			_set_table(2,rows); rows=[]
 			for e: Dictionary in _buffer_records():
 				rows.append(_row(str(e.id),[e.id,_position(e),"Yes" if e.get("secured",false) else "No","Yes" if e.get("carried",false) else "No",e.get("source","")]))
-			_set_table(3,rows)
+			_set_table(3,rows); rows=[]
+			for car: Dictionary in _freight_cars():
+				rows.append(_row(str(car.id),[car.id,car.orderId,_reception_name(car.get("receptionLocationId","")),_mass(float(car.get("mass",0))),_mass(_car_remaining_mass(car)),car.get("storageZoneId","Not selected"),car.get("status","")],[],{"0":str(car.id),"1":str(car.orderId),"2":str(car.get("receptionLocationId","")),"5":str(car.get("storageZoneId",""))}))
+			_set_table(4,rows)
 		"Materials":
 			for value: Dictionary in metadata.get("inventory",[]):
 				var key: String = str(value.get("item",""))
@@ -740,6 +757,11 @@ func _entity(id: String) -> Dictionary:
 	for key: String in ["workers","equipment","stacks","buildings","rails","zones","jobs","jobGroups","orders","railLocations","notices","events","costs","movements"]:
 		for entity: Dictionary in _records(key):
 			if str(entity.get("id",""))==id: return {"type":key,"entity":entity}
+	for car: Dictionary in _freight_cars():
+		if str(car.id)==id:return {"type":"freightCars","entity":car}
+	for order: Dictionary in _records("orders"):
+		if str(order.get("railFreight",{}).get("locomotiveId",""))==id:
+			return {"type":"supplierLocomotive","entity":{"id":id,"name":"Supplier locomotive","orderId":str(order.id),"status":order.get("status",""),"x":order.get("vehicle",{}).get("x",0),"z":order.get("vehicle",{}).get("z",0)}}
 	for buffer: Dictionary in _buffer_records():
 		if str(buffer.id)==id:return {"type":"buffer","entity":buffer}
 	for endpoint: Dictionary in metadata.get("render",{}).get("railOpenEndpoints",[]):
@@ -812,6 +834,9 @@ func _number(parent: Node,label_text: String,value: float,min_value: float,max_v
 	return input
 
 func _render_inspector() -> void:
+	if active_tab=="Help":
+		inspector.hide(); register_panel.offset_right=0
+		return
 	var previous_scroll: int = inspector_scroll.scroll_vertical
 	_clear(inspector_body)
 	var found: Dictionary = _entity(selected_id)
@@ -834,6 +859,13 @@ func _render_inspector() -> void:
 		"equipment": _equipment_inspector(entity)
 		"jobs","jobGroups": _work_inspector(entity,kind=="jobGroups")
 		"orders": _order_inspector(entity)
+		"freightCars": _freight_car_inspector(entity)
+		"supplierLocomotive":
+			_detail("Train / order",entity.get("orderId",""))
+			_detail("State",entity.get("status",""))
+			_detail("Ownership","Supplier")
+			_note(inspector_body,"This supplier engine stays coupled to its cars in the current checkpoint. A future handoff will let it leave while cars remain for an owned shunter.")
+			_button(inspector_body,"Open train delivery controls",func() -> void: _user_entity(str(entity.get("orderId",""))))
 		"stacks":
 			_detail("Material",_name(str(entity.get("item",""))))
 			_detail("Quantity",entity.get("qty",0))
@@ -868,6 +900,7 @@ func _render_inspector() -> void:
 			_detail("Track",entity.get("trackId",""))
 			_detail("Purpose",entity.get("kind",""))
 			_detail("Length","%s m"%entity.get("length",0))
+			_note(inspector_body,"Eligible receiving point" if entity.get("trackId")=="BOOTSTRAP-SIDING" else "Map designation; supplier reception on this custom track requires future shunting.")
 			_button(inspector_body,"Edit named location",func() -> void: _rail_location_form(entity))
 		"notices":
 			_detail("Time",_clock(entity.get("time",0)))
@@ -1106,10 +1139,150 @@ func _order_inspector(order: Dictionary) -> void:
 		_detail("Lift phase",order.unload.get("phase",""))
 		_detail("Handling machine",order.unload.get("equipmentId",""))
 		_detail("Ground helper",order.unload.get("riggerId",""))
+	if order.has("railFreight"):_rail_freight_controls(order)
 	var worker: OptionButton = _entity_option(inspector_body,"workers","Choose receiving operator…",controlled_worker,true)
 	_button(inspector_body,"Assign operator to unloading",func() -> void:
 		if not _selection(worker).is_empty(): _send("unload",{"orderId":id,"workerId":_selection(worker)}))
 
+
+func _freight_cars() -> Array[Dictionary]:
+	var result: Array[Dictionary] = []
+	for order: Dictionary in _records("orders"):
+		var freight: Dictionary = order.get("railFreight",{})
+		for value: Dictionary in freight.get("cars",[]):
+			var car: Dictionary = value.duplicate(true)
+			car["orderId"]=str(order.id)
+			for pose: Dictionary in metadata.get("render",{}).get("railCars",[]):
+				if str(pose.get("id",""))==str(car.id):
+					for axis: String in ["x","z","y","yaw"]:
+						if pose.has(axis):car[axis]=pose[axis]
+			car["status"]=str(order.get("status",""))
+			car["receptionLocationId"]=str(freight.get("receptionLocationId",""))
+			car["storageZoneId"]=str(freight.get("storageZoneId",""))
+			result.append(car)
+	return result
+
+func _car_remaining_mass(car: Dictionary) -> float:
+	var total: float = 0
+	for line: Dictionary in car.get("manifest",[]):
+		total+=maxf(0,float(line.get("qty",0))-float(line.get("arrived",0)))*float(catalog.get(line.get("item",""),{}).get("mass",0))
+	return total
+
+func _reception_name(id: Variant) -> String:
+	for location: Dictionary in _records("railLocations"):
+		if str(location.id)==str(id):return str(location.get("name",location.id))
+	return "Automatic · receiving siding" if str(id).is_empty() else str(id)
+
+func _reception_option(parent: Node,current: String = "") -> OptionButton:
+	var option: OptionButton = _option(parent,[])
+	option.add_item("Automatic · fit train on receiving siding")
+	option.set_item_metadata(0,"")
+	for location: Dictionary in _records("railLocations"):
+		if location.get("trackId")!="BOOTSTRAP-SIDING" or location.get("route","straight")!="straight" or location.get("kind","") not in ["unloading","transfer"]:continue
+		option.add_item("%s · %s · %s m"%[location.get("name",location.id),location.id,location.get("length",0)])
+		option.set_item_metadata(option.item_count-1,str(location.id))
+		if str(location.id)==current:option.selected=option.item_count-1
+	# A renamed/deleted/unavailable existing designation must stay visible;
+	# opening an inspector must not silently reinterpret it as automatic.
+	if not current.is_empty() and _selection(option)!=current:
+		option.add_item(current+" · unavailable receiving point")
+		option.set_item_metadata(option.item_count-1,current)
+		option.selected=option.item_count-1
+	return option
+
+func _refresh_purchase_destinations() -> void:
+	if not is_instance_valid(purchase_reception):return
+	var reception: String = _selection(purchase_reception)
+	var yard: String = _selection(purchase_stockyard)
+	var parent: Node = purchase_rail_controls
+	var reception_index: int = purchase_reception.get_index()
+	var yard_index: int = purchase_stockyard.get_index()
+	parent.remove_child(purchase_reception); purchase_reception.queue_free()
+	parent.remove_child(purchase_stockyard); purchase_stockyard.queue_free()
+	purchase_reception=_reception_option(parent,reception)
+	parent.move_child(purchase_reception,reception_index)
+	purchase_stockyard=_entity_option(parent,"zones","Select later · train waits until unloading is requested",yard)
+	parent.move_child(purchase_stockyard,yard_index)
+	purchase_reception.item_selected.connect(func(_index: int) -> void: _purchase_changed())
+	purchase_stockyard.item_selected.connect(func(_index: int) -> void: _purchase_changed())
+	_purchase_changed()
+
+func _purchase_args(lines: Array[Dictionary]) -> Dictionary:
+	var args: Dictionary = {"lines":lines,"mode":"road" if purchase_mode.selected==0 else "rail"}
+	if purchase_mode.selected==1:
+		var reception: String = _selection(purchase_reception)
+		var yard: String = _selection(purchase_stockyard)
+		if not reception.is_empty():args["railLocationId"]=reception
+		if not yard.is_empty():args["storageZoneId"]=yard
+	return args
+
+func _rail_freight_controls(order: Dictionary) -> void:
+	var freight: Dictionary = order.get("railFreight",{})
+	var id: String = str(order.id)
+	_label(inspector_body,"RAIL FREIGHT / "+str(freight.get("cars",[]).size())+" CARS")
+	_detail("Supplier engine",freight.get("locomotiveId",""))
+	_detail("Receiving point",_reception_name(freight.get("receptionLocationId","")))
+	_detail("Stockyard",freight.get("storageZoneId","Not selected"))
+	_detail("Unloading", "Requested" if freight.get("unloadRequested",true) else "Awaiting your instruction")
+	var terminal: bool = str(order.get("status","")) in ["done","canceled","departing"]
+	var locked: bool = str(order.get("status",""))!="ordered"
+	var reception: OptionButton = _reception_option(inspector_body,str(freight.get("receptionLocationId","")))
+	reception.disabled=terminal or locked
+	reception.tooltip_text="Reception locks when the train starts its approach. Custom track reception needs future shunting."
+	var storage: OptionButton = _entity_option(inspector_body,"zones","Choose unloading stockyard…",str(freight.get("storageZoneId","")))
+	storage.disabled=terminal
+	var apply: Button = _button(inspector_body,"Apply rail freight destinations",func() -> void:
+		var args: Dictionary = {"orderId":id,"railLocationId":_selection(reception),"storageZoneId":_selection(storage)}
+		_send("configure_rail_freight",args))
+	apply.disabled=terminal or order.has("unload")
+	apply.tooltip_text="Wait for the current physical lift to finish before changing destinations."
+	var start: Button = _button(inspector_body,"Start unloading",func() -> void: _send("begin_rail_unloading",{"orderId":id}))
+	start.disabled=str(order.get("status",""))!="unloading" or bool(freight.get("unloadRequested",true)) or str(freight.get("storageZoneId","")).is_empty()
+	start.tooltip_text="Wait until the train is stopped and select and apply a physical stockyard first. Owned equipment and an operator handle unloading."
+	_note(inspector_body,"Apply the chosen stockyard before Start unloading. Destination changes between lifts affect subsequent cargo only. The supplier locomotive remains attached in this checkpoint; shunting and locomotive handoff are planned.")
+	for car: Dictionary in freight.get("cars",[]):
+		_button(inspector_body,"Inspect "+str(car.id),func() -> void: _user_entity(str(car.id)))
+
+func _freight_car_inspector(car: Dictionary) -> void:
+	_detail("Train / order",car.get("orderId",""))
+	_detail("State",car.get("status",""))
+	_detail("Receiving point",_reception_name(car.get("receptionLocationId","")))
+	_detail("Stockyard",car.get("storageZoneId","Not selected"))
+	_detail("Car length","%.1f m"%float(car.get("length",0)))
+	_detail("Ordered mass",_mass(float(car.get("mass",0))))
+	_detail("Remaining mass",_mass(_car_remaining_mass(car)))
+	for line: Dictionary in car.get("manifest",[]):
+		_detail(_name(str(line.get("item",""))),"%s ordered · %s unloaded"%[line.get("qty",0),line.get("arrived",0)])
+	_button(inspector_body,"Open train delivery controls",func() -> void: _user_entity(str(car.get("orderId",""))))
+	_note(inspector_body,"Cars remain linked to their supplier train. Splitting a consist, locomotive uncoupling, shunting, and empty return assembly are future operations.")
+
+func _build_rail_help() -> void:
+	_label(register_body,"RAILWAY MANAGEMENT")
+	_button(register_body,"Back to Railway",func() -> void: _switch_tab("Railway"))
+	var scroll: ScrollContainer = ScrollContainer.new()
+	scroll.size_flags_vertical=Control.SIZE_EXPAND_FILL
+	scroll.horizontal_scroll_mode=ScrollContainer.SCROLL_MODE_DISABLED
+	register_body.add_child(scroll)
+	var body: VBoxContainer = VBoxContainer.new()
+	body.size_flags_horizontal=Control.SIZE_EXPAND_FILL
+	body.add_theme_constant_override("separation",16)
+	scroll.add_child(body)
+	for paragraph: String in _rail_help_paragraphs():
+		var label: Label = _note(body,paragraph)
+		label.add_theme_font_size_override("font_size",14)
+		label.custom_minimum_size.x=500
+	_label(body,"This guide describes the controls available in this version. It will expand as rail operations are implemented.")
+
+func _rail_help_paragraphs() -> Array[String]:
+	return [
+		"Receive one train with several cars. Open Purchase / hire, choose Rail, and enter all the material quantities for the batch. Each car carries up to 48 metric tons, subject to its physical deck space. The preview shows the number of cars and the train length; the complete train must fit the receiving siding. Workers still arrive by bus and equipment arrives on lowloaders.",
+		"Name a receiving point. In Railway, click + Receiving point to mark a usable interval on BOOTSTRAP-SIDING. Choose its name, its offset along the track, and the usable length centered at that offset. Select this point while ordering or in the train's delivery inspector before its approach begins. Automatic reception chooses a fitting position on that same siding. Names on other tracks are currently designations for future shunting, rather than supplier destinations.",
+		"Choose where to unload. Designate a physical stockyard in the Yard view. Select it when placing the rail order, or open the order in Deliveries and choose and apply its unloading stockyard. Cargo will be stored in that yard; a full or inaccessible yard produces a visible waiting reason instead of silently sending cargo somewhere else. Wait until the train has stopped at its receiving point, apply the destination, and click Start unloading.",
+		"Use real handling equipment. An owned machine and its operator unload the cars, and a ground helper rigs loads that require one. Workers must be on duty and the machine must be allowed to receive deliveries. Clicking a car in Railway opens its manifest; its order ID opens the delivery controls. You can change the stockyard between lifts to direct the remaining cargo to a different yard. An ongoing lift keeps its current destination.",
+		"Track progress and departure. The Railway freight-car register shows each car's remaining load and links it to the parent train order. Deliveries shows the train's waiting reason, assigned equipment, and unloading phase. Cars retain their individual IDs and cargo records when you save. The current supplier locomotive remains coupled during unloading and departs with the complete empty train when unloading is finished.",
+		"The next rail operations are locomotive handoff, an owned shunter and driver, coupling and uncoupling selected cars, transfer between named locations, and forming an empty return train for a requested mainline locomotive. These controls are not available in this checkpoint. The present multi-car records, named reception intervals, and explicit unloading destinations are the foundation for those operations.",
+		"Build the track layout first. Straight rails, curves, and diverging or converging turnouts are available in the Yard tools. A converging turnout joins two parallel incoming tracks 5 meters apart. Install buffer stops at open endpoints from Railway; redundant stops are physically carried to stockyard storage. Track designations alone do not provide a train route or certify clearance."
+	]
 
 func _buffer_records() -> Array:
 	if state.has("buffers"):return state.buffers
@@ -1181,13 +1354,14 @@ func _rail_location_form(entity: Dictionary) -> void:
 	var name: LineEdit = LineEdit.new()
 	name.text=str(entity.get("name","Rail location"))
 	body.add_child(name)
-	var purpose: OptionButton = _option(body,["loading","unloading","transfer","parking"],["loading","unloading","transfer","parking"].find(entity.get("kind","unloading")))
-	var route: OptionButton = _option(body,["straight","branch"],1 if entity.get("route")=="branch" else 0)
 	var track_id: String = str(entity.get("trackId",entity.get("id","")))
+	var purposes: Array = ["unloading","transfer"] if track_id=="BOOTSTRAP-SIDING" else ["loading","unloading","transfer","parking"]
+	var purpose: OptionButton = _option(body,purposes,purposes.find(entity.get("kind","unloading")))
+	var route: OptionButton = _option(body,["straight"] if track_id=="BOOTSTRAP-SIDING" else ["straight","branch"],1 if entity.get("route")=="branch" else 0)
 	_label(body,"Track "+track_id)
-	var offset: SpinBox = _number(body,"Offset (m)",float(entity.get("offset",0)),0,10000,0.1)
-	var length: SpinBox = _number(body,"Centered usable length (m)",float(entity.get("length",5)),1,200,0.5)
-	_note(body,"A map designation for future operations; it does not redirect deliveries or certify train clearance.")
+	var offset: SpinBox = _number(body,"Offset (m)",float(entity.get("offset",0)),0,100 if track_id=="BOOTSTRAP-SIDING" else 10000,0.1)
+	var length: SpinBox = _number(body,"Centered usable length (m)",float(entity.get("length",5)),1,100 if track_id=="BOOTSTRAP-SIDING" else 200,0.5)
+	_note(body,"Locations on BOOTSTRAP-SIDING can receive rail batches when their usable length fits the complete train. Other tracks remain map designations for future shunting. The position and length must fit the referenced physical track.")
 	_button(body,"Save designation",func() -> void:
 		var location: Dictionary = {"name":name.text,"kind":purpose.get_item_text(purpose.selected),"trackId":track_id,"route":route.get_item_text(route.selected),"offset":offset.value,"length":length.value}
 		if entity.has("trackId"): location.id=entity.id
@@ -1198,7 +1372,7 @@ func _rail_location_form(entity: Dictionary) -> void:
 	window.popup_centered()
 
 func _build_sql() -> void:
-	_note(register_body,"Read-only SQLite snapshot · SELECT, WITH, EXPLAIN. Tables: inventory, workers, equipment, jobs, job_groups, work_orders, orders, stacks, buildings, rails, rail_locations, zones, movements, costs, events.")
+	_note(register_body,"Read-only SQLite snapshot · SELECT, WITH, EXPLAIN. Tables: inventory, workers, equipment, jobs, job_groups, work_orders, orders, freight_cars, freight_car_lines, stacks, buildings, rails, rail_locations, zones, movements, costs, events.")
 	var examples: HBoxContainer = HBoxContainer.new()
 	register_body.add_child(examples)
 	for value: Dictionary in [{"name":"Active jobs","sql":"SELECT id, kind, status, phase, reason FROM jobs WHERE status IN ('todo','doing') LIMIT 100"},{"name":"Fuel usage","sql":"SELECT id, kind, fuel, used FROM equipment"},{"name":"Costs","sql":"SELECT category, SUM(amount) AS total FROM costs GROUP BY category ORDER BY total DESC"},{"name":"Stock","sql":"SELECT * FROM inventory"}]:
@@ -1273,11 +1447,12 @@ func _check_notices() -> void:
 
 func _open_purchase() -> void:
 	if is_instance_valid(purchase_window):
+		_refresh_purchase_destinations()
 		purchase_window.popup_centered()
 		return
 	purchase_window=Window.new()
 	purchase_window.title="Purchase materials / equipment · Hire workers"
-	purchase_window.size=Vector2i(860,670)
+	purchase_window.size=Vector2i(860,760)
 	purchase_window.exclusive=true
 	purchase_window.theme=screen.theme
 	screen.add_child(purchase_window)
@@ -1293,8 +1468,19 @@ func _open_purchase() -> void:
 	var header: HBoxContainer = HBoxContainer.new()
 	body.add_child(header)
 	_label(header,"Preferred material transport")
-	purchase_mode=_option(header,["Road · 12 t truck","Rail · 48 t train"])
-	purchase_mode.item_selected.connect(func(_index: int) -> void: _purchase_changed())
+	purchase_mode=_option(header,["Road · 12 t truck","Rail · 48 t per car"])
+	purchase_mode.item_selected.connect(func(_index: int) -> void:
+		purchase_rail_controls.visible=purchase_mode.selected==1
+		_purchase_changed())
+	purchase_rail_controls=VBoxContainer.new()
+	purchase_rail_controls.visible=false
+	body.add_child(purchase_rail_controls)
+	_label(purchase_rail_controls,"Train reception")
+	purchase_reception=_reception_option(purchase_rail_controls)
+	purchase_reception.item_selected.connect(func(_index: int) -> void: _purchase_changed())
+	_label(purchase_rail_controls,"Unloading stockyard")
+	purchase_stockyard=_entity_option(purchase_rail_controls,"zones","Select later · train waits until unloading is requested")
+	purchase_stockyard.item_selected.connect(func(_index: int) -> void: _purchase_changed())
 	var scroll: ScrollContainer = ScrollContainer.new()
 	scroll.size_flags_vertical=Control.SIZE_EXPAND_FILL
 	body.add_child(scroll)
@@ -1327,7 +1513,7 @@ func _open_purchase() -> void:
 			mass.text=_mass(amount*float(entry.get("mass",0))) if entry.has("mass") else ("%d passengers"%amount if entry.has("wage") else "%d services"%amount)
 			_purchase_changed())
 	purchase_total=_note(body,"Add catalog quantities to create one batch.")
-	_note(body,"12 seats per bus. Equipment uses dedicated lowloaders. Deck space can require extra loads before the weight limit.")
+	_note(body,"12 seats per bus. Equipment uses dedicated lowloaders. Rail materials share one locomotive with as many cars as fit the receiving berth. Deck space can require another car before the weight limit. New trains wait for Start unloading.")
 	var footer: HBoxContainer = HBoxContainer.new()
 	body.add_child(footer)
 	_button(footer,"Clear quantities",func() -> void:
@@ -1367,7 +1553,7 @@ func _request_purchase_preview() -> void:
 	purchase_preview_pending=false
 	if not is_instance_valid(purchase_window) or not purchase_window.visible: return
 	var lines: Array[Dictionary] = _purchase_lines()
-	if not lines.is_empty(): _send("purchase_preview",{"lines":lines,"mode":"road" if purchase_mode.selected==0 else "rail"})
+	if not lines.is_empty(): _send("purchase_preview",_purchase_args(lines))
 
 func _place_purchase() -> void:
 	for key: String in purchase_quantity:
@@ -1379,17 +1565,17 @@ func _place_purchase() -> void:
 		quantity.apply()
 	var lines: Array[Dictionary] = _purchase_lines()
 	if lines.is_empty(): return
-	_send("purchase_batch",{"lines":lines,"mode":"road" if purchase_mode.selected==0 else "rail"})
+	_send("purchase_batch",_purchase_args(lines))
 	purchase_window.hide()
 
 func show_purchase() -> void:
 	_open_purchase()
 
 func show_tab(value: String) -> void:
-	var aliases: Dictionary = {"site":"Yard","railways":"Railway","materials":"Materials","workers":"Workers","equipment":"Equipment","deliveries":"Deliveries","jobs":"Work","activity":"Activity","costs":"Costs","reports":"SQL","notices":"Inbox"}
+	var aliases: Dictionary = {"site":"Yard","railways":"Railway","materials":"Materials","workers":"Workers","equipment":"Equipment","deliveries":"Deliveries","jobs":"Work","activity":"Activity","costs":"Costs","reports":"SQL","notices":"Inbox","help":"Help"}
 	var target: String = str(aliases.get(value.to_lower(),value.capitalize()))
 	if value.to_upper()=="SQL": target="SQL"
-	if target in TABS: _switch_tab(target)
+	if target in TABS or target=="Help": _switch_tab(target)
 
 func _user_entity(id: String) -> void:
 	show_entity(id)

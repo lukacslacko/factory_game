@@ -248,7 +248,7 @@ test('large rail orders split by actual flatcar deck area as well as weight', ()
   const s = yardWithStorage();
   S.purchase(s, 'rail', 33, 'rail');
   assert.deepEqual(
-    s.orders.map((o) => o.qty),
+    s.orders[0].railFreight!.cars.map((car) => car.manifest.reduce((n,line) => n + line.qty,0)),
     [12, 12, 9],
   );
 });

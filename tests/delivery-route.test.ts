@@ -1,5 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { requestRailUnloading } from '../src/rail-freight';
 import * as S from '../src/sim.ts';
 import { route, dist, center } from '../src/path.ts';
 import { localPoint } from '../src/motion.ts';
@@ -14,6 +15,8 @@ function partialCurveStack() {
   const e = seedHandlingResources(s, 'excavator');
   const [id] = S.purchase(s, 'railCurve', 8, 'rail');
   const o = s.orders.find((o) => o.id === id)!;
+  tickUntil(s, () => o.status === 'unloading');
+  assert.equal(requestRailUnloading(s, id), undefined);
   tickUntil(s, () => o.unload?.phase === 'clear' && !!o.unload.mergeId && !e.path.length, 900);
   assert.equal(o.arrived, 4);
   assert.equal(o.unload!.qty, 1);

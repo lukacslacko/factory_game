@@ -1,5 +1,6 @@
 import { validTrackPiece, trackGeometry } from './track';
 import { validRailLocation } from './rail-locations';
+import { freightValidationProblem } from './freight-validation';
 import {
   FREIGHT_CAPACITY,
   FREIGHT_DECK_LENGTH,
@@ -912,6 +913,8 @@ export function validateState(value: any): asserts value is State {
     }
   }
   for (const o of s.orders) {
+    const freightProblem = freightValidationProblem(s, o, ids);
+    if (freightProblem) fail(freightProblem);
     if (
       o.automaticEquipment !== undefined &&
       (typeof o.automaticEquipment !== 'string' ||
@@ -922,7 +925,7 @@ export function validateState(value: any): asserts value is State {
       const lines = o.manifest;
       if (
         !Array.isArray(lines) ||
-        lines.length < 2 ||
+        lines.length < (o.railFreight ? 1 : 2) ||
         lines.length > 20 ||
         o.commute ||
         lines.some(
@@ -946,7 +949,7 @@ export function validateState(value: any): asserts value is State {
       if (!material && !crew) fail('incompatible items on one carrier');
       if (crew && (o.mode !== 'road' || o.qty > CREW_BUS_SEATS)) fail('overfilled crew bus');
       if (
-        material &&
+        material && !o.railFreight &&
         (!['road', 'rail'].includes(o.mode) ||
           orderMass(o) > FREIGHT_CAPACITY[o.mode as 'road' | 'rail'] ||
           orderDeckLength(lines) > FREIGHT_DECK_LENGTH[o.mode as 'road' | 'rail'])

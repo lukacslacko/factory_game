@@ -1,0 +1,68 @@
+{
+  "version": "0.20.0",
+  "passed": true,
+  "simulationAndHostTests": {
+    "passed": 414,
+    "failed": 0,
+    "elapsedSeconds": 297.512354375,
+    "nodeHeapLimitMB": 384
+  },
+  "nativeUIChecks": 26,
+  "nativeRendererChecks": 39,
+  "existingSwitchUIChecks": 39,
+  "packagedApp": {
+    "name": "freight-packaged",
+    "elapsed_seconds": 6.65,
+    "peak_resident_bytes": 314736640,
+    "returncode": 0,
+    "stopped_reason": null
+  },
+  "visual": {
+    "version": "0.20.0",
+    "passed": true,
+    "nativeModelChecks": 39,
+    "nativeModelResources": {
+      "name": "native-freight-models",
+      "elapsed_seconds": 1.02,
+      "peak_resident_bytes": 229425152,
+      "returncode": 0,
+      "stopped_reason": null
+    },
+    "gpuVisualResources": {
+      "name": "native-freight-visual",
+      "elapsed_seconds": 6.58,
+      "peak_resident_bytes": 388120576,
+      "returncode": 0,
+      "stopped_reason": null
+    },
+    "generation": "Actual Sim.purchaseBatch and ticks; named BOOTSTRAP-SIDING interval, 400 slabs packed into one connected three-car supplier train. Saved and loaded through production serialization.",
+    "screenshots": [
+      "screenshots/freight-approach.png",
+      "screenshots/freight-received.png",
+      "screenshots/freight-help.png"
+    ],
+    "visualReview": [
+      "Three cars and one locomotive visible without overlap during curved entrance and stopped reception.",
+      "Body and undercarriage track poses remain independent.",
+      "Partially loaded car retains 16-meter physical deck.",
+      "Waiting train inspector exposes named reception and explicit stockyard unloading.",
+      "Rail management help contains readable prose describing the checkpoint and future shunting scope."
+    ],
+    "isolated": true,
+    "actualPlayerSaveModified": false,
+    "serviceStartedForCapture": false
+  },
+  "liveYardUpgrade": {
+    "preserved": true,
+    "paused": true,
+    "workers": 12,
+    "equipment": 5,
+    "rails": 24,
+    "jobs": 169,
+    "costRecords": 244,
+    "equipmentIDsUnchanged": true,
+    "elapsedDuringContinueSeconds": 1.35,
+    "testStateImported": false,
+    "helpPageVerifiedInInstalledApp": true
+  }
+}

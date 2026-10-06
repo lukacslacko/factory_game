@@ -8,6 +8,11 @@ import { performance } from 'node:perf_hooks';
 import * as Sim from '../src/sim';
 import { bufferAssets } from '../src/buffers';
 import {
+  configureRailFreight,
+  requestRailUnloading,
+  railFreightCarPose,
+} from '../src/rail-freight';
+import {
   MATERIALS,
   BUILDINGS,
   EQUIPMENT,
@@ -206,6 +211,15 @@ function reportingRows() {
     inbox: state.notices,
     railway: state.rails,
     buffers: bufferAssets(state),
+    freightCars: state.orders.flatMap((o) => (o.railFreight?.cars || []).map((car, index) => ({
+      ...car, orderId: o.id, status: o.status, ...railFreightCarPose(o, index),
+      receptionLocationId: o.railFreight?.receptionLocationId,
+      storageZoneId: o.railFreight?.storageZoneId,
+    }))),
+    locomotives: state.orders.filter((o) => o.railFreight).map((o) => ({
+      id: o.railFreight!.locomotiveId, orderId: o.id, ownership: 'Supplier',
+      status: o.status, ...o.vehicle,
+    })),
     locations: state.railLocations || [],
     movements: state.movements.slice(-1000).reverse(),
   };
@@ -383,11 +397,26 @@ async function dispatch(action: string, a: any) {
     case 'shutdown':
       return { shuttingDown: true };
     case 'purchase_batch':
-      return { orders: Sim.purchaseBatch(state, a.lines, a.mode) };
+      return { orders: Sim.purchaseBatch(state, a.lines, a.mode, {
+        railLocationId: a.railLocationId, storageZoneId: a.storageZoneId,
+      }) };
+    case 'configure_rail_freight': {
+      const error = configureRailFreight(state, a.orderId, {
+        railLocationId: a.railLocationId, storageZoneId: a.storageZoneId,
+      });
+      if (error) throw new Error(error);
+      return {};
+    }
+    case 'begin_rail_unloading': {
+      const error = requestRailUnloading(state, a.orderId);
+      if (error) throw new Error(error);
+      return {};
+    }
     case 'purchase':
       return { orders: Sim.purchase(state, a.item, a.qty, a.mode) };
     case 'purchase_preview': {
       const loads = packPurchase(a.lines, a.mode);
+      const railLoads = loads.filter((l) => l.mode === 'rail');
       return {
         loads: loads.map((l) => ({
           ...l,
@@ -396,6 +425,9 @@ async function dispatch(action: string, a: any) {
         })),
         mass: a.lines.reduce((n: number, l: any) => n + (itemMass(l.item) || 0) * l.qty, 0),
         capacity: FREIGHT_CAPACITY[a.mode as 'road' | 'rail'],
+        railCars: railLoads.length,
+        trainLength: railLoads.length ? 26.1 + Math.max(0, railLoads.length - 1) * 17.6 : 0,
+        transportCost: (railLoads.length ? 240 : 0) + loads.filter(l => l.mode === 'road').length * 90,
       };
     }
     case 'starter_order':

@@ -232,7 +232,7 @@ static func _buffer(parent:Node3D,b:Batch,p:Vector3,dark:Material,steel:Material
 	b.box(p+Vector3(-0.09,1.08,0),Vector3(0.19,0.35,2.0),red)
 	b.box(p+Vector3(-0.21,1.08,0),Vector3(0.08,0.19,0.60),dark)
 
-static func _flatcar(parent:Node3D,b:Batch,p:Vector3,rail:Array,dark:Material,steel:Material,wood:Material,bolts:Material,loaded:bool=true,length:float=11.0)->void:
+static func _flatcar(parent:Node3D,b:Batch,p:Vector3,rail:Array,dark:Material,steel:Material,wood:Material,bolts:Material,loaded:bool=true,length:float=11.0,include_bogies:bool=true,identification:String="FLAT 014 · 40 t")->void:
 	var wagon := G.mat("5c6a53",0.71,0.40)
 	var tire := G.mat("343b3c",0.68,0.6)
 	b.box(p+Vector3(0,1.10,0),Vector3(length,0.24,2.75),wagon)
@@ -241,19 +241,20 @@ static func _flatcar(parent:Node3D,b:Batch,p:Vector3,rail:Array,dark:Material,st
 		b.box(p+Vector3(0,0.92,z),Vector3(length-.3,0.08,0.04),dark)
 	for i in range(int((length-.3)/.25)+1):
 		b.box(p+Vector3(-length*.5+.15+i*0.25,1.245,0),Vector3(0.235,0.11,2.65),wood)
-	for truck_x in [-(length*.5-2.5),length*.5-2.5]:
-		b.box(p+Vector3(truck_x,0.76,0),Vector3(1.85,0.16,1.75),dark)
-		for axle_x in [-0.6,0.6]:
-			G.rod(parent,p+Vector3(truck_x+axle_x,0.67,-1.06),p+Vector3(truck_x+axle_x,0.67,1.06),0.065,steel)
+	if include_bogies:
+		for truck_x in [-(length*.5-2.5),length*.5-2.5]:
+			b.box(p+Vector3(truck_x,0.76,0),Vector3(1.85,0.16,1.75),dark)
+			for axle_x in [-0.6,0.6]:
+				G.rod(parent,p+Vector3(truck_x+axle_x,0.67,-1.06),p+Vector3(truck_x+axle_x,0.67,1.06),0.065,steel)
+				for side in [-1,1]:
+					var wheel := G.cylinder(parent,p+Vector3(truck_x+axle_x,0.67,side*0.76),0.32,0.12,tire,24)
+					wheel.rotation.x=PI*0.5
+					var hub := G.cylinder(parent,p+Vector3(truck_x+axle_x,0.67,side*0.84),0.105,0.08,bolts,16)
+					hub.rotation.x=PI*0.5
 			for side in [-1,1]:
-				var wheel := G.cylinder(parent,p+Vector3(truck_x+axle_x,0.67,side*0.76),0.32,0.12,tire,24)
-				wheel.rotation.x=PI*0.5
-				var hub := G.cylinder(parent,p+Vector3(truck_x+axle_x,0.67,side*0.84),0.105,0.08,bolts,16)
-				hub.rotation.x=PI*0.5
-		for side in [-1,1]:
-			b.box(p+Vector3(truck_x,0.69,side*0.91),Vector3(1.9,0.14,0.10),wagon)
-			for spring_x in [-0.14,0.14]:
-				G.cylinder(parent,p+Vector3(truck_x+spring_x,0.78,side*0.87),0.06,0.18,dark,10)
+				b.box(p+Vector3(truck_x,0.69,side*0.91),Vector3(1.9,0.14,0.10),wagon)
+				for spring_x in [-0.14,0.14]:
+					G.cylinder(parent,p+Vector3(truck_x+spring_x,0.78,side*0.87),0.06,0.18,dark,10)
 	for end in [-1,1]:
 		b.box(p+Vector3(end*(length*.5+.2),0.9,0),Vector3(0.5,0.12,0.13),dark)
 		for z in [-0.9,0.9]:
@@ -272,7 +273,7 @@ static func _flatcar(parent:Node3D,b:Batch,p:Vector3,rail:Array,dark:Material,st
 				for z in [-1.02,1.02]:
 					b.box(p+Vector3(load_x+strap_x,1.72,z),Vector3(0.045,0.76,0.025),strap)
 	# Small legible identification rather than billboard-sized labels.
-	var plate := G.label(parent,"FLAT 014 · 40 t",p+Vector3(0,1.07,1.415),28,0.004)
+	var plate := G.label(parent,identification,p+Vector3(0,1.07,1.415),28,0.004)
 	plate.modulate = Color("e6e4c7")
 
 static func _rail_panel(b:Batch,p:Vector3,rail:Array,wood:Material,length:float=5.0)->void:

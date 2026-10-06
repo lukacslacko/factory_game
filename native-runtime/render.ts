@@ -6,6 +6,7 @@ import { equipmentIntent } from '../src/equipment-intent';
 import { trackGeometry, trackNetwork, trackOpenPorts } from '../src/track';
 import { bufferAssets } from '../src/buffers';
 import { freightPose, shipmentLots, stackHeight } from '../src/delivery';
+import { railFreightCarPose, railFreightCarBogies } from '../src/rail-freight';
 import {
   angleDelta,
   carPose,
@@ -16,6 +17,7 @@ import {
   RAIL_STOP,
   roadSurfaceHeight,
   smoothstep,
+  trackPose,
 } from '../src/motion';
 import { shedComponentPose, shedPostPoints } from '../src/shed-geometry';
 import { RAIL_PANEL_PITCH } from '../src/railwork';
@@ -291,13 +293,13 @@ export function renderState(s: State) {
         .map((l) => ({
           ...l,
           ...(rail
-            ? { ...localPoint(freight, l.x, l.z), y: 1.3 }
+            ? { ...localPoint(o.railFreight ? railFreightCarPose(o, l.carIndex || 0) : freight, l.x, l.z), y: 1.3 }
             : deckPose(
                 { ...freight, y: o.drive?.y ?? surface, pitch: o.drive?.pitch ?? 0 },
                 l.x,
                 1.15,
               )),
-          yaw: freight.yaw,
+          yaw: rail && o.railFreight ? railFreightCarPose(o, l.carIndex || 0).yaw : freight.yaw,
           pitch: deck.pitch,
         }));
       const equipment = o.equipmentId ? s.equipment.find((e) => e.id === o.equipmentId) : undefined;
@@ -318,6 +320,17 @@ export function renderState(s: State) {
         deployment: o.deployment,
         equipment,
         unloading: o.unload,
+        ...(rail && o.railFreight ? {
+          locomotive: {
+            id: o.railFreight.locomotiveId,
+            ...pose, y: 0,
+            bogies: [-2.79, 2.79].map(offset => ({ ...trackPose((o.drive?.distance ?? RAIL_STOP) + offset), y: 0 })),
+          },
+          cars: o.railFreight.cars.map((car, index) => ({
+            ...car, ...railFreightCarPose(o, index), y: 0,
+            bogies: railFreightCarBogies(o, index).map(p => ({...p,y:0})),
+          })),
+        } : {}),
       };
     });
   const railGeometry = [
@@ -389,6 +402,8 @@ export function renderState(s: State) {
     actors,
     loads,
     carriers,
+    railCars: carriers.flatMap(c => (c as any).cars || []),
+    railLocomotives: carriers.flatMap(c => (c as any).locomotive ? [(c as any).locomotive] : []),
     railGeometry,
     buffers: bufferAssets(s),
     railNetwork: trackNetwork(s),

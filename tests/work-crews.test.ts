@@ -1,5 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { requestRailUnloading } from '../src/rail-freight';
 import * as S from '../src/sim.ts';
 import { seedHandlingResources, tickUntil, advance } from './support/yard.ts';
 import { dist } from '../src/path.ts';
@@ -157,6 +158,7 @@ test('excavator delivery waits for its dedicated helper instead of borrowing ano
   w.duty = 'rest';
   S.purchase(s, 'railCurve', 1, 'rail');
   tickUntil(s, () => s.orders[0].status === 'unloading');
+  assert.equal(requestRailUnloading(s, s.orders[0].id), undefined);
   advance(s, 5);
   assert.equal(s.orders[0].unload, undefined);
   assert.match(s.orders[0].note, new RegExp(`${w.id}.*resting`));

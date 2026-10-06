@@ -71,22 +71,36 @@ func sync_snapshot(message:Dictionary)->void:
 		model.visible=bool(data.get("visible",true))
 		_new_pose(id,data)
 	for data in render.get("carriers",[]):
-		var id:=str(data.id); live[id]=true
-		_ensure_dynamic(id,str(data.kind),data,true)
-		_new_pose(id,data.get("locomotive",data) if str(data.kind)=="rail" else data)
+		var id:=str(data.id)
 		if str(data.kind)=="rail":
-			var freight:Dictionary=data.get("freight",{})
-			if not freight.is_empty():
-				var wagon_id:=id+"/wagon"; live[wagon_id]=true
-				if not models.has(wagon_id):
-					var wagon:=Models.flatcar(self); wagon.set_meta("kind","wagon"); models[wagon_id]=wagon
-				_new_pose(wagon_id,freight)
+			var locomotive=data.get("locomotive",data)
+			if locomotive is Dictionary and not locomotive.is_empty():
+				var engine_id:=str(locomotive.get("id",id));live[engine_id]=true
+				_ensure_dynamic(engine_id,"rail",data,true).set_meta("inspect_id",str(locomotive.get("inspectId",engine_id)))
+				_new_pose(engine_id,locomotive)
+			if data.has("cars"):
+				for car in data.cars:
+					var car_id:=str(car.id);live[car_id]=true
+					_ensure_wagon(car_id,float(car.get("length",16.8))-.8)
+					(models[car_id] as Node3D).set_meta("inspect_id",car_id)
+					_new_pose(car_id,car)
+			else:
+				var freight:Dictionary=data.get("freight",{})
+				if not freight.is_empty():
+					var wagon_id:=id+"/wagon";live[wagon_id]=true
+					_ensure_wagon(wagon_id);_new_pose(wagon_id,freight)
+		else:
+			live[id]=true;_ensure_dynamic(id,str(data.kind),data,true);_new_pose(id,data)
 		for slot in data.get("cargo",[]):
 			var cargo_id:=id+"/freight/"+str(slot.get("id",slot.get("index",0)))
 			if int(slot.get("qty",0))<=0:continue
 			live[cargo_id]=true
 			_ensure_load(cargo_id,str(slot.get("item","slab")),int(slot.get("qty",1)),int(slot.get("hand",1)))
-			_new_pose(cargo_id,slot)
+			var pose:Dictionary=slot.duplicate()
+			if slot.has("carId"):
+				pose["parentRailCarId"]=str(slot.carId)
+				(models[cargo_id] as Node3D).set_meta("inspect_id",str(slot.carId))
+			_new_pose(cargo_id,pose)
 	# Exact physical cargo and intermediate panels are supplied by the same pure simulation.
 	for load in render.get("loads",[]):
 		var id:=str(load.get("id","")); if id.is_empty():continue
@@ -150,6 +164,13 @@ func _ensure_dynamic(id:String,kind:String,data:Dictionary,carrier:bool=false)->
 	models[id]=model
 	return model
 
+func _ensure_wagon(id:String,length:float=16.0)->void:
+	if models.has(id) and is_equal_approx(float((models[id] as Node3D).get_meta("deck_length",16)),length):return
+	if models.has(id):
+		var old:Node3D=models[id];remove_child(old);old.queue_free()
+	var wagon:=Models.flatcar(self,length,id if not "/" in id else "FLAT 014 · 40 t");wagon.set_meta("kind","wagon");wagon.set_meta("id",id)
+	models[id]=wagon
+
 func _ensure_load(id:String,item:String,qty:int,hand:int=1,buffer_contact:bool=false)->void:
 	var key:=item+"/"+str(qty)+"/"+str(hand)+"/"+str(buffer_contact)
 	if models.has(id) and str((models[id] as Node3D).get_meta("load_key",""))==key:return
@@ -183,6 +204,15 @@ func advance(delta:float)->void:
 		for field in ["x","z","y","lift","reach","travel","pitch","clock","workClock","forkSupportY","ramp"]:
 			if b.has(field):p[field]=lerpf(float(a.get(field,b[field])),float(b[field]),alpha)
 		p["yaw"]=lerp_angle(float(a.get("yaw",0)),float(b.get("yaw",0)),alpha)
+		if b.has("bogies"):
+			p["bogies"]=[]
+			for index in range(b.bogies.size()):
+				var target:Dictionary=b.bogies[index];var prior:Dictionary=target
+				if a.get("bogies",[]).size()>index:prior=a.bogies[index]
+				var bogie:Dictionary=target.duplicate()
+				for field in ["x","z","y"]:bogie[field]=lerpf(float(prior.get(field,target.get(field,0))),float(target.get(field,0)),alpha)
+				bogie.yaw=lerp_angle(float(prior.get("yaw",target.get("yaw",0))),float(target.get("yaw",0)),alpha)
+				p.bogies.append(bogie)
 		# A swivel crossing +/-PI must take the short arc, including when an
 		# incoming snapshot interrupts a partially displayed turn.
 		if b.has("upperYaw"):p["upperYaw"]=lerp_angle(float(a.get("upperYaw",b.upperYaw)),float(b.upperYaw),alpha)
@@ -191,7 +221,7 @@ func advance(delta:float)->void:
 		if str(model.get_meta("kind","")) in ["worker","excavator","forklift"]:Models.animate_actor(model,p,delta)
 		elif str(model.get_meta("kind",""))=="lowloader":Models.animate_carrier(model,p)
 	for id in records:
-		var record:Dictionary=records[id];var parent_id:=str(record.to.get("parentEquipmentId",""))
+		var record:Dictionary=records[id];var parent_id:=str(record.to.get("parentEquipmentId",record.to.get("parentRailCarId","")))
 		if parent_id.is_empty() or not records.has(parent_id):continue
 		var parent:Dictionary=records[parent_id];var current:Dictionary=record.current
 		var local_to:=_relative_pose(record.to,parent.to);var local_from:=_relative_pose(record.from,parent.from)
@@ -200,7 +230,8 @@ func advance(delta:float)->void:
 		current.z=float(parent.current.get("z",0))+offset.x*sin(angle)+offset.z*cos(angle)
 		current.y=float(parent.current.get("y",0))+offset.y
 		current.yaw=float(parent.current.get("yaw",0))+lerp_angle(float(record.from.get("yaw",0))-float(parent.from.get("yaw",0)),float(record.to.get("yaw",0))-float(parent.to.get("yaw",0)),alpha)
-		_apply_pose(models[id],current);Models.rig_cargo(models[id],models[parent_id])
+		_apply_pose(models[id],current)
+		if record.to.has("parentEquipmentId"):Models.rig_cargo(models[id],models[parent_id])
 	if not selected.is_empty():_update_selection(false)
 
 func _apply_pose(model:Node3D,p:Dictionary)->void:
@@ -211,6 +242,13 @@ func _apply_pose(model:Node3D,p:Dictionary)->void:
 		model.rotation.x=float(p.get("pitch",0));model.rotation.z=float(model.get_meta("base_roll",0))
 	else:
 		model.rotation.x=0.0;model.rotation.z=float(p.get("pitch",0))+float(model.get_meta("base_roll",0))
+	# The undercarriages follow separate samples of the actual track. A long
+	# flatcar's body spans the bogies rather than forcing both axles off a curve.
+	for index in range(p.get("bogies",[]).size()):
+		var bogie:Node3D=model.get_node_or_null("RailBogie"+str(index))
+		if not bogie:continue
+		var sample:Dictionary=p.bogies[index]
+		bogie.global_transform=Transform3D(Basis(Vector3.UP,-float(sample.get("yaw",p.get("yaw",0)))),Vector3(float(sample.x),float(sample.get("y",p.get("y",0))),float(sample.z)))
 
 func _sync_statics()->void:
 	var live:Dictionary={}
@@ -543,7 +581,10 @@ func _mask_vegetation()->void:
 		if str(actor.get("kind",""))!="worker" and bool(actor.get("visible",true)):_clear_vehicle_plants(actor,4.5,2.9)
 	for carrier in render.get("carriers",[]):
 		_clear_vehicle_plants(carrier,10.0 if str(carrier.kind)=="rail" else 8.8,3.0)
-		if str(carrier.kind)=="rail" and not carrier.get("freight",{}).is_empty():_clear_vehicle_plants(carrier.freight,11.5,3.0)
+		if str(carrier.kind)=="rail":
+			if carrier.has("cars"):
+				for car in carrier.cars:_clear_vehicle_plants(car,float(car.get("length",16.8))-.8,3.0)
+			elif not carrier.get("freight",{}).is_empty():_clear_vehicle_plants(carrier.freight,11.5,3.0)
 	for cell in vegetation_cleared:masks[cell]=true
 	for table in ["buildings","stacks"]:
 		for entity in state.get(table,[]):

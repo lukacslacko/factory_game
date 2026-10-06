@@ -6,7 +6,7 @@ This is the first playable native migration. The original browser application an
 
 ## Download or open on this Mac
 
-[Download the Apple Silicon Mac app](https://github.com/lukacslacko/factory_game/releases/tag/v0.19.12), unzip it, and open **Plant 01.app**. This checkpoint targets macOS 14 or newer.
+[Download the Apple Silicon Mac app](https://github.com/lukacslacko/factory_game/releases/tag/v0.20.0), unzip it, and open **Plant 01.app**. This checkpoint targets macOS 14 or newer.
 
 Open the **Plant 01.app** built beside the repository in `outputs/`. It includes the Godot runner, Node runtime, simulation, terrain maps, and license notices. It is a local app for this Mac, not a notarized public release.
 
@@ -103,3 +103,16 @@ Buy **Buffer stop** in Purchase / hire and deliver it like other material. The R
 For parallel unloading tracks or a future runaround, select **Turnout**, choose **Converging**, and start from one of two parallel open ends. Both ends must face the same direction and be 5 m apart. Flip the side when the other track is on the opposite side. The preview explains a missing or misaligned connection. The same seven purchased panels are installed from the incoming tails toward the common points assembly. An existing outgoing endpoint can also be joined where the geometry matches exactly.
 
 A stop cannot remain across a completed rail joint. The crew preserves it as a real asset, moves it aside and carries surplus stops into storage. Switches still require a worker to throw their lever. Train drop-off, owned shunting and installing turnouts into an already continuous track remain separate tracked work. Paid scrapping is tracked in [issue #35](https://github.com/lukacslacko/factory_game/issues/35).
+
+
+### Receive multi-car trains — v0.20.0
+
+Open **Railway → + Receiving point** to name an interval on the original `BOOTSTRAP-SIDING`. Its offset is measured from the siding's western start; length is centered there. An unloading or transfer point can receive supplier freight. The full locomotive and all cars must fit between the mainline switch and the siding's end; protected buffer stops can further restrict access. Five flatcars fit a sufficiently long interval; larger consists remain queued with their required length and receive no arrival invoice. Other factory-track designations await commissioned shunting.
+
+In **Purchase / hire**, choose rail transport, enter all material lines, and select the reception and stockyard. The preview shows car count, length and transport cost. Each 16-meter deck has a 48 metric-ton payload limit; a batch spanning several cars remains one purchase and one train arrival. Workers come by bus, and construction equipment by lowloader. Automatic reception selects a fitting stop on the original siding if no named point is chosen.
+
+Once stopped, open the train in **Deliveries**, apply its unloading stockyard, and click **Start unloading**. Owned equipment, an operator, and any needed rigger handle cargo from each real car into that yard. A full or blocked selected yard produces a waiting reason; cargo is not redirected. Destination changes apply between lifts and affect subsequent material. Railway's Freight cars register opens individual manifests and links back to the train; the supplier engine also has an ID. Saves retain every car, remaining quantity, supported load and crew assignment.
+
+**Railway → Rail help**, also available in the game menu, describes reception, unloading, switches, buffers and the next planned steps in paragraphs. The supplier locomotive remains coupled in this checkpoint and returns with the empty cars after unloading. The existing flat charter charge is unchanged; detached-car handoff, locomotive idle billing, owned shunters/drivers, car selection and splitting, return assembly and a separately requested pickup service are future checkpoints in #22, #23, #27, #3, #4 and #5. No invisible shunter or disconnected-car teleportation is introduced.
+
+For focused native verification, run `node --max-old-space-size=384 --import tsx native-runtime/create-freight-visual-fixtures.ts`, then the watchdog with `--headless --script res://tests/freight_renderer_smoke.gd` or `res://tests/freight_ui_smoke.gd`. The dedicated GPU capture is `res://tests/freight_visual_capture.gd`, with isolated saved fixtures and no running production simulation host.

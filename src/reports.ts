@@ -1,6 +1,7 @@
 import { trackGeometry, trackNetwork } from './track';
 import { bufferAssets } from './buffers';
 import { railLocationPose, railLocationStatus } from './rail-locations';
+import { railFreightCarPose } from './rail-freight';
 import initSqlJs from 'sql.js';
 import wasmUrl from 'sql.js/dist/sql-wasm.wasm?url';
 import type { State } from './types';
@@ -109,6 +110,18 @@ export async function query(s: State, sql: string) {
         mass_kg: (itemMass(l.item) || 0) * l.qty,
       })),
     ),
+    freight_cars: s.orders.flatMap(o => (o.railFreight?.cars || []).map((car,index) => ({
+      id: car.id, order_id: o.id, status: o.status, length_m: car.length,
+      payload_kg: car.mass, tare_kg: car.tareMass, deck_length_m: car.deckLength,
+      received_units: car.manifest.reduce((n,line)=>n+line.arrived,0),
+      remaining_kg: car.manifest.reduce((n,line)=>n+(line.qty-line.arrived)*(itemMass(line.item)||0),0),
+      reception_location: o.railFreight?.receptionLocationId,
+      storage_zone: o.railFreight?.storageZoneId,
+      ...railFreightCarPose(o,index),
+    }))),
+    freight_car_lines: s.orders.flatMap(o => (o.railFreight?.cars || []).flatMap(car => car.manifest.map(line => ({
+      car_id: car.id, order_id: o.id, ...line,
+    })))),
     costs: s.costs.map((c) => ({ ...c })),
     events: s.events.map((e) => ({ ...e, severity: e.severity || 'info' })),
     movements: s.movements.map(({ from, to, ...m }) => ({ ...m, source: from, destination: to })),
@@ -300,6 +313,8 @@ export async function query(s: State, sql: string) {
       'staging_batch_qty',
     ],
     orders: ['id', 'item', 'qty', 'arrived', 'status', 'total', 'eta', 'automaticEquipment'],
+    freight_cars: ['id', 'order_id', 'status', 'length_m', 'payload_kg', 'tare_kg', 'remaining_kg', 'x', 'z', 'yaw', 'reception_location', 'storage_zone'],
+    freight_car_lines: ['car_id', 'order_id', 'item', 'qty', 'arrived', 'orderLineIndex'],
     costs: ['id', 'time', 'category', 'entity', 'description', 'amount'],
     events: ['id', 'time', 'severity', 'type', 'entity', 'text'],
     movements: ['id', 'time', 'item', 'qty', 'source', 'destination', 'reason'],

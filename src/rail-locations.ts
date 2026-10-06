@@ -200,7 +200,9 @@ export function railLocationStatus(
     connected,
     valid: true,
     reason: connected
-      ? 'Designated on connected rail. Train destination routing is not commissioned yet.'
+      ? l.trackId === 'BOOTSTRAP-SIDING' && ['unloading','transfer'].includes(l.kind)
+        ? 'Supplier reception is available here when the complete train fits this interval.'
+        : 'Designated on connected rail. Owned shunting to this point is not commissioned yet.'
       : 'Designated rail is disconnected from the starter siding. Complete its physical rail connections.',
   };
 }
@@ -248,6 +250,9 @@ export function saveRailLocation(
 ): string | undefined {
   const previous = input.id ? s.railLocations?.find((l) => l.id === input.id) : undefined;
   if (input.id && !previous) return 'Rail location no longer exists.';
+  if (previous && s.orders.some(o => o.railFreight?.receptionLocationId === previous.id &&
+      !['ordered','done'].includes(o.status)))
+    return 'A train is using this receiving point. Wait until it leaves before editing the interval.';
   const candidate: RailLocation = {
     ...input,
     id: previous?.id || 'new-location',
@@ -283,6 +288,8 @@ export function saveRailLocation(
 export function removeRailLocation(s: State, id: string): string | undefined {
   const l = s.railLocations?.find((l) => l.id === id);
   if (!l) return 'Rail location no longer exists.';
+  if (s.orders.some(o => o.status !== 'done' && o.railFreight?.receptionLocationId === id))
+    return 'This point is assigned to an incoming or active freight train. Change its destination or wait until it leaves.';
   s.railLocations = s.railLocations!.filter((l) => l.id !== id);
   record(s, l, `Removed designation ${l.name}; the physical rail is retained.`);
 }

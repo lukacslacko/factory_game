@@ -73,3 +73,12 @@ The native railway planner can join two parallel endpoints using a converging tu
 Paid disposal remains future work in issue #35. Existing-track turnout insertion, main-line reception conversion and owned shunting retain their separate tracker scope.
 
 The v0.19.12 follow-up corrects compound endpoint-ID clicks and generalizes numbered buffer links. Its 39 focused native UI/model/picking checks include selecting the actual Tree cell rather than calling the inspector directly.
+
+
+## Multi-car supplier reception — v0.20.0
+
+Rail batches become one identified supplier train, with bounded individual flatcars, per-car manifests and independently sampled body/bogie movement over the surveyed bootstrap approach. Named original-siding reception and explicit chosen-stockyard unloading are available in native controls; freight IDs and SQL records preserve composition and quantities. New rail orders wait for Start unloading, while old saved single-car services retain their existing behavior. In-game rail help documents the scoped workflow.
+
+The supplier locomotive stays attached and returns with its emptied cars. Custom factory-track supplier routing, physical detachment/exit, owned shunters, splitting consists, return assembly, separate pickup ordering and time-based locomotive charges remain planned; the existing fixed charter fee is retained. Future work must extend commissioned track topology and real crew-operated couplers rather than teleporting cars or spawning invisible equipment.
+
+The v0.20.0 checkpoint passes all 414 simulation/native-host tests, 26 native freight UI checks, 39 freight model checks and 39 existing switch UI checks. Isolated packaged-app integration passes in 6.65 seconds with a 314.7 MB renderer peak. The installed app retains the existing yard and is left paused on the rail help page. See `native/tests/freight-verified-results.json` for the verification record.
