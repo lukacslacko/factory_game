@@ -6,7 +6,7 @@ This is the first playable native migration. The original browser application an
 
 ## Download or open on this Mac
 
-[Download the Apple Silicon Mac app](https://github.com/lukacslacko/factory_game/releases/tag/v0.19.10), unzip it, and open **Plant 01.app**. This checkpoint targets macOS 14 or newer.
+[Download the Apple Silicon Mac app](https://github.com/lukacslacko/factory_game/releases/tag/v0.19.11), unzip it, and open **Plant 01.app**. This checkpoint targets macOS 14 or newer.
 
 Open the **Plant 01.app** built beside the repository in `outputs/`. It includes the Godot runner, Node runtime, simulation, terrain maps, and license notices. It is a local app for this Mac, not a notarized public release.
 
@@ -95,3 +95,11 @@ The equipment inspector and Equipment register show a separate **Control** statu
 Rail installation and buffer approaches request clearance from idle automatic machines occupying their handling space, just as preparation-area work does. Manual or unattended blockers remain in place and generate a linked warning after 20 seconds. Work details show **Handling blockers**. Safe approach can continue while an automatic blocker drives clear; alignment and lowering wait for an empty footprint.
 
 Excavator cab swivels use the shortest relative turn, including after many chassis revolutions and when a new movement snapshot arrives mid-turn. Rail and building rigging animations retain the same physical pickup points and supported loads.
+
+### Buffer stops and converging switches — v0.19.11
+
+Buy **Buffer stop** in Purchase / hire and deliver it like other material. The Railway register lists each completed open endpoint and whether it has a secured stop. Select an uncapped endpoint and choose **Install buffer stop**; an owned machine and crew carry the purchased stop there and clamp it to the rails. Select a stop to plan physical recovery into a stockyard. Reserve a clear 2 × 2 m slot for a recovered stop.
+
+For parallel unloading tracks or a future runaround, select **Turnout**, choose **Converging**, and start from one of two parallel open ends. Both ends must face the same direction and be 5 m apart. Flip the side when the other track is on the opposite side. The preview explains a missing or misaligned connection. The same seven purchased panels are installed from the incoming tails toward the common points assembly. An existing outgoing endpoint can also be joined where the geometry matches exactly.
+
+A stop cannot remain across a completed rail joint. The crew preserves it as a real asset, moves it aside and carries surplus stops into storage. Switches still require a worker to throw their lever. Train drop-off, owned shunting and installing turnouts into an already continuous track remain separate tracked work. Paid scrapping is tracked in [issue #35](https://github.com/lukacslacko/factory_game/issues/35).

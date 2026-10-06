@@ -1,4 +1,14 @@
-import { trackGeometry, trackSections, railCells, railFootprint, trackOpenPorts } from './track';
+import { bufferAssets, bufferAt, ensureBuffers, openBufferEndpoint, bufferSource } from './buffers';
+import {
+  trackGeometry,
+  trackSections,
+  railLayoutPieces,
+  trackMacroPorts,
+  portsConnect,
+  railCells,
+  railFootprint,
+  trackOpenPorts,
+} from './track';
 import type { TrackPiece } from './track';
 import {
   assignTurnoutOperation,
@@ -678,9 +688,11 @@ export function validRailLayout(
   origin: Point,
   heading: TrackPiece['heading'] = 0,
   hand: TrackPiece['hand'] = 1,
+  flow?: TrackPiece['flow'],
 ): string {
   if (
     !['straight', 'curve', 'turnout'].includes(layout) ||
+    (flow !== undefined && (flow !== 'converging' || layout !== 'turnout')) ||
     ![0, 1, 2, 3].includes(heading) ||
     ![1, -1].includes(hand) ||
     !origin ||
@@ -690,16 +702,20 @@ export function validRailLayout(
     Math.abs(origin.z) >= 10000
   )
     return 'Choose a grid-aligned track endpoint and direction.';
-  const pieces = trackSections(layout, origin, heading, hand),
+  const pieces = railLayoutPieces(layout, origin, heading, hand, flow),
     geometries = pieces.map(trackGeometry);
-  const entryYaw = (heading * Math.PI) / 2;
-  // An endpoint is a real rail joint, not a visual crossing or a nearby cell.
+  // Legal connections are exact opposing rail ports, including both incoming
+  // tails of a converging turnout. Cell proximity alone cannot make a joint.
+  const external = trackMacroPorts(pieces[0]);
   const ports = trackOpenPorts(s, true);
-  const joint = ports.find(
-    (p) => dist(p, origin) < 0.02 && Math.abs(angleDelta(p.yaw, entryYaw)) < 0.02,
+  const entries = external.filter((p) => p.end === 'entry');
+  if (!entries.every((entry) => ports.some((port) => portsConnect(port, entry, 0.02, 0.02))))
+    return flow === 'converging'
+      ? 'A converging switch requires two parallel open track endpoints, 5 m apart, facing the same direction.'
+      : 'Connect to an open track endpoint facing the indicated direction. Use Rail end to start at the siding.';
+  const joints = external.filter((entry) =>
+    ports.some((port) => portsConnect(port, entry, 0.02, 0.02)),
   );
-  if (!joint)
-    return 'Connect to an open track endpoint facing the indicated direction. Use Rail end to start at the siding.';
   const cells = [
     ...new Map(geometries.flatMap((g) => g.cells).map((p) => [key(p.x, p.z), p])).values(),
   ];
@@ -713,11 +729,11 @@ export function validRailLayout(
       return 'The track crosses a designated stockyard. Move or remove its designation first.';
     if (s.stacks.some((t) => (t.qty > 0 || t.item === 'diesel') && overlap(t, cell)))
       return 'Stored material occupies the track bed.';
-    const nearJoint = dist({ x: p.x + 0.5, z: p.z + 0.5 }, origin) < 2;
     const predecessor = (asset: Parameters<typeof trackGeometry>[0]) =>
-      nearJoint &&
-      trackGeometry(asset).ends.some(
-        (q) => dist(q, origin) < 0.02 && Math.abs(angleDelta(q.yaw, entryYaw)) < 0.02,
+      joints.some(
+        (joint) =>
+          dist({ x: p.x + 0.5, z: p.z + 0.5 }, joint) < 2 &&
+          trackGeometry(asset).ports.some((q) => portsConnect(q, joint, 0.02, 0.02)),
       );
     if (
       s.rails.some((r) => !predecessor(r) && railCells(r).some((q) => q.x === p.x && q.z === p.z))
@@ -743,10 +759,11 @@ export function planRailLayout(
   origin: Point,
   heading: TrackPiece['heading'] = 0,
   hand: TrackPiece['hand'] = 1,
+  flow?: TrackPiece['flow'],
 ): { jobs: Job[]; group?: JobGroup; error: string } {
-  const error = validRailLayout(s, layout, origin, heading, hand);
+  const error = validRailLayout(s, layout, origin, heading, hand, flow);
   if (error) return { jobs: [], error };
-  const pieces = trackSections(layout, origin, heading, hand),
+  const pieces = railLayoutPieces(layout, origin, heading, hand, flow),
     geometries = pieces.map(trackGeometry);
   const minX = Math.min(...geometries.map((g) => g.rect.x)),
     minZ = Math.min(...geometries.map((g) => g.rect.z));
@@ -761,11 +778,20 @@ export function planRailLayout(
     layout === 'curve'
       ? 'Build 90° rail curve · R20 m'
       : layout === 'turnout'
-        ? 'Build 20 m turnout'
+        ? flow === 'converging'
+          ? 'Build 20 m converging turnout'
+          : 'Build 20 m turnout'
         : 'Extend rail · 5 m',
     rect,
   );
-  group.track = { layout, origin: { ...origin }, heading, hand };
+  const canonical = pieces[0];
+  group.track = {
+    layout,
+    origin: { ...canonical.origin },
+    heading: canonical.heading,
+    hand: canonical.hand,
+    ...(flow ? { flow } : {}),
+  };
   const occupied = [
     ...new Map(geometries.flatMap((g) => g.cells).map((p) => [key(p.x, p.z), p])).values(),
   ];
@@ -778,7 +804,7 @@ export function planRailLayout(
     }
   const jobs = pieces.map((piece) => {
     const g = trackGeometry(piece),
-      j = newJob(s, 'rail', g.rect, heading % 2, undefined, group.id);
+      j = newJob(s, 'rail', g.rect, piece.heading % 2, undefined, group.id);
     j.track = { ...piece, groupId: group.id };
     j.item = trackItem(piece);
     return j;
@@ -1558,7 +1584,60 @@ function recoveryTarget(s: State, target?: string) {
       ...railFootprint(rail),
       source: rail.id,
     };
+  const buffer = bufferAssets(s).find((b) => b.id === target);
+  if (buffer)
+    return {
+      ...buffer,
+      kind: 'bufferStop' as BuildKind,
+      x: buffer.x - 1,
+      z: buffer.z - 1,
+      w: 2,
+      d: 2,
+      rotation: 0,
+      source: buffer.source,
+    };
   return s.buildings.find((b) => b.id === target);
+}
+/** Install a purchased, physically delivered stop at an actual open endpoint. */
+export function planBufferStop(s: State, endpoint: Point): { job?: Job; error: string } {
+  const port = openBufferEndpoint(s, endpoint);
+  if (!port) return { error: 'Choose an open, completed rail endpoint.' };
+  if (bufferAt(s, port)) return { error: 'This endpoint already has a buffer stop.' };
+  if (
+    s.jobs.some(
+      (j) =>
+        j.kind === 'bufferStop' &&
+        !['done', 'canceled'].includes(j.status) &&
+        j.bufferTarget &&
+        dist(j.bufferTarget, port) < 0.02,
+    )
+  )
+    return { error: 'A buffer stop is already planned at this endpoint.' };
+  if (
+    s.jobs.some(
+      (j) =>
+        j.kind === 'rail' &&
+        !['done', 'canceled'].includes(j.status) &&
+        [trackGeometry(j).entry, ...trackGeometry(j).ends].some((p) => dist(p, port) < 0.02),
+    )
+  )
+    return { error: 'Finish or cancel rail work at this endpoint before installing its stop.' };
+  ensureBuffers(s);
+  const j = newJob(s, 'bufferStop', { x: port.x - 1, z: port.z - 1, w: 2, d: 2 });
+  j.bufferTarget = { x: port.x, z: port.z, yaw: port.yaw };
+  event(s, 'Planning', j.id, `Install purchased buffer stop at E${port.x}, S${port.z}.`);
+  s.revision++;
+  return { job: j, error: '' };
+}
+export function removeBufferStop(s: State, bufferId: string): string {
+  if (!bufferAssets(s).some((b) => b.id === bufferId)) return 'Buffer stop not found.';
+  if (
+    s.jobs.some((j) => j.status === 'doing' && j.railWork?.buffer?.id === bufferId) ||
+    s.jobGroups?.some((g) => g.railBuffer?.pose.id === bufferId && !g.railBuffer.pose.secured)
+  )
+    return 'The rail crew is handling this buffer. Finish its connected work first.';
+  ensureBuffers(s);
+  return removeBuilding(s, bufferId);
 }
 export function removeBuilding(s: State, bid: string) {
   const b = recoveryTarget(s, bid);
@@ -1812,6 +1891,39 @@ function assign(s: State, j: Job) {
     }
     j.qty = 1;
   }
+  if (j.kind === 'bufferStop' && (!j.bufferTarget || !openBufferEndpoint(s, j.bufferTarget))) {
+    j.reason = 'The target is no longer an open track endpoint';
+    return;
+  }
+  if (j.kind === 'rail') {
+    const geometry = trackGeometry(j);
+    const secondaryInputs = j.track?.flow === 'converging' ? trackMacroPorts(j.track).slice(1) : [];
+    const blockers = bufferAssets(s).filter(
+      (b) =>
+        !b.carried &&
+        (secondaryInputs.some((p) => dist(b, p) < 0.15) ||
+          (j.track?.flow === 'converging' && j.track.route === 'branch'
+            ? [...geometry.entries, ...geometry.ends].some((p) => dist(b, p) < 0.15)
+            : dist(b, geometry.entry) > 0.15 &&
+              [...geometry.entries, ...geometry.ends].some((p) => dist(b, p) < 0.15))),
+    );
+    for (const b of blockers) {
+      if (
+        !s.jobs.some(
+          (q) =>
+            q.kind === 'remove' && q.target === b.id && !['done', 'canceled'].includes(q.status),
+        )
+      ) {
+        const q = newJob(s, 'remove', { x: b.x - 1, z: b.z - 1, w: 2, d: 2 }, 0, b.id, j.parentId);
+        q.item = 'bufferStop';
+        event(s, 'Planning', q.id, `Recover ${b.id} to storage before joining ${j.id}.`);
+      }
+    }
+    if (blockers.length) {
+      j.reason = `Waiting for ${blockers.map((b) => b.id).join(', ')} to be recovered before connecting tracks`;
+      return;
+    }
+  }
   if (j.kind === 'moveStock') j.railStageOnly = true;
   if (j.kind === 'rail') {
     j.railStageOnly = !!railCrewGroup(s, j) && railNeedsStaging(j) && !j.cancel;
@@ -1821,10 +1933,17 @@ function assign(s: State, j: Job) {
     }
   }
   if (j.kind === 'rail' && !j.railBufferCleanup && !j.railStageOnly && j.track?.groupId) {
-    const pieces = trackSections(j.track.layout, j.track.origin, j.track.heading, j.track.hand);
+    const pieces = trackSections(
+      j.track.layout,
+      j.track.origin,
+      j.track.heading,
+      j.track.hand,
+      undefined,
+      j.track.flow,
+    );
     const ordinal = (job: Job) =>
       pieces.findIndex((p) => p.section === job.track?.section && p.route === job.track?.route);
-    if (ordinal(j) === 0) {
+    if (ordinal(j) === 0 || (j.track.flow === 'converging' && j.track.section === 3)) {
       const entry = trackGeometry(j).entry,
         predecessor = trackOpenPorts(s, false).find(
           (p) =>
@@ -2178,9 +2297,11 @@ function assign(s: State, j: Job) {
   // Slabs use physical docking in construction-handling after boarding.
   // A generic stock approach would be discarded immediately, and can search
   // the whole yard twice before a busy placement lane is even checked.
-  let loadPath = ['slab', 'rail', 'moveStock'].includes(j.kind)
-    ? []
-    : machineApproach(s, eq, stack || j);
+  let loadPath =
+    ['slab', 'bufferStop', 'rail', 'moveStock'].includes(j.kind) ||
+    (j.kind === 'remove' && j.item === 'bufferStop')
+      ? []
+      : machineApproach(s, eq, stack || j);
   if (stack && !loadPath) {
     for (const alternative of s.stacks.filter(
       (t) =>
@@ -2350,7 +2471,7 @@ function tickJob(s: State, j: Job, dt: number) {
       s.revision++;
     }
   }
-  if (w && j.kind === 'slab' && j.handling?.phase === 'settle') {
+  if (w && (j.kind === 'slab' || j.item === 'bufferStop') && j.handling?.phase === 'settle') {
     if (w.yieldingTo?.startsWith('PO-')) {
       j.reason = `Waiting for ${w.yieldingTo} to pass safely`;
       return;
@@ -2496,7 +2617,7 @@ function tickJob(s: State, j: Job, dt: number) {
   )
     return;
   if (
-    j.kind === 'slab' &&
+    (j.kind === 'slab' || j.item === 'bufferStop') &&
     tickConstructionHandling(s, j, dt, {
       id,
       obstacles,
@@ -2525,7 +2646,10 @@ function tickJob(s: State, j: Job, dt: number) {
       return;
     }
     const target = stack || j;
-    e.path = j.kind === 'slab' ? [] : machineApproach(s, e, target) || [];
+    e.path =
+      ['slab', 'bufferStop'].includes(j.kind) || j.item === 'bufferStop'
+        ? []
+        : machineApproach(s, e, target) || [];
     j.phase = 'Collect material';
     op.status = 'Driving to stock';
   } else if (j.phase === 'Collect material' && !e.path.length) {
@@ -2923,9 +3047,13 @@ export function totals(s: State, item: Item) {
     ).length,
     stored: s.stacks.filter((t) => t.item === item).reduce((n, t) => n + t.qty, 0),
     reserved: s.stacks.filter((t) => t.item === item).reduce((n, t) => n + t.reserved, 0),
-    cargo: s.equipment
-      .filter((e) => e.cargo?.item === item)
-      .reduce((n, e) => n + (e.cargo?.qty || 0), 0),
+    cargo:
+      s.equipment
+        .filter((e) => e.cargo?.item === item)
+        .reduce((n, e) => n + (e.cargo?.qty || 0), 0) +
+      (item === 'bufferStop'
+        ? bufferAssets(s).filter((b) => b.carried && b.source !== 'opening').length
+        : 0),
     incoming: s.orders
       .flatMap(orderLines)
       .filter((line) => line.item === item)
@@ -2938,13 +3066,15 @@ export function totals(s: State, item: Item) {
       .filter((m) => m.item === item && m.reason === 'Opening asset recovered')
       .reduce((n, m) => n + m.qty, 0),
     installed:
-      item === 'slab'
-        ? Object.values(s.paving).filter((v) => v !== 'EXISTING').length
-        : item === 'rail'
-          ? s.rails.filter((r) => !r.item || r.item === 'rail').length
-          : item.startsWith('rail')
-            ? s.rails.filter((r) => r.item === item).length
-            : s.buildings.filter((b) => b.kind === item && b.source !== 'opening').length,
+      item === 'bufferStop'
+        ? bufferAssets(s).filter((b) => b.source !== 'opening' && !b.carried).length
+        : item === 'slab'
+          ? Object.values(s.paving).filter((v) => v !== 'EXISTING').length
+          : item === 'rail'
+            ? s.rails.filter((r) => !r.item || r.item === 'rail').length
+            : item.startsWith('rail')
+              ? s.rails.filter((r) => r.item === item).length
+              : s.buildings.filter((b) => b.kind === item && b.source !== 'opening').length,
   };
 }
 export function save(s: State) {

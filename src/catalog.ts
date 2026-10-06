@@ -17,6 +17,19 @@ export const MATERIALS: Record<
     description: string;
   }
 > = {
+  bufferStop: {
+    name: 'Rail buffer stop',
+    unit: 'stops',
+    price: 1250,
+    mass: 850,
+    w: 2,
+    d: 2,
+    max: 1,
+    work: 5,
+    color: 0xc85b36,
+    description:
+      'Clamp-on standard-gauge buffer stop. Delivered, rigged, lifted onto an open track end, then fastened by a worker. Recoverable into a 2 × 2 m stockyard slot.',
+  },
   slab: {
     name: 'Concrete slab',
     unit: 'slabs',

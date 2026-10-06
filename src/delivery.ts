@@ -87,9 +87,11 @@ export const stackHeight = (item: Item, qty: number) =>
       ? (qty - 1) * RAIL_PANEL_PITCH + 0.325
       : item === 'office' || item === 'sanitary'
         ? 3
-        : item === 'diesel'
-          ? 0.94
-          : Math.max(0.35, qty * parcelPitch(item) + 0.35);
+        : item === 'bufferStop'
+          ? 1.1
+          : item === 'diesel'
+            ? 0.94
+            : Math.max(0.35, qty * parcelPitch(item) + 0.35);
 export function freightPose(o: Order) {
   return o.mode === 'rail'
     ? carPose((o.drive?.distance ?? RAIL_STOP) - COUPLED_CENTERS, 11)
@@ -146,7 +148,7 @@ export function constructionStorageClearance(s: State): Rect[] {
       const yaw = Math.atan2(target.z - points[0].z, target.x - points[0].x);
       const rects = points.flatMap((p) =>
         equipmentBoxes(
-          { ...e, reach: h.reach, cargo: { item: 'slab', qty: 1 } },
+          { ...e, reach: h.reach, cargo: { item: j.item || 'slab', qty: 1 } },
           { ...p, yaw },
         ).map((b) => boxRect(b, 0.18)),
       );
@@ -161,7 +163,11 @@ export function constructionStorageClearance(s: State): Rect[] {
     };
     if (['approach', 'rig', 'engage', 'lift', 'clear'].includes(h.phase))
       reserve([h.sourceDock, h.sourceApproach, h.sourceClear], h.source);
-    reserve([h.destinationDock, h.destinationClear], center(j));
+    reserve(
+      [h.destinationDock, h.destinationClear],
+      j.bufferTarget || center(j.bufferDestination || j),
+    );
+    if (j.bufferDestination) areas.push(j.bufferDestination);
   }
   return areas;
 }

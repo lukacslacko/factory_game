@@ -95,6 +95,16 @@ export function validateState(value: any): asserts value is State {
     }
   }
   const pose = (p: any) => point(p) && finite(p.y) && finite(p.yaw);
+  const knownBufferId = (id: any) =>
+    typeof id === 'string' &&
+    !!id &&
+    (s.buffers === undefined
+      ? id === 'BUFFER-001'
+      : s.buffers.some((b: any) => b.id === id) ||
+        s.stacks.some((t: any) => t.item === 'bufferStop' && t.assetId === id) ||
+        s.jobs.some(
+          (j: any) => j.item === 'bufferStop' && j.assetId === id && j.status === 'doing',
+        ));
   const belongsToGroup = (j: any, groupId: string) => {
     let id = j.parentId || j.track?.groupId;
     const seen = new Set<string>();
@@ -123,7 +133,7 @@ export function validateState(value: any): asserts value is State {
       const b = g.railBuffer;
       if (
         !pose(b.pose) ||
-        b.pose.id !== 'BUFFER-001' ||
+        !knownBufferId(b.pose.id) ||
         typeof b.pose.secured !== 'boolean' ||
         typeof b.pose.carried !== 'boolean' ||
         !pose(b.start) ||
@@ -136,8 +146,42 @@ export function validateState(value: any): asserts value is State {
         fail('invalid shared rail buffer');
     }
   }
-  if ((s.jobGroups || []).filter((g: any) => g.railBuffer && !g.railBuffer.pose.secured).length > 1)
-    fail('duplicate loose shared buffer');
+  const looseBufferIds = (s.jobGroups || [])
+    .filter((g: any) => g.railBuffer && !g.railBuffer.pose.secured)
+    .map((g: any) => g.railBuffer.pose.id);
+  if (new Set(looseBufferIds).size !== looseBufferIds.length) fail('duplicate loose shared buffer');
+  if (s.buffers !== undefined) {
+    if (!Array.isArray(s.buffers) || s.buffers.length > 10000) fail('invalid buffer register');
+    for (const b of s.buffers) {
+      if (
+        !pose(b) ||
+        typeof b.id !== 'string' ||
+        !b.id ||
+        ids.has(b.id) ||
+        typeof b.secured !== 'boolean' ||
+        typeof b.carried !== 'boolean' ||
+        (b.source !== undefined && typeof b.source !== 'string')
+      )
+        fail('invalid installed buffer stop');
+      ids.add(b.id);
+    }
+  }
+  for (const j of s.jobs) {
+    if (
+      j.bufferTarget !== undefined &&
+      (j.kind !== 'bufferStop' || !point(j.bufferTarget) || !finite(j.bufferTarget.yaw))
+    )
+      fail('invalid buffer target');
+    if (
+      j.bufferDestination !== undefined &&
+      (j.kind !== 'remove' ||
+        j.item !== 'bufferStop' ||
+        !point(j.bufferDestination) ||
+        j.bufferDestination.w !== 2 ||
+        j.bufferDestination.d !== 2)
+    )
+      fail('invalid buffer storage destination');
+  }
   for (const j of s.jobs)
     if (
       j.railStageOnly !== undefined &&
@@ -505,7 +549,7 @@ export function validateState(value: any): asserts value is State {
       const macro = groups.get(j.parentId)?.track;
       if (
         !macro ||
-        ['layout', 'heading', 'hand'].some((k) => macro[k] !== j.track[k]) ||
+        ['layout', 'heading', 'hand', 'flow'].some((k) => macro[k] !== j.track[k]) ||
         macro.origin.x !== j.track.origin.x ||
         macro.origin.z !== j.track.origin.z
       )
@@ -546,7 +590,7 @@ export function validateState(value: any): asserts value is State {
         (!s.equipment.some((e: any) => e.id === j.equipment) &&
           j.kind !== 'throwSwitch' &&
           !(
-            j.kind === 'slab' &&
+            (j.kind === 'slab' || j.item === 'bufferStop') &&
             j.handling?.equipmentReleased === true &&
             j.handling.phase === 'settle' &&
             j.handling.state === 'placed'
@@ -653,7 +697,7 @@ export function validateState(value: any): asserts value is State {
       )
         fail('invalid independent slab finishing crew');
       if (
-        j.kind !== 'slab' ||
+        (j.kind !== 'slab' && j.item !== 'bufferStop') ||
         ![
           'approach',
           'rig',
@@ -686,20 +730,25 @@ export function validateState(value: any): asserts value is State {
         fail('invalid construction slab handling');
       if (j.status === 'doing') {
         const e = s.equipment.find((e: any) => e.id === j.equipment);
-        if (h.state === 'carried' && (e?.cargo?.item !== 'slab' || e.cargo.qty !== 1))
+        if (h.state === 'carried' && (e?.cargo?.item !== j.item || e.cargo.qty !== 1))
           fail('missing carried construction slab');
         if (
           h.state === 'placed' &&
           !s.stacks.some(
             (t: any) =>
-              t.id === h.placedStack && t.item === 'slab' && t.qty === 1 && t.reserved === 1,
+              t.id === h.placedStack && t.item === j.item && t.qty === 1 && t.reserved === 1,
           )
         )
           fail('missing placed construction slab');
         if (
           h.state === 'stored' &&
+          !(
+            j.kind === 'remove' &&
+            j.item === 'bufferStop' &&
+            (s.buffers || []).some((b: any) => b.id === h.sourceId && !b.carried)
+          ) &&
           !s.stacks.some(
-            (t: any) => t.id === h.sourceId && t.item === 'slab' && t.qty > 0 && t.reserved > 0,
+            (t: any) => t.id === h.sourceId && t.item === j.item && t.qty > 0 && t.reserved > 0,
           )
         )
           fail('missing reserved construction slab');
@@ -817,7 +866,9 @@ export function validateState(value: any): asserts value is State {
       if (
         r.buffer &&
         (!pose(r.buffer) ||
-          r.buffer.id !== 'BUFFER-001' ||
+          (j.status === 'doing'
+            ? !knownBufferId(r.buffer.id)
+            : typeof r.buffer.id !== 'string' || !r.buffer.id) ||
           typeof r.buffer.secured !== 'boolean' ||
           typeof r.buffer.carried !== 'boolean')
       )

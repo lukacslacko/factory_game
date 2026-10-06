@@ -1,4 +1,5 @@
 import { trackGeometry, trackNetwork } from './track';
+import { bufferAssets } from './buffers';
 import { railLocationPose, railLocationStatus } from './rail-locations';
 import initSqlJs from 'sql.js';
 import wasmUrl from 'sql.js/dist/sql-wasm.wasm?url';
@@ -119,6 +120,7 @@ export async function query(s: State, sql: string) {
       layout: r.track?.layout || 'straight',
       heading: r.track?.heading ?? r.rotation,
       hand: r.track?.hand ?? 1,
+      flow: r.track?.flow || 'diverging',
       section: r.track?.section ?? 0,
       work_order: r.track?.groupId,
       entry_x: trackGeometry(r).entry.x,
@@ -137,9 +139,13 @@ export async function query(s: State, sql: string) {
         route: port.route,
         connected: port.connected,
         network_connected: p.connected,
-        buffer: Math.hypot(port.x - s.buffer.x, port.z - s.buffer.z) < 0.1 ? 'BUFFER-001' : null,
+        buffer:
+          bufferAssets(s).find(
+            (b) => b.secured && !b.carried && Math.hypot(port.x - b.x, port.z - b.z) < 0.1,
+          )?.id ?? null,
       })),
     ),
+    buffers: bufferAssets(s).map((b) => ({ ...b })),
     zones: s.zones.map((z) => ({ ...z })),
     rail_locations: (s.railLocations || []).map((l) => {
       const pose = railLocationPose(s, l),
@@ -215,6 +221,7 @@ export async function query(s: State, sql: string) {
       'network_connected',
       'buffer',
     ],
+    buffers: ['id', 'x', 'z', 'y', 'yaw', 'secured', 'carried', 'source'],
     zones: ['id', 'name', 'x', 'z', 'w', 'd'],
     job_groups: [
       'id',

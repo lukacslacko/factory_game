@@ -13,6 +13,8 @@ export interface TrackPiece {
   /** Turnout sections 1–3 are separately transported straight/branch rails.
    * Section 0 alone is the combined, narrow points assembly. */
   route?: TrackRoute;
+  /** Reverses the construction traversal; the purchased turnout geometry stays unchanged. */
+  flow?: 'converging';
 }
 export type TrackRoute = 'straight' | 'branch';
 export interface TrackPoint extends Point {
@@ -89,6 +91,7 @@ export function validTrackPiece(value: unknown): value is TrackPiece {
     p.section >= 0 &&
     p.section < count &&
     (p.groupId === undefined || (typeof p.groupId === 'string' && p.groupId.length > 0)) &&
+    (p.flow === undefined || (p.layout === 'turnout' && p.flow === 'converging')) &&
     (p.layout === 'turnout'
       ? p.section === 0
         ? p.route === undefined
@@ -103,6 +106,7 @@ export function trackSections(
   heading: TrackPiece['heading'],
   hand: TrackPiece['hand'] = 1,
   groupId?: string,
+  flow?: TrackPiece['flow'],
 ): TrackPiece[] {
   const count = layout === 'curve' ? CURVE_SECTIONS : layout === 'turnout' ? TURNOUT_SECTIONS : 1;
   const pieces: TrackPiece[] = Array.from({ length: count }, (_, section) => ({
@@ -112,6 +116,7 @@ export function trackSections(
     hand,
     section,
     ...(groupId ? { groupId } : {}),
+    ...(flow ? { flow } : {}),
   })).flatMap((p) =>
     layout === 'turnout' && p.section > 0
       ? [
@@ -121,7 +126,35 @@ export function trackSections(
       : [p],
   );
   if (!pieces.every(validTrackPiece)) throw new Error('Invalid track layout descriptor');
-  return pieces;
+  return flow === 'converging'
+    ? pieces.sort((a, b) => b.section - a.section || (a.route === 'straight' ? -1 : 1))
+    : pieces;
+}
+
+/** Build from the selected incoming endpoint. Convergence uses the same
+ * seven physical panels, rotated 180 degrees, with the two exits installed
+ * first and the common points module installed last. */
+export function railLayoutPieces(
+  layout: TrackPiece['layout'],
+  origin: Point,
+  heading: TrackPiece['heading'],
+  hand: TrackPiece['hand'] = 1,
+  flow?: TrackPiece['flow'],
+): TrackPiece[] {
+  if (flow !== 'converging') return trackSections(layout, origin, heading, hand);
+  if (layout !== 'turnout') throw new Error('Only turnouts can converge');
+  const yaw = (heading * Math.PI) / 2;
+  return trackSections(
+    layout,
+    {
+      x: clean(origin.x + TURNOUT_LENGTH * Math.cos(yaw)),
+      z: clean(origin.z + TURNOUT_LENGTH * Math.sin(yaw)),
+    },
+    ((heading + 2) % 4) as TrackPiece['heading'],
+    -hand as TrackPiece['hand'],
+    undefined,
+    flow,
+  );
 }
 
 /** A legacy rectangular panel keeps its exact old centerline and endpoints. */
@@ -277,7 +310,7 @@ function immutableGeometry(g: TrackGeometry): TrackGeometry {
  * Copy its poses/ports before storing mutable physical animation state. */
 export function trackGeometry(value: TrackPiece | TrackAsset): TrackGeometry {
   const p = trackPiece(value);
-  const key = `${p.layout}:${p.origin.x},${p.origin.z}:${p.heading}:${p.hand}:${p.section}:${p.route || ''}`;
+  const key = `${p.layout}:${p.origin.x},${p.origin.z}:${p.heading}:${p.hand}:${p.section}:${p.route || ''}:${p.flow || ''}`;
   const cached = geometryCache.get(key);
   if (cached) {
     geometryCache.delete(key);
@@ -295,7 +328,16 @@ export function trackGeometry(value: TrackPiece | TrackAsset): TrackGeometry {
       : p.layout === 'turnout' && p.route === 'branch'
         ? branchAt(p, 0.5)
         : { x: localRect.x + localRect.w / 2, z: localRect.z + localRect.d / 2, yaw: 0 };
-  const paths = raw.map((path) => ({ ...path, points: path.points.map((q) => world(q, p)) }));
+  const paths = raw.map((path) => {
+    const points = path.points.map((q) => world(q, p));
+    return {
+      ...path,
+      points:
+        p.flow === 'converging'
+          ? points.reverse().map((q) => ({ ...q, yaw: angle(q.yaw + Math.PI) }))
+          : points,
+    };
+  });
   const entries = paths.map((path): TrackPort => ({
     ...path.points[0],
     yaw: angle(path.points[0].yaw + Math.PI),
@@ -331,7 +373,10 @@ export function trackGeometry(value: TrackPiece | TrackAsset): TrackGeometry {
   return geometry;
 }
 export function trackLocalPaths(value: TrackPiece | TrackAsset): TrackPath[] {
-  const g = trackGeometry(value),
+  // Manufacturing geometry and lever placement must not change when the
+  // crew approaches the same purchased module from its opposite end.
+  const descriptor = trackPiece(value);
+  const g = trackGeometry(descriptor.flow ? { ...descriptor, flow: undefined } : descriptor),
     c = Math.cos(g.pose.yaw),
     n = Math.sin(g.pose.yaw);
   return g.paths.map((path) => ({
@@ -353,7 +398,14 @@ export const railFootprints = (s: State): (Rect & { id: string })[] =>
  * internal joints are deliberately absent from placement snapping. */
 export function trackMacroPorts(value: TrackPiece | TrackAsset): TrackPort[] {
   const p = trackPiece(value),
-    sections = trackSections(p.layout, p.origin, p.heading, p.hand, p.groupId);
+    sections = trackSections(p.layout, p.origin, p.heading, p.hand, p.groupId, p.flow);
+  if (p.flow === 'converging')
+    return [
+      ...sections
+        .filter((section) => section.section === TURNOUT_SECTIONS - 1)
+        .flatMap((section) => trackGeometry(section).entries),
+      trackGeometry(sections.find((section) => section.section === 0)!).end,
+    ];
   const first = trackGeometry(sections[0]);
   const lastSection = Math.max(...sections.map((section) => section.section));
   return [
@@ -542,6 +594,7 @@ export function trackOpenPorts(
       piece.heading,
       piece.hand,
       piece.groupId,
+      piece.flow,
     );
     const sameMacro = (candidate: TrackPiece) =>
       candidate.layout === piece.layout &&
@@ -549,6 +602,7 @@ export function trackOpenPorts(
       candidate.origin.z === piece.origin.z &&
       candidate.heading === piece.heading &&
       candidate.hand === piece.hand &&
+      candidate.flow === piece.flow &&
       candidate.groupId === piece.groupId;
     if (
       !expected.every((part) =>

@@ -40,10 +40,12 @@ export const equipmentAllows = (e: Equipment, activity: EquipmentActivity) =>
   e.allowedWork !== undefined
     ? e.allowedWork.includes(activity)
     : equipmentRole(e) === 'all' || equipmentRole(e) === activity;
-export function jobActivity(j: Pick<Job, 'kind'>): EquipmentActivity {
+export function jobActivity(j: Pick<Job, 'kind' | 'item'>): EquipmentActivity {
   return j.kind === 'slab'
     ? 'paving'
-    : j.kind === 'rail'
+    : j.kind === 'rail' ||
+        j.kind === 'bufferStop' ||
+        (j.kind === 'remove' && j.item === 'bufferStop')
       ? 'rail'
       : ['remove', 'moveStock'].includes(j.kind)
         ? 'recovery'

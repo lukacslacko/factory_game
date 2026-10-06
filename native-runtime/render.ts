@@ -3,7 +3,8 @@
 import type { State, ShedPartKind } from '../src/types';
 import { MATERIALS } from '../src/catalog';
 import { equipmentIntent } from '../src/equipment-intent';
-import { trackGeometry, trackNetwork } from '../src/track';
+import { trackGeometry, trackNetwork, trackOpenPorts } from '../src/track';
+import { bufferAssets } from '../src/buffers';
 import { freightPose, shipmentLots, stackHeight } from '../src/delivery';
 import {
   angleDelta,
@@ -389,7 +390,19 @@ export function renderState(s: State) {
     loads,
     carriers,
     railGeometry,
+    buffers: bufferAssets(s),
     railNetwork: trackNetwork(s),
+    railOpenEndpoints: trackOpenPorts(s, false).map((p) => ({
+      id: `END:${p.assetId}:${p.portIndex}`,
+      x: p.x,
+      z: p.z,
+      yaw: p.yaw,
+      trackId: p.assetId,
+      route: p.route,
+      occupiedBy: bufferAssets(s).find(
+        (b) => b.secured && !b.carried && Math.hypot(b.x - p.x, b.z - p.z) < 0.1,
+      )?.id,
+    })),
     railWork,
     construction,
     sheds,

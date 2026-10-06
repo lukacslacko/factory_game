@@ -147,6 +147,9 @@ static func stock(parent:Node3D,item:String,qty:int,hand:int=1)->Node3D:
 			for x in [-1.55,1.55]:
 				for z in [-.82,.82]:
 					b.box(Vector3(x,i*.36-(.010 if i>0 else -.0075),z),Vector3(.20,.05 if i>0 else .015,.14),m.wood)
+	elif item=="bufferStop":
+		R._buffer(root,b,Vector3(-.5,-.20,0),m.steel,m.bright_steel)
+		for z in [-.74,.74]:b.box(Vector3(.05,.035,z),Vector3(1.8,.07,.16),m.wood)
 	elif item=="diesel":
 		G.cylinder(root,Vector3(0,.46,0),.3,.9,G.mat("b95d3e",.44,.35),24)
 		for y in [.13,.72]: G.cylinder(root,Vector3(0,y,0),.307,.03,m.steel,24)
@@ -411,9 +414,9 @@ static func rig_cargo(cargo:Node3D,equipment:Node3D)->void:
 	var item:=str(cargo.get_meta("cargo_item",""));var qty:int=int(cargo.get_meta("cargo_qty",1))
 	var width:float=float(cargo.get_meta("cargo_width",1.55 if item.begins_with("rail") else .37))
 	var depth:float=.70 if item.begins_with("rail") else .37
-	var height:float=.325+maxi(0,qty-1)*.36 if item.begins_with("rail") else .18*qty if item=="slab" else .91 if item=="diesel" else 1.05 if item=="buffer" else 2.8 if item in ["office","sanitary"] else .4
+	var height:float=.325+maxi(0,qty-1)*.36 if item.begins_with("rail") else .18*qty if item=="slab" else .91 if item=="diesel" else 1.15 if item in ["buffer","bufferStop"] else 2.8 if item in ["office","sanitary"] else .4
 	height=float(cargo.get_meta("cargo_height",height))
-	if item=="buffer":width=.35;depth=.50
+	if item in ["buffer","bufferStop"]:width=.35;depth=.74
 	var index:=0
 	for x in [-width,width]:
 		for z in [-depth,depth]:

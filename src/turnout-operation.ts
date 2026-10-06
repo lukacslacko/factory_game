@@ -40,7 +40,9 @@ export function turnoutIsComplete(s: State, rail: Rail): boolean {
 }
 
 function leverPoint(rail: Rail, offset: number): Point & { yaw: number } {
-  const through = trackGeometry(rail).paths.find((path) => path.route === 'straight');
+  const through = trackGeometry(
+    rail.track?.flow ? { ...rail.track, flow: undefined } : rail,
+  ).paths.find((path) => path.route === 'straight');
   if (!through || rail.track?.layout !== 'turnout' || rail.track.section !== 0)
     throw new Error('A manual lever belongs to an installed turnout points module');
   const start = through.points[0],

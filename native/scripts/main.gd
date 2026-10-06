@@ -40,6 +40,7 @@ var placing: bool = false
 var tool: String = "select"
 var placement_rotation: int = 0
 var rail_hand: int = 1
+var rail_flow: String = "diverging"
 var selected_id: String = ""
 var follow: bool = false
 var controlled_worker: String = ""
@@ -225,6 +226,11 @@ func _command(action: String, args: Dictionary = {}) -> void:
 	if action == "rotate":
 		_rotate_placement()
 		return
+	if action == "rail_flow":
+		rail_flow = "converging" if str(args.get("flow","")) == "converging" else "diverging"
+		preview_key = ""
+		preview_dirty = true
+		return
 	if action == "rail_hand":
 		rail_hand = -rail_hand
 		preview_dirty = true
@@ -363,7 +369,7 @@ func _place(a: Vector3, b: Vector3) -> void:
 		"zone": client.send("zone", {"rect":rect,"name":"Stockyard %d" % (state.get("zones",[]).size()+1)})
 		"railStraight", "railCurve", "railTurnout":
 			var layout := {"railStraight":"straight","railCurve":"curve","railTurnout":"turnout"}
-			client.send("plan_rail", {"layout":layout[tool],"x":roundi(a.x),"z":roundi(a.z),"heading":placement_rotation,"hand":rail_hand,"snap":true})
+			client.send("plan_rail", {"layout":layout[tool],"x":roundi(a.x),"z":roundi(a.z),"heading":placement_rotation,"hand":rail_hand,"snap":true,"flow":rail_flow})
 		"drive":
 			var worker_id := controlled_worker
 			for e: Dictionary in state.get("equipment",[]):
@@ -527,11 +533,11 @@ func _process(dt: float) -> void:
 	if preview_dirty and preview_clock >= 0.18 and tool.begins_with("rail"):
 		preview_clock = 0.0
 		preview_dirty = false
-		var key := "%s:%d:%d:%d:%d" % [tool,roundi(preview_point.x),roundi(preview_point.z),placement_rotation,rail_hand]
+		var key := "%s:%d:%d:%d:%d:%s" % [tool,roundi(preview_point.x),roundi(preview_point.z),placement_rotation,rail_hand,rail_flow]
 		if key != preview_key:
 			preview_key = key
 			var layout := {"railStraight":"straight","railCurve":"curve","railTurnout":"turnout"}
-			preview_request = client.send("rail_preview", {"layout":layout[tool],"x":roundi(preview_point.x),"z":roundi(preview_point.z),"heading":placement_rotation,"hand":rail_hand,"snap":true})
+			preview_request = client.send("rail_preview", {"layout":layout[tool],"x":roundi(preview_point.x),"z":roundi(preview_point.z),"heading":placement_rotation,"hand":rail_hand,"snap":true,"flow":rail_flow})
 	if closing:
 		close_clock += dt
 		if close_clock > 4.5:

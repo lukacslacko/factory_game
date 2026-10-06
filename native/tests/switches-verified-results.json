@@ -1,0 +1,35 @@
+{
+  "version": "0.19.11",
+  "simulationTests": 405,
+  "simulationSeconds": 296.4,
+  "nativeUi": {
+    "checks": 36,
+    "name": "switch-ui-smoke",
+    "elapsed_seconds": 1.52,
+    "peak_resident_bytes": 313753600,
+    "returncode": 0,
+    "stopped_reason": null
+  },
+  "packagedApp": {
+    "name": "switches-packaged",
+    "elapsed_seconds": 6.6,
+    "peak_resident_bytes": 298450944,
+    "returncode": 0,
+    "stopped_reason": null
+  },
+  "preservedExistingSave": {
+    "workers": 12,
+    "rails": 23,
+    "paused": true
+  },
+  "scenarios": [
+    "purchased buffer delivery and physical installation",
+    "recovery and same-ID reuse",
+    "cancel during installation and recovery",
+    "full two-input convergence with one excavator",
+    "physical buffer inventory preserved through every tick",
+    "actual save/reload while buffers are carried",
+    "all cardinal headings and both turnout sides",
+    "native commands, endpoint registers, SQL and picking"
+  ]
+}

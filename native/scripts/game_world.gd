@@ -104,11 +104,12 @@ func sync_snapshot(message:Dictionary)->void:
 			var id:=str(task.jobId)+"/buffer"; live[id]=true
 			if not models.has(id):
 				models[id]=Models.buffer(self);(models[id] as Node3D).set_meta("cargo_item","buffer")
+			(models[id] as Node3D).set_meta("inspect_id",str(buffer.get("id",job.get("bufferId","BUFFER-001"))))
 			_new_pose(id,_attachment_pose(buffer,str(task.get("equipmentId","")),bool(buffer.get("carried",false))))
 	for work in render.get("construction",[]):
 		if str(work.get("state","stored")) in ["stored","installed"]:continue
 		var id:=str(work.jobId)+"/handling"; live[id]=true
-		_ensure_load(id,str(work.get("item","slab")),int(work.get("qty",1))); _new_pose(id,_attachment_pose(work.get("pose",{}),str(work.get("equipmentId","")),str(work.get("state",""))=="carried"))
+		_ensure_load(id,str(work.get("item","slab")),int(work.get("qty",1)),1,str(work.get("item",""))=="bufferStop"); _new_pose(id,_attachment_pose(work.get("pose",{}),str(work.get("equipmentId","")),str(work.get("state",""))=="carried"))
 	for assembly in render.get("sheds",[]):
 		for index in range(assembly.get("anchorPoses",[]).size()):
 			var id:=str(assembly.jobId)+"/anchor/"+str(index);live[id]=true
@@ -149,12 +150,12 @@ func _ensure_dynamic(id:String,kind:String,data:Dictionary,carrier:bool=false)->
 	models[id]=model
 	return model
 
-func _ensure_load(id:String,item:String,qty:int,hand:int=1)->void:
-	var key:=item+"/"+str(qty)+"/"+str(hand)
+func _ensure_load(id:String,item:String,qty:int,hand:int=1,buffer_contact:bool=false)->void:
+	var key:=item+"/"+str(qty)+"/"+str(hand)+"/"+str(buffer_contact)
 	if models.has(id) and str((models[id] as Node3D).get_meta("load_key",""))==key:return
 	if models.has(id):
 		var old:Node3D=models[id]; remove_child(old); old.queue_free()
-	var model:=Models.stock(self,item,qty,hand); model.set_meta("load_key",key); model.set_meta("id",id)
+	var model:=Models.buffer(self) if buffer_contact else Models.stock(self,item,qty,hand); model.set_meta("load_key",key); model.set_meta("id",id)
 	model.set_meta("forward","+X");model.set_meta("cargo_item",item);model.set_meta("cargo_qty",qty); models[id]=model
 
 func _new_pose(id:String,pose:Dictionary)->void:
@@ -270,19 +271,26 @@ func _sync_statics()->void:
 			if not geometry.is_empty():_rail_ghost(group,geometry,color)
 			else:_construction_ghost(group,job,color)
 			statics[id]=group; static_keys[id]=key
-	var buffer_live:bool=true
+	var moving_buffers:Dictionary={}
 	for work in render.get("railWork",[]):
-		if not work.get("buffer",{}).is_empty():buffer_live=false
-	if buffer_live and not state.get("buffer",{}).is_empty():
-		var id:="BUFFER-001"; live[id]=true
-		if not statics.has(id):statics[id]=Models.buffer(self); static_keys[id]="buffer"
-		var b:Dictionary=state.buffer.duplicate()
-		b["y"]=float(b.get("y",.2))
-		for group in state.get("jobGroups",[]):
-			var shared:Dictionary=group.get("railBuffer",{}).get("pose",{})
-			if not shared.is_empty() and not bool(shared.get("secured",false)):b=shared;break
-		(statics[id] as Node3D).position=Vector3(float(b.x),float(b.get("y",.2)),float(b.z))
-		(statics[id] as Node3D).rotation.y=-float(b.get("yaw",0))
+		var moving:Dictionary=work.get("buffer",{})
+		if not moving.is_empty():
+			var job:Dictionary=_entity(str(work.get("jobId","")),"jobs")
+			moving_buffers[str(moving.get("id",job.get("bufferId","BUFFER-001")))]=true
+	for stop in _buffer_records():
+		var id:=str(stop.id)
+		if moving_buffers.has(id):continue
+		live[id]=true
+		if not statics.has(id):statics[id]=Models.buffer(self);static_keys[id]="buffer"
+		var pose:Dictionary=stop.duplicate()
+		# Older saves retain only the opening stop; its temporarily parked
+		# group pose remains authoritative until the next rail-work phase.
+		if not state.has("buffers") and not render.has("buffers"):
+			for group in state.get("jobGroups",[]):
+				var shared:Dictionary=group.get("railBuffer",{}).get("pose",{})
+				if not shared.is_empty() and not bool(shared.get("secured",false)):pose=shared;break
+		(statics[id] as Node3D).position=Vector3(float(pose.x),float(pose.get("y",.2)),float(pose.z))
+		(statics[id] as Node3D).rotation.y=-float(pose.get("yaw",0))
 	for entry in render.get("railLocations",[]):
 		var id:=str(entry.id); live[id]=true
 		var key:=JSON.stringify(entry)
@@ -348,6 +356,8 @@ func pick_ground(point:Vector3)->String:
 		var radius:=1.45 if str(model.get_meta("kind",""))=="worker" else 2.4
 		if d<radius and d<distance:distance=d; best=str(id)
 	if not best.is_empty():return best
+	for stop in _buffer_records():
+		if statics.has(str(stop.id)) and Vector2(point.x-float(stop.x),point.z-float(stop.z)).length()<1.15:return str(stop.id)
 	for table in ["stacks","buildings","jobs","zones"]:
 		for entity in state.get(table,[]):
 			if table=="jobs" and str(entity.get("status","")) in ["done","canceled"]:continue
@@ -358,6 +368,8 @@ func pick_ground(point:Vector3)->String:
 	return ""
 
 func entity_position(id:String)->Vector3:
+	for endpoint in render.get("railOpenEndpoints",[]):
+		if str(endpoint.get("id",""))==id:return Vector3(float(endpoint.x),0,float(endpoint.z))
 	if models.has(id):return (models[id] as Node3D).position
 	for entry in render.get("railGeometry",[]):
 		if str(entry.id)==id:
@@ -577,10 +589,17 @@ func pick_screen(camera:Camera3D,screen:Vector2)->String:
 		elif kind=="wagon":bounds=AABB(Vector3(-8.4,.35,-1.45),Vector3(16.8,1.05,2.90))
 		elif node.has_meta("cargo_item") or "/" in str(id):bounds=_local_model_bounds(node,Transform3D.IDENTITY)
 		var owner_id:=str(records.get(id,{}).get("to",{}).get("parentEquipmentId",""))
-		if owner_id.is_empty():owner_id=str(id).get_slice("/",0)
+		if owner_id.is_empty():owner_id=str(node.get_meta("inspect_id",str(id).get_slice("/",0)))
 		var inverse:=node.global_transform.affine_inverse()
 		var distance:=_ray_aabb(inverse*origin,inverse.basis*direction,bounds)
 		if distance>=0 and distance<closest:closest=distance;selected_entity=owner_id
+	for stop in _buffer_records():
+		var id:=str(stop.id)
+		if not statics.has(id):continue
+		var node:Node3D=statics[id]
+		var inverse:=node.global_transform.affine_inverse()
+		var distance:=_ray_aabb(inverse*origin,inverse.basis*direction,_local_model_bounds(node,Transform3D.IDENTITY))
+		if distance>=0 and distance<closest:closest=distance;selected_entity=id
 	for table in ["stacks","buildings"]:
 		for entity in state.get(table,[]):
 			var id:=str(entity.id)
@@ -588,7 +607,7 @@ func pick_screen(camera:Camera3D,screen:Vector2)->String:
 			var height:float=3.1
 			if table=="stacks":
 				var item:=str(entity.item);var qty:int=int(entity.get("qty",1))
-				height=.02+qty*.18 if item=="slab" else .325+maxi(0,qty-1)*.36 if item.begins_with("rail") else .95 if item=="diesel" else 3.1
+				height=.02+qty*.18 if item=="slab" else .325+maxi(0,qty-1)*.36 if item.begins_with("rail") else .95 if item=="diesel" else 1.15 if item=="bufferStop" else 3.1
 			else:
 				height=5.4 if str(entity.kind) in ["shed","store"] else 4.7 if str(entity.kind)=="lamp" else 2.1 if str(entity.kind)=="fence" else 3.1
 			var box:=AABB(Vector3(float(entity.x),_surface_height(entity)+float(entity.get("baseHeight",0)),float(entity.z)),Vector3(float(entity.w),height,float(entity.d)))
@@ -693,6 +712,14 @@ func _construction_ghost(parent:Node3D,rect:Dictionary,color:Color)->void:
 			batch.box(at,Vector3(.11,height,.11),bright)
 			_ghost_edge(batch,corners[index]+Vector3(0,height,0),corners[(index+1)%4]+Vector3(0,height,0),ink,bright)
 	_finish_ghost(batch,parent)
+
+func _buffer_records()->Array:
+	if state.has("buffers"):return state.buffers
+	if render.has("buffers"):return render.buffers
+	var legacy:Dictionary=state.get("buffer",{})
+	if legacy.is_empty():return []
+	var stop:Dictionary=legacy.duplicate();stop["id"]=str(stop.get("id","BUFFER-001"))
+	return [stop]
 
 func _attachment_pose(pose:Dictionary,parent_id:String,carried:bool)->Dictionary:
 	var value:=pose.duplicate()

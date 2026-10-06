@@ -1,3 +1,4 @@
+import { bufferAssets } from './buffers';
 import type { State, Point, Equipment, Order, Worker, Rect } from './types';
 import { MATERIALS } from './catalog';
 import { forkTip } from './fork-geometry';
@@ -166,7 +167,7 @@ export function equipmentBoxes(
         yaw:
           e.cargo.yaw === undefined
             ? yaw
-            : e.cargo.item === 'slab'
+            : ['slab', 'bufferStop'].includes(e.cargo.item)
               ? e.cargo.yaw + angleDelta(e.yaw ?? (e.heading * Math.PI) / 2, yaw)
               : e.cargo.yaw,
         length: e.cargo.yaw === undefined ? m.d : m.w,
@@ -274,17 +275,10 @@ export function staticObstacleRects(s: State): (Rect & { id: string })[] {
       out.push({ x: b.x, z: b.z, w: b.w, d: b.d, id: b.id });
     }
   }
-  const active = s.jobs.find((j) => j.status === 'doing' && j.railWork?.buffer)?.railWork;
-  const buffer =
-    active?.buffer ||
-    s.jobGroups?.find((g) => g.railBuffer && !g.railBuffer.pose.secured)?.railBuffer?.pose;
-  if (!buffer?.carried) {
-    const yaw =
-        buffer?.yaw ??
-        [...s.jobs].reverse().find((j) => j.railWork?.buffer)?.railWork?.buffer?.yaw ??
-        0,
-      p = localPoint({ ...(buffer || s.buffer), yaw }, 0.55, 0);
-    out.push({ ...boxRect({ ...p, yaw, length: 1.75, width: 2.05 }), id: 'BUFFER-001' });
+  for (const buffer of bufferAssets(s)) {
+    if (buffer.carried) continue;
+    const p = localPoint(buffer, 0.55, 0);
+    out.push({ ...boxRect({ ...p, yaw: buffer.yaw, length: 1.75, width: 2.05 }), id: buffer.id });
   }
   for (let x = -110; x < 250; x += 28)
     out.push({ x: x - 0.13, z: -20.13, w: 0.26, d: 0.26, id: `CORRIDOR-POLE-${x}` });

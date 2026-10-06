@@ -10,6 +10,7 @@ import * as Sim from '../src/sim';
 import { MATERIALS } from '../src/catalog';
 import { seedHandlingResources } from './support/yard';
 import { renderState } from '../native-runtime/render';
+import { trackGeometry, trackSections } from '../src/track';
 const root = path.resolve(import.meta.dirname, '..');
 execFileSync(process.execPath, ['native-runtime/build.mjs'], { cwd: root, stdio: 'pipe' });
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -394,4 +395,75 @@ test('native release command clears manual vehicle control and its stale driving
   assert.equal(actual.path.length, 0);
   assert.equal(actual.trafficGoal, undefined);
   assert.equal(actual.operator, op.id);
+});
+
+test('native switch planning exposes open ends, physical buffer orders and converging turnout flow', async (t) => {
+  const yard = Sim.createState();
+  for (const piece of trackSections('turnout', { x: 125, z: 5 }, 0, 1)) {
+    const geometry = trackGeometry(piece);
+    yard.rails.push({
+      id: `SWITCH-${piece.section}-${piece.route || 'points'}`,
+      ...geometry.rect,
+      rotation: 0,
+      length: geometry.length,
+      item: Sim.trackItem(piece),
+      track: piece,
+    });
+  }
+  yard.buffer = { x: 145, z: 5 };
+  const host = await launch();
+  t.after(() => host.close());
+  const c = host.client;
+  await c.ok('import', { json: Sim.save(yard) });
+  const buffers = await c.ok('tables', { table: 'buffers' });
+  assert.equal(buffers[0].id, 'BUFFER-001');
+  const visual = renderState(yard);
+  assert.equal(visual.buffers[0].secured, true);
+  assert.equal(visual.railOpenEndpoints.find((p) => p.z === 5)?.occupiedBy, buffers[0].id);
+  const inspect = await c.ok('inspect', { id: buffers[0].id });
+  assert.equal(inspect.type, 'buffers');
+  const planned = await c.ok('plan_buffer', { x: 145, z: 10 });
+  assert.equal(planned.job.item, 'bufferStop');
+  assert.equal((await c.request('plan_buffer', { x: 145, z: 10 })).ok, false);
+  const buy = await c.ok('purchase_preview', {
+    lines: [{ item: 'bufferStop', qty: 2 }],
+    mode: 'road',
+  });
+  assert.equal(buy.mass, MATERIALS.bufferStop.mass * 2);
+  const exported = Sim.load((await c.ok('export')).json);
+  assert.ok(exported.jobs.some((j) => j.item === 'bufferStop'));
+  await c.ok('import', { json: Sim.save(yard) });
+  const preview = await c.ok('rail_preview', {
+    layout: 'turnout',
+    x: 145,
+    z: 5,
+    heading: 0,
+    hand: 1,
+    flow: 'converging',
+    snap: false,
+  });
+  assert.equal(preview.error, '');
+  assert.equal(preview.flow, 'converging');
+  assert.equal(preview.pieces[0].section, 3);
+  assert.equal(preview.pieces.at(-1).section, 0);
+  const joined = await c.ok('plan_rail', {
+    layout: 'turnout',
+    x: 145,
+    z: 5,
+    heading: 0,
+    hand: 1,
+    flow: 'converging',
+    snap: false,
+  });
+  assert.equal(joined.jobs.length, 7);
+  assert.ok(joined.jobs.every((j: any) => j.track.flow === 'converging'));
+  const sql = await c.ok('sql', { sql: 'SELECT id, secured FROM buffers;' });
+  assert.equal(sql[0].values[0][0], 'BUFFER-001');
+  const badFlow = await c.request('rail_preview', {
+    layout: 'straight',
+    x: 145,
+    z: 5,
+    flow: 'unknown',
+  });
+  assert.equal(badFlow.ok, false);
 });

@@ -1,3 +1,4 @@
+import { bufferAt, syncBufferAsset, railBufferShouldBeStored } from './buffers';
 import type {
   Equipment,
   Item,
@@ -699,14 +700,14 @@ function initialize(s: State, j: Job, e: Equipment, api: RailWorkAPI) {
   }
   if (
     !j.railStageOnly &&
-    (dist(s.buffer, start) < 0.15 ||
+    (!!bufferAt(s, start) ||
       (installed && (j.phase === 'Relocate buffer' || j.legacyRailHandoff === 'installed')))
   ) {
     r.buffer = {
-      ...s.buffer,
+      ...(bufferAt(s, start) || { ...s.buffer, id: 'BUFFER-001' }),
       y: 0.2,
       yaw: geometry.entry.yaw + Math.PI,
-      id: 'BUFFER-001',
+      id: bufferAt(s, start)?.id || 'BUFFER-001',
       secured: !installed,
       carried: false,
     };
@@ -1342,6 +1343,7 @@ function collectStagedPanel(s: State, j: Job, e: Equipment, api: RailWorkAPI) {
 }
 
 function finish(s: State, j: Job, api: RailWorkAPI) {
+  if (j.railWork?.buffer) syncBufferAsset(s, j.railWork.buffer);
   const r = j.railWork!;
   r.phase = 'complete';
   r.siteClearance = undefined;
@@ -1954,7 +1956,7 @@ export function tickRailWork(s: State, j: Job, dt: number, api: RailWorkAPI): bo
       r.clock += dt;
       if (r.clock >= 5) {
         b.secured = false;
-        api.event(s, 'Asset', 'BUFFER-001', `${w.name} released the existing buffer rail clamps.`);
+        api.event(s, 'Asset', r.buffer!.id, `${w.name} released the existing buffer rail clamps.`);
         transition(s, j, 'buffer-rig');
       }
     }
@@ -2018,7 +2020,7 @@ export function tickRailWork(s: State, j: Job, dt: number, api: RailWorkAPI): bo
       api.event(
         s,
         'Asset',
-        'BUFFER-001',
+        r.buffer!.id,
         'Existing buffer lowered onto its temporary resting place beside the track.',
       );
       transition(s, j, j.cancel ? 'buffer-retrieve' : 'panel-approach');
@@ -2123,6 +2125,38 @@ export function tickRailWork(s: State, j: Job, dt: number, api: RailWorkAPI): bo
           releaseRailBatchBuffer(s, j);
           r.buffer = undefined;
           finish(s, j, api);
+        } else if (r.buffer && railBufferShouldBeStored(s, j)) {
+          syncBufferAsset(s, r.buffer);
+          const b = r.buffer;
+          const recovery: Job = {
+            id: api.id(s, 'job'),
+            kind: 'remove',
+            item: 'bufferStop',
+            target: b.id,
+            x: b.x - 1,
+            z: b.z - 1,
+            w: 2,
+            d: 2,
+            rotation: 0,
+            qty: 1,
+            status: 'todo',
+            phase: 'Waiting',
+            reason: 'Recover surplus buffer into storage',
+            progress: 0,
+            delivered: false,
+            elapsed: 0,
+            created: s.time,
+            parentId: j.parentId,
+          };
+          s.jobs.push(recovery);
+          api.event(
+            s,
+            'Work',
+            recovery.id,
+            `Recover ${b.id} into stock: the new rail joins an existing track.`,
+          );
+          r.buffer = undefined;
+          finish(s, j, api);
         } else if (r.buffer) transition(s, j, 'buffer-retrieve');
         else finish(s, j, api);
       }
@@ -2171,7 +2205,7 @@ export function tickRailWork(s: State, j: Job, dt: number, api: RailWorkAPI): bo
         api.event(
           s,
           'Asset',
-          'BUFFER-001',
+          r.buffer!.id,
           `${w.name} secured the same buffer at ${b.x.toFixed(1)}, ${b.z.toFixed(1)}.`,
         );
         finish(s, j, api);
@@ -2204,8 +2238,7 @@ export function tickRailWork(s: State, j: Job, dt: number, api: RailWorkAPI): bo
   if (e.cargo?.item === railItem(j) && ['carried', 'placed'].includes(r.panel.state))
     e.cargo.yaw = r.panel.yaw;
   if (r.buffer) {
-    s.buffer.x = r.buffer.x;
-    s.buffer.z = r.buffer.z;
+    syncBufferAsset(s, r.buffer);
     syncRailBatchBuffer(s, j);
   }
   if (j.status === 'doing')

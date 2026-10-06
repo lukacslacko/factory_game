@@ -1,0 +1,138 @@
+extends SceneTree
+## Native controls and physical buffer identities, without a JS service or GPU.
+const UI=preload("res://scripts/game_ui.gd")
+const W=preload("res://scripts/game_world.gd")
+class MainHarness:
+	extends "res://scripts/main.gd"
+	func _ready()->void:
+		set_process(false)
+		set_process_input(false)
+class FakeClient:
+	extends Node
+	var sent:Array=[]
+	func send(action:String,args:Dictionary)->int:
+		sent.append({"action":action,"args":args})
+		return sent.size()
+var failures:Array[String]=[]
+var checks:int=0
+var actions:Array[Dictionary]=[]
+func _initialize()->void:_run.call_deferred()
+func _check(value:bool,label:String)->void:
+	checks+=1
+	if not value:failures.append(label)
+func _button(node:Node,text:String)->Button:
+	if node is Button and node.text==text:return node
+	for child in node.get_children():
+		var found:=_button(child,text)
+		if found:return found
+	return null
+func _red_vertices(node:Node3D)->Array[Vector3]:
+	var points:Array[Vector3]=[]
+	for child in node.get_children():
+		if child is MeshInstance3D and child.material_override is StandardMaterial3D:
+			var material:StandardMaterial3D=child.material_override
+			if material.albedo_color.is_equal_approx(Color("bb4835")):
+				for surface in range(child.mesh.get_surface_count()):
+					for point in child.mesh.surface_get_arrays(surface)[Mesh.ARRAY_VERTEX]:points.append(child.global_transform*point)
+		if child is Node3D:points.append_array(_red_vertices(child))
+	return points
+func _run()->void:
+	var fixture:Dictionary=JSON.parse_string(FileAccess.get_file_as_string("res://tests/renderer-fixtures.json")).empty.duplicate(true)
+	fixture.state.buffers=[{"id":"BUFFER-001","x":125,"z":5,"y":.2,"yaw":0,"secured":true,"carried":false},{"id":"BUFFER-9002","x":95,"z":30,"y":.2,"yaw":PI/2,"secured":true,"carried":false,"source":"STK-9002"}]
+	fixture.render.railOpenEndpoints=[{"id":"END-9001","x":125,"z":5,"yaw":0,"trackId":"RAIL-9001","panelId":"RAIL-9001","route":"straight","occupiedBy":"BUFFER-001"},{"id":"END-9002","x":150,"z":5,"yaw":0,"trackId":"RAIL-9002","panelId":"RAIL-9002","route":"straight","occupiedBy":""}]
+	var ui:=UI.new();root.add_child(ui);ui.setup()
+	ui.command.connect(func(action:String,args:Dictionary)->void:actions.append({"action":action,"args":args}))
+	ui.update_snapshot(fixture)
+	ui.receive_reply({"action":"new_game","ok":true})
+	_check(ui.catalog.has("bufferStop"),"Purchase catalog includes physical buffer stops")
+	_check(ui.turnout_flow.item_count==2,"Turnout placement exposes diverging and converging choices")
+	ui.turnout_flow.selected=1;ui.turnout_flow.item_selected.emit(1)
+	_check(actions.back()=={"action":"rail_flow","args":{"flow":"converging"}},"Converging choice emits the explicit flow mode")
+	ui.show_tab("Railway")
+	_check(ui.tables.size()==4 and ui.tables[2].rows.size()==2 and ui.tables[3].rows.size()==2,"Railway register lists actual endpoints and independent buffers")
+	ui.show_entity("END-9002")
+	var install:=_button(ui.inspector_body,"Install buffer stop here")
+	_check(install!=null and not install.disabled,"Open endpoint exposes an installation action")
+	if install:install.pressed.emit()
+	_check(actions.back()=={"action":"plan_buffer","args":{"x":150.0,"z":5.0}},"Installation command uses the actual endpoint coordinates")
+	ui.show_entity("END-9001")
+	install=_button(ui.inspector_body,"Install buffer stop here")
+	_check(install!=null and install.disabled,"Occupied endpoint does not invite duplicate stops")
+	ui.show_entity("BUFFER-9002")
+	var remove:=_button(ui.inspector_body,"Remove and store buffer stop")
+	_check(remove!=null and not remove.disabled,"Independent installed buffer opens its recovery inspector")
+	if remove:remove.pressed.emit()
+	_check(actions.back()=={"action":"remove_buffer","args":{"id":"BUFFER-9002"}},"Recovery keeps the chosen physical stop identity")
+	fixture.state.buffers[1].carried=true;fixture.state.buffers[1].secured=false
+	ui.update_snapshot(fixture);ui.show_entity("BUFFER-9002")
+	remove=_button(ui.inspector_body,"Remove and store buffer stop")
+	_check(remove!=null and remove.disabled,"Carried/unsecured buffer cannot create another recovery job")
+	fixture.state.buffers[1].carried=false;fixture.state.buffers[1].secured=true
+	var world:=W.new();root.add_child(world);world.setup();world.sync_snapshot(fixture)
+	_check(world.statics.has("BUFFER-001") and world.statics.has("BUFFER-9002"),"All actual buffer assets render independently")
+	_check(world.entity_position("END-9002").is_equal_approx(Vector3(150,0,5)),"Endpoint Locate targets its actual track position")
+	_check(world.statics.size()==2,"Legacy compatibility buffer does not create a duplicate model")
+	_check(world.entity_position("BUFFER-9002").is_equal_approx(Vector3(95,.2,30)),"Second buffer uses its actual pose")
+	_check(world.pick_ground(Vector3(95,0,30))=="BUFFER-9002","Buffer floor picking preserves stable asset identity")
+	var camera:=Camera3D.new();root.add_child(camera);camera.position=Vector3(95,8,43);camera.look_at(Vector3(95,1,30));camera.current=true
+	var click:=camera.unproject_position(Vector3(95,1.05,30))
+	_check(world.pick_screen(camera,click)=="BUFFER-9002","Elevated buffer crossbar is clickable through analytical model bounds")
+	var reused:int=world.statics["BUFFER-9002"].get_instance_id();world.sync_snapshot(fixture)
+	_check(world.statics["BUFFER-9002"].get_instance_id()==reused,"Unchanged buffer models reuse native nodes")
+	fixture.state.jobs.append({"id":"JOB-9001","item":"rail","kind":"rail","status":"doing","x":125,"z":4,"w":5,"d":2,"qty":1,"bufferId":"BUFFER-001"})
+	fixture.render.railWork=[{"jobId":"JOB-9001","buffer":{"id":"BUFFER-001","x":130,"z":9,"y":.2,"yaw":0,"carried":false,"secured":false},"panel":{},"phase":"park-buffer"}]
+	world.sync_snapshot(fixture)
+	_check(not world.statics.has("BUFFER-001") and world.statics.has("BUFFER-9002"),"Moving one buffer suppresses only its static representation")
+	_check(world.models.has("JOB-9001/buffer"),"Actual rail-work buffer pose renders during relocation")
+	_check(world.models["JOB-9001/buffer"].get_meta("inspect_id")=="BUFFER-001","Moving buffer retains an inspectable physical identity")
+	fixture.render.railWork=[];fixture.state.jobs=[];fixture.state.buffers.remove_at(1)
+	fixture.state.stacks=[{"id":"STK-9002","item":"bufferStop","qty":1,"reserved":0,"x":93,"z":30,"w":2,"d":2,"assetId":"BUFFER-9002"}]
+	world.sync_snapshot(fixture)
+	_check(not world.statics.has("BUFFER-9002") and world.statics.has("STK-9002"),"Recovered buffer is a physical stock asset rather than a ghost installed stop")
+	var stock:Node3D=world.statics["STK-9002"]
+	_check(world._local_model_bounds(stock,Transform3D.IDENTITY).size.y<1.5,"Recovered stock uses the actual compact buffer model, not a generic tall kit")
+	# The stored footprint is centered, while installation uses the actual
+	# contact endpoint. Final clamping must not shift the visible crossbar.
+	fixture.state.stacks=[]
+	fixture.state.jobs=[{"id":"JOB-9003","kind":"bufferStop","item":"bufferStop","status":"doing","x":94,"z":29.5,"w":2,"d":2,"qty":1}]
+	fixture.render.construction=[{"jobId":"JOB-9003","item":"bufferStop","qty":1,"state":"placed","pose":{"x":95,"z":30,"y":.2,"yaw":PI/2}}]
+	world.sync_snapshot(fixture)
+	_check(world.models.has("JOB-9003/handling"),"Buffer installation draws its actual contact-point handling pose")
+	var before:Array[Vector3]=_red_vertices(world.models["JOB-9003/handling"])
+	_check(not before.is_empty(),"Installation has a real visible buffer crossbar")
+	fixture.render.construction=[];fixture.state.jobs=[]
+	fixture.state.buffers.append({"id":"BUFFER-9002","x":95,"z":30,"y":.2,"yaw":PI/2,"secured":true,"carried":false})
+	world.sync_snapshot(fixture)
+	var after:Array[Vector3]=_red_vertices(world.statics["BUFFER-9002"])
+	_check(before==after,"Fastening a buffer preserves all crossbar vertices without a final sideways jump")
+	_check(not world.models.has("JOB-9003/handling"),"Finished buffer installation removes its temporary handling model")
+	var main:=MainHarness.new();root.add_child(main);main.world=world;main.ui=ui;var client:=FakeClient.new();main.client=client;main.add_child(client);main.add_child(main.camera);main.add_child(main.sun)
+	main._command("rail_flow",{"flow":"converging"})
+	_check(main.rail_flow=="converging" and main.preview_dirty,"Turnout mode updates the native placement preview")
+	main.tool="railTurnout";main._place(Vector3(150,0,5),Vector3(150,0,5))
+	_check(not client.sent.is_empty() and client.sent.back().args.get("flow")=="converging","Native rail placement sends convergence through the runtime API")
+	main.preview_point=Vector3(150,0,5);main.preview_dirty=true;main._process(.2)
+	_check(client.sent.back().action=="rail_preview" and client.sent.back().args.get("flow")=="converging","Native exact turnout preview uses the selected convergence mode")
+	main._command("rail_flow",{"flow":"diverging"})
+	_check(main.rail_flow=="diverging","Player can return to ordinary diverging turnout construction")
+	main._process(.2)
+	_check(client.sent.back().action=="rail_preview" and client.sent.back().args.get("flow")=="diverging","Changing mode refreshes the preview even at the same cursor location")
+	# Old saves contain only {x,z} in state.buffer. The bridge resolves
+	# protected orientation/provenance without mutating the imported save.
+	var legacy:Dictionary=fixture.duplicate(true)
+	legacy.state.erase("buffers")
+	legacy.state.buffer={"x":125,"z":5}
+	legacy.render.buffers=[{"id":"BUFFER-001","x":125,"z":5,"y":.2,"yaw":PI,"secured":true,"carried":false,"source":"opening"}]
+	ui.update_snapshot(legacy);ui.show_tab("Railway")
+	_check(ui.tables[3].rows.size()==1 and ui.tables[3].rows[0].cells[2]=="Yes" and ui.tables[3].rows[0].cells[4]=="opening","Legacy buffer register uses bridge-resolved secured state and provenance")
+	ui.show_entity("BUFFER-001")
+	remove=_button(ui.inspector_body,"Remove and store buffer stop")
+	_check(remove!=null and not remove.disabled,"Protected legacy buffer supports physical recovery through the inspector")
+	world.sync_snapshot(legacy)
+	_check(world.statics.has("BUFFER-001") and is_equal_approx(world.statics["BUFFER-001"].rotation.y,-PI),"Legacy buffer model uses resolved orientation instead of a default east-facing pose")
+	_check(world._buffer_records()==legacy.render.buffers and ui._buffer_records()==legacy.render.buffers,"World and UI share the exact resolved legacy buffer assets")
+	legacy.state.buffers=[]
+	ui.update_snapshot(legacy);world.sync_snapshot(legacy)
+	_check(ui._buffer_records().is_empty() and world._buffer_records().is_empty() and not world.statics.has("BUFFER-001"),"An explicit empty modern buffer array never resurrects a legacy stop")
+	print("SWITCH_UI_SMOKE ",JSON.stringify({"passed":failures.is_empty(),"checks":checks,"failures":failures,"serviceStarted":false,"gpuRendering":false}))
+	quit(0 if failures.is_empty() else 1)

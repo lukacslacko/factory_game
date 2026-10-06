@@ -6,6 +6,7 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { performance } from 'node:perf_hooks';
 import * as Sim from '../src/sim';
+import { bufferAssets } from '../src/buffers';
 import {
   MATERIALS,
   BUILDINGS,
@@ -30,7 +31,7 @@ import {
   saveRailLocation,
   removeRailLocation,
 } from '../src/rail-locations';
-import { snapTrackStart, trackSections, trackGeometry, type TrackPiece } from '../src/track';
+import { snapTrackStart, railLayoutPieces, trackGeometry, type TrackPiece } from '../src/track';
 import {
   packPurchase,
   itemMass,
@@ -204,6 +205,7 @@ function reportingRows() {
     costs: state.costs,
     inbox: state.notices,
     railway: state.rails,
+    buffers: bufferAssets(state),
     locations: state.railLocations || [],
     movements: state.movements.slice(-1000).reverse(),
   };
@@ -256,6 +258,9 @@ function railPreview(a: any) {
   let origin = point(a),
     heading = a.heading ?? 0;
   if (![0, 1, 2, 3].includes(heading)) throw new Error('Rail heading must be 0, 1, 2, or 3.');
+  const flow: TrackPiece['flow'] = a.flow === 'converging' ? 'converging' : undefined;
+  if (a.flow !== undefined && !['diverging', 'converging'].includes(a.flow))
+    throw new Error('Choose diverging or converging turnout flow.');
   const hand = a.hand ?? 1;
   if (![1, -1].includes(hand)) throw new Error('Rail hand must be 1 or -1.');
   if (a.snap !== false) {
@@ -266,13 +271,14 @@ function railPreview(a: any) {
     }
   }
   origin = { x: Math.round(origin.x), z: Math.round(origin.z) };
-  const pieces = trackSections(layout, origin, heading, hand);
+  const pieces = railLayoutPieces(layout, origin, heading, hand, flow);
   return {
     origin,
     heading,
     hand,
+    flow,
     layout,
-    error: Sim.validRailLayout(state, layout, origin, heading, hand),
+    error: Sim.validRailLayout(state, layout, origin, heading, hand, flow),
     pieces,
     geometries: pieces.map(trackGeometry),
   };
@@ -435,10 +441,18 @@ async function dispatch(action: string, a: any) {
     case 'plan_rail': {
       const p = railPreview(a);
       check(p.error);
-      const result = Sim.planRailLayout(state, p.layout, p.origin, p.heading, p.hand);
+      const result = Sim.planRailLayout(state, p.layout, p.origin, p.heading, p.hand, p.flow);
       check(result.error);
       return result;
     }
+    case 'plan_buffer': {
+      const result = Sim.planBufferStop(state, point(a));
+      check(result.error);
+      return result;
+    }
+    case 'remove_buffer':
+      check(Sim.removeBufferStop(state, entityId(a)));
+      return {};
     case 'resume_track':
       check(Sim.resumeTrackWork(state, entityId(a)));
       return {};

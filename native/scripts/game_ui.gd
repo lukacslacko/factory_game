@@ -16,6 +16,7 @@ const CATALOG: Dictionary = {
 	"builder":{"name":"Construction worker","price":90,"wage":28},"operator":{"name":"Equipment operator","price":120,"wage":36},"engineer":{"name":"Site engineer","price":150,"wage":42},
 	"excavator":{"name":"EX-6 tracked excavator","price":64000,"mass":8500,"capacity":6000},"forklift":{"name":"FL-25 rough-terrain forklift","price":28500,"mass":4500,"capacity":2500},
 	"slab":{"name":"Concrete slab · 1 × 1 m","price":38,"mass":280},"rail":{"name":"Straight rail panel · 5 m","price":780,"mass":1450},"railCurve":{"name":"Curved rail panel · 15°","price":1120,"mass":1520},
+	"bufferStop":{"name":"Railway buffer stop","price":1250,"mass":850},
 	"railPoints":{"name":"Turnout points module","price":3100,"mass":1750},"railFrog":{"name":"Turnout frog module","price":2450,"mass":1520},"railClosure":{"name":"Turnout closure module","price":2100,"mass":1520},"railExit":{"name":"Turnout exit module","price":1950,"mass":1520},
 	"office":{"name":"Office container","price":7200,"mass":4800},"sanitary":{"name":"Sanitary container","price":4600,"mass":2000},"shed":{"name":"Equipment shed kit","price":5200,"mass":2200},"store":{"name":"Stores building kit","price":6400,"mass":2600},
 	"lamp":{"name":"Light pole kit","price":340,"mass":160},"diesel":{"name":"Diesel drum · 200 L","price":320,"mass":185},"fence":{"name":"Fence panel","price":115,"mass":60},"power":{"name":"Electrical connection","price":1800},"water":{"name":"Water/sewer connection","price":2300}
@@ -74,6 +75,8 @@ var pending_confirmation: Callable
 var tool_label: Label
 var release_control_button: Button
 var group_expansion: Dictionary = {}
+var turnout_flow: OptionButton
+var buffer_endpoint_window: Window
 
 func setup() -> void:
 	layer=10
@@ -315,6 +318,10 @@ func _build_yard_controls() -> void:
 	tools.add_child(rail_row)
 	for key: String in {"railStraight":"Straight rail","railCurve":"90° curve","railTurnout":"Turnout"}:
 		_button(rail_row,{"railStraight":"Straight rail","railCurve":"90° curve","railTurnout":"Turnout"}[key],func() -> void: _select_tool(key))
+	turnout_flow=_option(rail_row,["Diverging turnout","Converging turnout"])
+	turnout_flow.size_flags_horizontal=Control.SIZE_SHRINK_BEGIN
+	turnout_flow.tooltip_text="Diverging: one incoming track splits into two. Converging: two incoming tracks join one; click the straight incoming endpoint and point toward the junction."
+	turnout_flow.item_selected.connect(func(index: int) -> void: _send("rail_flow",{"flow":"converging" if index==1 else "diverging"}))
 	_button(rail_row,"Rotate R",func() -> void: _send("rotate",{}))
 	_button(rail_row,"Left / right",func() -> void: _send("rail_hand",{}))
 	_button(rail_row,"Buy missing",func() -> void: _send("buy_missing",{}))
@@ -585,8 +592,11 @@ func _build_register() -> void:
 		"Railway":
 			_note(register_body,"Named locations mark track intervals. Supplier trains still use the receiving siding; shunting is a later feature.")
 			_button(filters,"+ Named location",_new_rail_location)
+			_button(filters,"+ Buffer stop",func() -> void: _buffer_endpoint_form())
 			_table(register_body,"Named locations",["ID","Name","Purpose","Track","Offset m","Length m","Status"])
 			_table(register_body,"Installed track",["ID","Piece","Position","Length m","Route","Group"])
+			_table(register_body,"Open track endpoints · select one to install a buffer stop",["ID","Track","Route","Position","Buffer / reservation"])
+			_table(register_body,"Buffer stops",["ID","Position","Secured","Carried","Source"])
 		"Materials":
 			_table(register_body,"Inventory",["Material","Delivered","Incoming","Stored","Reserved","In transit","Installed","Construction","Mass stored"])
 			_table(register_body,"Physical stacks",["ID","Material","Qty","Reserved","Footprint","Position","Source","Diesel L"])
@@ -635,7 +645,13 @@ func _refresh_register() -> void:
 			_set_table(0,rows); rows=[]
 			for e: Dictionary in _records("rails"):
 				rows.append(_row(str(e.id),[e.id,e.get("item","rail"),_position(e),e.get("length",5),e.get("selectedRoute","straight"),e.get("track",{}).get("groupId","")]))
-			_set_table(1,rows)
+			_set_table(1,rows); rows=[]
+			for e: Dictionary in metadata.get("render",{}).get("railOpenEndpoints",[]):
+				rows.append(_row(str(e.get("id","")),[e.get("id",""),e.get("panelId",e.get("trackId","")),e.get("route","straight"),_position(e),e.get("occupiedBy","")]))
+			_set_table(2,rows); rows=[]
+			for e: Dictionary in _buffer_records():
+				rows.append(_row(str(e.id),[e.id,_position(e),"Yes" if e.get("secured",false) else "No","Yes" if e.get("carried",false) else "No",e.get("source","")]))
+			_set_table(3,rows)
 		"Materials":
 			for value: Dictionary in metadata.get("inventory",[]):
 				var key: String = str(value.get("item",""))
@@ -724,7 +740,10 @@ func _entity(id: String) -> Dictionary:
 	for key: String in ["workers","equipment","stacks","buildings","rails","zones","jobs","jobGroups","orders","railLocations","notices","events","costs","movements"]:
 		for entity: Dictionary in _records(key):
 			if str(entity.get("id",""))==id: return {"type":key,"entity":entity}
-	if id=="BUFFER-001": return {"type":"buffer","entity":state.get("buffer",{})}
+	for buffer: Dictionary in _buffer_records():
+		if str(buffer.id)==id:return {"type":"buffer","entity":buffer}
+	for endpoint: Dictionary in metadata.get("render",{}).get("railOpenEndpoints",[]):
+		if str(endpoint.get("id",""))==id:return {"type":"railEndpoint","entity":endpoint}
 	return {}
 
 func _detail(label_text: String,value: Variant) -> void:
@@ -842,6 +861,8 @@ func _render_inspector() -> void:
 				_detail("Selected route",entity.selectedRoute)
 				_button(inspector_body,"Request straight route",func() -> void: _send("turnout",{"id":selected_id,"route":"straight"}))
 				_button(inspector_body,"Request branch route",func() -> void: _send("turnout",{"id":selected_id,"route":"branch"}))
+			if str(entity.get("track",{}).get("flow",""))=="converging":_detail("Turnout flow","Converging · two incoming tracks join one")
+			_button(inspector_body,"Install buffer at open endpoint",func() -> void: _buffer_endpoint_form(selected_id))
 			_button(inspector_body,"Designate named rail location",func() -> void: _rail_location_form(entity))
 		"railLocations":
 			_detail("Track",entity.get("trackId",""))
@@ -854,7 +875,20 @@ func _render_inspector() -> void:
 			_note(inspector_body,str(entity.get("detail","")))
 			var stage: OptionButton = _option(inspector_body,["To do","Doing","Done"],["todo","doing","done"].find(entity.get("state","todo")))
 			_button(inspector_body,"Update notice",func() -> void: _send("notice",{"id":selected_id,"state":["todo","doing","done"][stage.selected],"seen":true}))
-		"buffer": _note(inspector_body,"The crew moves the buffer at the beginning and end of a connected rail work order.")
+		"buffer":
+			_detail("Secured","Yes" if entity.get("secured",false) else "No")
+			_detail("Carried","Yes" if entity.get("carried",false) else "No")
+			_detail("Source",entity.get("source",""))
+			_note(inspector_body,"A crew unfastens the stop, then owned equipment carries it to physical storage. Rail work also relocates its affected endpoint stop.")
+			var remove: Button = _button(inspector_body,"Remove and store buffer stop",func() -> void: _send("remove_buffer",{"id":selected_id}))
+			remove.disabled=bool(entity.get("carried",false)) or not bool(entity.get("secured",false))
+		"railEndpoint":
+			_detail("Track",entity.get("panelId",entity.get("trackId","")))
+			_detail("Route",entity.get("route","straight"))
+			_detail("Buffer / work",entity.get("occupiedBy",""))
+			var install: Button = _button(inspector_body,"Install buffer stop here",func() -> void: _send("plan_buffer",{"x":float(entity.x),"z":float(entity.z)}))
+			install.disabled=not str(entity.get("occupiedBy","")).is_empty()
+			_note(inspector_body,"Order a buffer stop first. Equipment brings the actual stop here and a worker fastens it to the rails.")
 		_:
 			for key: String in entity:
 				if key!="id": _detail(key,entity[key])
@@ -1075,6 +1109,50 @@ func _order_inspector(order: Dictionary) -> void:
 	var worker: OptionButton = _entity_option(inspector_body,"workers","Choose receiving operator…",controlled_worker,true)
 	_button(inspector_body,"Assign operator to unloading",func() -> void:
 		if not _selection(worker).is_empty(): _send("unload",{"orderId":id,"workerId":_selection(worker)}))
+
+
+func _buffer_records() -> Array:
+	if state.has("buffers"):return state.buffers
+	if metadata.get("render",{}).has("buffers"):return metadata.render.buffers
+	var legacy: Dictionary = state.get("buffer",{})
+	if legacy.is_empty():return []
+	var record: Dictionary = legacy.duplicate()
+	record["id"]=str(record.get("id","BUFFER-001"))
+	return [record]
+
+func _buffer_endpoint_form(track_id: String = "") -> void:
+	var endpoints: Array = []
+	for endpoint: Dictionary in metadata.get("render",{}).get("railOpenEndpoints",[]):
+		if not str(endpoint.get("occupiedBy","")).is_empty():continue
+		if not track_id.is_empty() and track_id not in [str(endpoint.get("trackId","")),str(endpoint.get("panelId",""))]:continue
+		endpoints.append(endpoint)
+	if endpoints.is_empty():
+		show_error("No unoccupied open track endpoint is available here. Select another track or remove its existing buffer first.")
+		return
+	if is_instance_valid(buffer_endpoint_window):buffer_endpoint_window.queue_free()
+	var window: Window = Window.new()
+	buffer_endpoint_window=window
+	window.title="Install railway buffer stop"
+	window.size=Vector2i(560,220)
+	window.theme=screen.theme
+	window.transient=true
+	window.exclusive=true
+	window.close_requested.connect(window.queue_free)
+	add_child(window)
+	var body: VBoxContainer = VBoxContainer.new()
+	body.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	body.offset_left=12;body.offset_top=12;body.offset_right=-12;body.offset_bottom=-12
+	window.add_child(body)
+	_note(body,"Choose an actual open rail endpoint. An owned machine and worker will carry and fasten an available buffer stop.")
+	var choices: Array = []
+	for endpoint: Dictionary in endpoints:choices.append("%s · %s · %s"%[endpoint.get("panelId",endpoint.get("trackId","")),endpoint.get("route","straight"),_position(endpoint)])
+	var option: OptionButton = _option(body,choices)
+	_button(body,"Plan buffer installation",func() -> void:
+		var endpoint: Dictionary = endpoints[option.selected]
+		_send("plan_buffer",{"x":float(endpoint.x),"z":float(endpoint.z)})
+		window.queue_free())
+	_button(body,"Purchase buffer stops…",func() -> void: window.queue_free(); _open_purchase())
+	window.popup_centered()
 
 func _new_rail_location() -> void:
 	var track: Dictionary = {}

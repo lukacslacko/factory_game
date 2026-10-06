@@ -9,6 +9,7 @@ export type Item =
   | 'railFrog'
   | 'railClosure'
   | 'railExit'
+  | 'bufferStop'
   | 'office'
   | 'sanitary'
   | 'shed'
@@ -126,6 +127,14 @@ export interface Building extends Rect {
   name: string;
   source?: string;
 }
+export interface BufferStop extends Point {
+  id: string;
+  y: number;
+  yaw: number;
+  secured: boolean;
+  carried: boolean;
+  source?: string;
+}
 export interface Rail extends Point {
   track?: TrackPiece;
   item?: Item;
@@ -186,7 +195,7 @@ export type RailWorkPhase =
   | 'complete';
 export type RailWorkPose = Point & { y: number; yaw: number };
 export interface RailBatchBuffer {
-  pose: RailWorkPose & { id: 'BUFFER-001'; secured: boolean; carried: boolean };
+  pose: RailWorkPose & { id: string; secured: boolean; carried: boolean };
   start: RailWorkPose;
   latestEnd: RailWorkPose;
   ownerJob?: string;
@@ -224,7 +233,7 @@ export interface RailWork {
     stackId?: string;
     railId?: string;
   };
-  buffer?: RailWorkPose & { id: 'BUFFER-001'; secured: boolean; carried: boolean };
+  buffer?: RailWorkPose & { id: string; secured: boolean; carried: boolean };
   source?: {
     stackId: string;
     pose: RailWorkPose;
@@ -328,6 +337,8 @@ export interface Job extends Rect {
   /** First physical pass of this same panel record, handed off after staging. */
   railStageOnly?: boolean;
   railBufferCleanup?: boolean;
+  bufferTarget?: Point & { yaw: number };
+  bufferDestination?: Rect;
   id: string;
   kind: BuildKind | 'refuel' | 'remove' | 'throwSwitch' | 'moveStock';
   /** Exact-source physical rail relocation, never a construction material demand. */
@@ -499,6 +510,7 @@ export interface State {
   buildings: Building[];
   rails: Rail[];
   railLocations?: RailLocation[];
+  buffers?: BufferStop[];
   paving: Record<string, string>;
   /** Compaction from accepted equipment travel, bounded to one value per meter cell. */
   groundWear?: Record<string, number>;
