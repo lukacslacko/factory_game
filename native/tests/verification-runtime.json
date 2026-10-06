@@ -1,0 +1,59 @@
+{
+  "verifiedAt": "2026-10-05T22:46:51.616642+00:00",
+  "command": "npm run native:test",
+  "tests": 8,
+  "passed": 8,
+  "failed": 0,
+  "durationMs": 8573.660209,
+  "buildCommand": "npm run native:build",
+  "typecheck": "passed",
+  "serviceBytes": 557559,
+  "sqlWasmBytes": 658410,
+  "rendererFixtureValidation": "All 8 fixture imports and actor/cargo render numbers valid",
+  "limits": {
+    "snapshotHz": 5,
+    "simulationStepSeconds": 0.05,
+    "socketWriteBytes": 8000000,
+    "snapshotBackpressureBytes": 1000000,
+    "pendingCommands": 64,
+    "diagnosticEntries": 12000,
+    "diagnosticEntryBytes": 4000000,
+    "diagnosticCheckpoints": 4
+  },
+  "featuresTested": [
+    "startup-menu-preservation",
+    "authenticated-loopback",
+    "unfocused-real-time-clock",
+    "fixed-step-10x-physics-parity",
+    "pause",
+    "disconnect-save-and-child-exit",
+    "restart-continue",
+    "batched-orders-and-mass",
+    "rail-preview-snapping-and-planning",
+    "roles-helpers-manual-equipment-assignments-shifts",
+    "read-only-SQL",
+    "import-validation-backup-export-CSV",
+    "bounded-rolling-diagnostics",
+    "slow-reader-backpressure-with-independent-ticks",
+    "full-audit-totals-with-bounded-display-tails"
+  ],
+  "renderReview": [
+    "road cargo base 1.15 m, rail cargo base 1.3 m from shared simulation constants",
+    "paved contact .105 m; transport equipment on actual .82 m lowloader deck",
+    "workers in cab or home/aboard/returning hidden",
+    "staged stock duplication addressed with renderer agent",
+    "carried rail attachments sampled from actual equipment chassis",
+    "fork support top exposed explicitly",
+    "shed anchors and actual service fuel can metadata",
+    "fixture camera focuses copied from immutable saved states"
+  ],
+  "finalRenderVerification": {
+    "verifiedAt": "2026-10-05T22:59:29.523075+00:00",
+    "command": "node --import tsx --test --test-name-pattern='native render poses' tests/native-runtime.test.ts",
+    "passed": 1,
+    "failed": 0,
+    "shedHookHeadroomMeters": 0.7,
+    "actualShedFixtureClearanceAssertion": "passed",
+    "typecheckAndNativeBuild": "passed"
+  }
+}

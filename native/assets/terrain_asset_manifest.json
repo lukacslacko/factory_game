@@ -1,0 +1,46 @@
+[
+  {
+    "asset": "dirt",
+    "author": "Charlotte Baglioni",
+    "channel": "Diffuse",
+    "resolution": "2k",
+    "size": 3053062,
+    "url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/2k/dirt/dirt_diff_2k.jpg",
+    "md5": "8e6fb7316bca5840c386cb72a3f16c62",
+    "file": "textures/dirt_diff_2k.jpg",
+    "sha256": "126d3e4886cc94b494ba609ddc323a77ff0362a1b156c3750d5d2a0a0ead02b8"
+  },
+  {
+    "asset": "dirt",
+    "author": "Charlotte Baglioni",
+    "channel": "nor_gl",
+    "resolution": "1k",
+    "size": 1202783,
+    "url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/dirt/dirt_nor_gl_1k.jpg",
+    "md5": "362610edf09fd31735958eecec823a84",
+    "file": "textures/dirt_nor_gl_1k.jpg",
+    "sha256": "5a5f97d920fdcdf352b350b95558bf48bb306be1fe61a47418aadc60b7deb0ce"
+  },
+  {
+    "asset": "sparse_grass",
+    "author": "Amal Kumar",
+    "channel": "Diffuse",
+    "resolution": "2k",
+    "size": 3733797,
+    "url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/2k/sparse_grass/sparse_grass_diff_2k.jpg",
+    "md5": "b181e9c61bae87c1bb9b14eecd767d65",
+    "file": "textures/sparse_grass_diff_2k.jpg",
+    "sha256": "3b655de96161164bf2324e136b3409ad8417c9f94750bc008e9c93ee507c2fac"
+  },
+  {
+    "asset": "sparse_grass",
+    "author": "Amal Kumar",
+    "channel": "nor_gl",
+    "resolution": "1k",
+    "size": 1440314,
+    "url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/sparse_grass/sparse_grass_nor_gl_1k.jpg",
+    "md5": "3307e6ce47413c6b4e85885d4b8ae932",
+    "file": "textures/sparse_grass_nor_gl_1k.jpg",
+    "sha256": "1c840a24807346ddaaf94a5057aee4078fcec3a4cd84bfe45da7d3b480ef460b"
+  }
+]

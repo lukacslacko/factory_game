@@ -1,6 +1,6 @@
 {
   "name": "plant-01-starter-yard",
-  "version": "0.18.0",
+  "version": "0.19.0",
   "private": true,
   "type": "module",
   "scripts": {
@@ -12,7 +12,11 @@
     "start": "node server.mjs",
     "test:browser": "node tests/browser.mjs",
     "format": "prettier --write src tests docs *.json *.html *.mjs",
-    "generate:example": "node --import tsx tests/create-example.ts"
+    "generate:example": "node --import tsx tests/create-example.ts",
+    "native:build": "tsc --noEmit -p native-runtime/tsconfig.json && node native-runtime/build.mjs",
+    "native:service": "node --max-old-space-size=384 native/runtime/service.cjs",
+    "native:test": "node --max-old-space-size=384 --import tsx --test --test-concurrency=1 tests/native-runtime.test.ts",
+    "native:fixtures": "node --max-old-space-size=384 --import tsx native-runtime/create-visual-fixtures.ts"
   },
   "dependencies": {
     "sql.js": "^1.14.2",
@@ -26,7 +30,8 @@
     "prettier": "^3.9.9",
     "tsx": "^4.23.15",
     "typescript": "^7.0.2",
-    "vite": "^8.3.2"
+    "vite": "^8.3.2",
+    "esbuild": "^0.28.2"
   },
   "license": "MIT",
   "repository": {

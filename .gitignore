@@ -10,3 +10,7 @@ work/
 .env.*
 plant01-diagnostics*.json
 plant01-day*.json
+.native-build/
+native/runtime/node
+native/runtime/service.cjs
+native/runtime/sql-wasm.wasm

@@ -1,0 +1,59 @@
+{
+  "verifiedAt": "2026-10-05T23:01:58.100268+00:00",
+  "engine": "Godot 4.7.2 / Forward+ / Metal 3.1",
+  "device": "Apple M2 Pro",
+  "preexistingSimulationTests": 350,
+  "nativeServiceTests": 8,
+  "nativeHeadlessIntegration": "passed; unfocused real-time clock, pause, planning, SQL, save, diagnostics",
+  "rendererSmoke": "passed; physical fork support, entity picking, keyed updates, no invented entities",
+  "uiSmoke": "passed; 11 registers, hierarchy, IDs, uncommitted typed quantities, readable menus",
+  "captures": {
+    "name": "final-native-captures",
+    "elapsed_seconds": 28.04,
+    "peak_resident_bytes": 564559872,
+    "returncode": 0,
+    "stopped_reason": null
+  },
+  "captureCount": 12,
+  "fixtureTickCount": 110784,
+  "nativeManual": {
+    "name": "native-manual",
+    "elapsed_seconds": 314.43,
+    "peak_resident_bytes": 509952000,
+    "returncode": 0,
+    "stopped_reason": null
+  },
+  "manualActions": [
+    "opening example",
+    "batch 3 workers + 10 slabs",
+    "2.80 t shipment mass",
+    "sortable delivery headers",
+    "linked PO inspector",
+    "manual dusk/day",
+    "drag plan 5x3 paving",
+    "parent work inspector",
+    "Command-S",
+    "native export dialog",
+    "exported JSON with15 jobs and10 orders",
+    "graceful close"
+  ],
+  "limits": "Short starter-yard checks; no large-factory performance claim; all GPU runs sequential and guarded below2GB.",
+  "packagedIntegration": {
+    "name": "packaged-integration",
+    "elapsed_seconds": 6.69,
+    "peak_resident_bytes": 317734912,
+    "returncode": 0,
+    "stopped_reason": null
+  },
+  "packaging": {
+    "version": "0.19.0",
+    "architecture": "arm64",
+    "appBytes": 322538697,
+    "bundledGodot": "4.7.2",
+    "bundledNode": "24.19.0",
+    "externalDylibs": "system frameworks only; no Homebrew runtime requirement",
+    "signature": "local ad-hoc signature verified",
+    "launchServices": "Mac app opened successfully; native startup choices and cream popup styling visually verified",
+    "manualReviewInterruption": "Mac UI inspection was unavailable during overnight sleep. The six-minute guard stopped the isolated app test; the app was later opened successfully to its untouched startup screen."
+  }
+}

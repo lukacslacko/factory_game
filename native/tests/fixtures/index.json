@@ -1,0 +1,209 @@
+{
+  "generatedAt": "2026-10-05T22:39:19.877Z",
+  "source": "native-runtime/create-visual-fixtures.ts",
+  "step": 0.1,
+  "simulationTicks": 110784,
+  "fixtures": [
+    {
+      "name": "lowloader-ramp",
+      "file": "fixtures/lowloader-ramp.json",
+      "bytes": 5433,
+      "elapsed": 294.39999999999844,
+      "focus": {
+        "x": -10.1,
+        "z": 32.49082812500001
+      },
+      "description": "Purchased excavator is driven down the delivery ramp by its hired operator.",
+      "counts": {
+        "workers": 5,
+        "equipment": 1,
+        "stacks": 0,
+        "jobs": 0
+      },
+      "activePhases": [],
+      "carriers": [
+        {
+          "id": "PO-0005",
+          "kind": "lowloader",
+          "status": "unloading",
+          "loads": 0
+        }
+      ],
+      "renderLoads": 0
+    },
+    {
+      "name": "truck-unloading",
+      "file": "fixtures/truck-unloading.json",
+      "bytes": 13727,
+      "elapsed": 710.300000000093,
+      "focus": {
+        "x": 17.1,
+        "z": 24.85
+      },
+      "description": "Owned machine carrying an actual unloaded stack; remaining freight stays on the truck.",
+      "counts": {
+        "workers": 5,
+        "equipment": 2,
+        "stacks": 0,
+        "jobs": 0
+      },
+      "activePhases": [],
+      "carriers": [
+        {
+          "id": "PO-0034",
+          "kind": "truck",
+          "status": "unloading",
+          "loads": 4
+        },
+        {
+          "id": "PO-0042",
+          "kind": "rail",
+          "status": "approaching",
+          "loads": 2
+        }
+      ],
+      "renderLoads": 1
+    },
+    {
+      "name": "rail-unloading",
+      "file": "fixtures/rail-unloading.json",
+      "bytes": 21335,
+      "elapsed": 783.3000000001095,
+      "focus": {
+        "x": 48.05,
+        "z": 9
+      },
+      "description": "Line locomotive and coupled wagon at the siding while an owned machine carries an actual panel lift.",
+      "counts": {
+        "workers": 5,
+        "equipment": 2,
+        "stacks": 1,
+        "jobs": 0
+      },
+      "activePhases": [],
+      "carriers": [
+        {
+          "id": "PO-0034",
+          "kind": "truck",
+          "status": "unloading",
+          "loads": 3
+        },
+        {
+          "id": "PO-0042",
+          "kind": "rail",
+          "status": "unloading",
+          "loads": 1
+        }
+      ],
+      "renderLoads": 1
+    },
+    {
+      "name": "delivered-stockyard",
+      "file": "fixtures/delivered-stockyard.json",
+      "bytes": 57364,
+      "elapsed": 1833.299999999428,
+      "focus": {
+        "x": 36,
+        "z": 30
+      },
+      "description": "Procured equipment, hired crew, and physically unloaded material stacks.",
+      "counts": {
+        "workers": 5,
+        "equipment": 2,
+        "stacks": 13,
+        "jobs": 0
+      },
+      "activePhases": [],
+      "carriers": [],
+      "renderLoads": 0
+    },
+    {
+      "name": "rail-panel-staging",
+      "file": "fixtures/rail-panel-staging.json",
+      "bytes": 60475,
+      "elapsed": 1894.3999999993725,
+      "focus": {
+        "x": 27.5,
+        "z": 42
+      },
+      "description": "Reserved panel has been rigged, lifted, and is traveling to its actual staging position.",
+      "counts": {
+        "workers": 5,
+        "equipment": 2,
+        "stacks": 13,
+        "jobs": 1
+      },
+      "activePhases": [
+        "stage-travel"
+      ],
+      "carriers": [],
+      "renderLoads": 0
+    },
+    {
+      "name": "rail-buffer-lift",
+      "file": "fixtures/rail-buffer-lift.json",
+      "bytes": 66071,
+      "elapsed": 2058.599999999223,
+      "focus": {
+        "x": 125,
+        "z": 5
+      },
+      "description": "Crew has unbolted the real buffer; the excavator lifts it while the prepared panel remains staged.",
+      "counts": {
+        "workers": 5,
+        "equipment": 2,
+        "stacks": 14,
+        "jobs": 1
+      },
+      "activePhases": [
+        "buffer-lift"
+      ],
+      "carriers": [],
+      "renderLoads": 0
+    },
+    {
+      "name": "shed-partial-erection",
+      "file": "fixtures/shed-partial-erection.json",
+      "bytes": 168627,
+      "elapsed": 10665.300000021269,
+      "focus": {
+        "x": 82,
+        "z": 35
+      },
+      "description": "Foundation paved slab by slab; real anchors, six columns and partial frames are erected while the next component is carried.",
+      "counts": {
+        "workers": 5,
+        "equipment": 2,
+        "stacks": 8,
+        "jobs": 49
+      },
+      "activePhases": [
+        "carry"
+      ],
+      "carriers": [],
+      "renderLoads": 0
+    },
+    {
+      "name": "worker-fuel-can",
+      "file": "fixtures/worker-fuel-can.json",
+      "bytes": 164070,
+      "elapsed": 10242.40000001973,
+      "focus": {
+        "x": 46.5,
+        "z": 48.5
+      },
+      "description": "Actual refueling job transfers diesel from a delivered drum into the worker service can, then carries it to parked equipment.",
+      "counts": {
+        "workers": 5,
+        "equipment": 2,
+        "stacks": 9,
+        "jobs": 49
+      },
+      "activePhases": [
+        "Carry fuel"
+      ],
+      "carriers": [],
+      "renderLoads": 0
+    }
+  ]
+}
