@@ -46,6 +46,7 @@ func setup()->void:
 	preview_node=Node3D.new(); preview_node.name="PlacementPreview"; add_child(preview_node)
 	selection_node=Node3D.new(); selection_node.name="Selection"; add_child(selection_node)
 	intent_node=Node3D.new(); intent_node.name="SelectedEquipmentIntent"; add_child(intent_node)
+	set_grid(grid)
 
 func sync_snapshot(message:Dictionary)->void:
 	if not initialized:setup()
@@ -375,6 +376,8 @@ func set_selected(id:String)->void:
 func set_grid(enabled:bool)->void:
 	grid=enabled
 	if soil:soil.set_shader_parameter("show_grid",enabled)
+	if paving and paving.material_override:
+		(paving.material_override as ShaderMaterial).set_shader_parameter("show_grid",enabled)
 
 func set_dusk(enabled:bool)->void:
 	dusk=enabled

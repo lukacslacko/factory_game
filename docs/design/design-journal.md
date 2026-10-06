@@ -476,3 +476,15 @@ Actual native UI review caught and fixed unreadable popup menus and typed quanti
 The application is the first native playable checkpoint, not a large-factory scalability certification or a notarized public binary. Chemical production and the remaining reception/shunting mechanics stay in their existing issues. The web deployment is unchanged. Native instructions, architecture, real screenshots, fixture saves and measured results are included in the public source.
 
 The completed native source was pushed as `d18bc6e`, and the self-contained Mac app was published in public prerelease `v0.19.0`. Migration issue #19 records the checkpoint and remains open for playtest feedback. The local app is ready at the fresh yard-selection screen; no test game was saved in the normal user folder.
+
+
+## October 6, 2026 — native camera and visibility feedback
+
+The creator confirms that the migrated game works and looks gorgeous. They request working Mac touchpad scrolling alongside the mouse wheel, smooth ground dragging, a clearly visible optional grid, reversed vertical right-button orbit movement, and distant shadows that remain visible. Preserve the approved visual treatment while correcting input and visibility.
+
+Implementation replaces mouse-event camera snaps with frame-time smoothing and an absolute ground anchor picked through the frozen camera at mouse-down. Mac phased two-finger scroll events and high-precision wheel deltas now drive continuous zoom; pinch remains available. Enable the grid material at startup, draw antialiased 1 m lines and stronger 10 m guides on dirt and installed paving, and reverse the vertical orbit delta. Extend sun shadows through the full visible camera range, retain them without fading before that range, and concentrate the existing four shadow maps around the working distance without increasing their texture size.
+
+
+Validation found an additional performance cost at the creator’s larger Retina view: native 3456×1944 rendering measured about 25 FPS even with continuous camera updates. GPU temporal reconstruction improved this to about 44 FPS while keeping full-resolution controls and text. At 1920×1080 the camera runs around 58 FPS. Preserve a saved full-resolution graphics option for the creator to choose detail versus motion. The Apple temporal upscaler failed in an isolated test and was removed; use GPU FSR2. The camera and toggle regressions pass 44 checks, with actual grid-on/grid-off and overview-shadow captures. The creator’s active yard was saved and gracefully closed before sequential tests; replacement of the app must preserve that file and resume the existing yard.
+
+Outcome: the rebuilt v0.19.1 app passes its bundled-runtime integration check in 6.63 seconds with a 292.5 MB sampled renderer peak. The actual saved yard reopened successfully with its original six workers, costs and deliveries. Native scrolling, floor drag, Grid shortcut and the large Retina window were reviewed. The app is left running on that existing yard. Source, three new unedited visibility screenshots and measured camera checks are retained for the public patch.

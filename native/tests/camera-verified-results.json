@@ -1,0 +1,74 @@
+{
+  "version": "0.19.1",
+  "verifiedAt": "2026-10-06T09:54:16.066309+02:00",
+  "cameraChecks": 44,
+  "uiSmoke": "11 registers / 10 inspectors passed",
+  "fullHD": {
+    "medianFrameMs": 17.203,
+    "p95FrameMs": 17.804,
+    "changedFrames": 168,
+    "mouseEvents": 15,
+    "sampledFrames": 180,
+    "peakResidentBytes": 577699840
+  },
+  "retinaBefore": {
+    "resolution": "3456x1944",
+    "medianFrameMs": 40.363,
+    "p95FrameMs": 40.823,
+    "renderScale": 1
+  },
+  "retinaAfter": {
+    "changedFrames": 154,
+    "frames": 180,
+    "gridOnOffCaptured": true,
+    "inputEvents": 15,
+    "medianFrameMs": 22.643,
+    "p95FrameMs": 23.047,
+    "renderMode": 2,
+    "renderScale": 0.591423988342285,
+    "shadowFadeStart": 1.0,
+    "shadowReachMeters": 650.0
+  },
+  "retinaResources": {
+    "name": "camera-retina-fsr",
+    "elapsed_seconds": 19.88,
+    "peak_resident_bytes": 680951808,
+    "returncode": 0,
+    "stopped_reason": null
+  },
+  "failedAlternative": "MetalFX temporal reported an Apple Neural Engine inference error on M2 Pro; removed. Final app uses GPU FSR2 for large windows.",
+  "limits": "Short starter-yard measurements, not large-factory scalability. UI remains native resolution. Physical trackpad hardware requires creator feedback; native pan/wheel event paths are tested.",
+  "finalFullHD": {
+    "changedFrames": 168,
+    "frames": 180,
+    "gridOnOffCaptured": true,
+    "inputEvents": 15,
+    "medianFrameMs": 17.153,
+    "p95FrameMs": 17.557,
+    "renderMode": 0,
+    "renderScale": 1.0,
+    "shadowFadeStart": 1.0,
+    "shadowReachMeters": 650.0
+  },
+  "finalFullHDResources": {
+    "name": "camera-visual-final",
+    "elapsed_seconds": 12.75,
+    "peak_resident_bytes": 584581120,
+    "returncode": 0,
+    "stopped_reason": null
+  },
+  "packagedIntegration": {
+    "name": "camera-packaged-integration",
+    "elapsed_seconds": 6.63,
+    "peak_resident_bytes": 292487168,
+    "returncode": 0,
+    "stopped_reason": null
+  },
+  "actualAppReview": [
+    "Existing saved yard resumed: 6 workers and original costs/orders",
+    "G toggles visible grid and button together",
+    "Native scrolling zooms",
+    "Left floor dragging moves the camera",
+    "Window zoom restores large Retina view"
+  ]
+}

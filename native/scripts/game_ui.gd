@@ -40,6 +40,8 @@ var record_status: OptionButton
 var severity_filter: OptionButton
 var inspector: PanelContainer
 var inspector_scroll: ScrollContainer
+var grid_button: CheckButton
+var lighting_button: CheckButton
 var inspector_body: VBoxContainer
 var time_label: Label
 var summary_label: Label
@@ -283,11 +285,13 @@ func _build_yard_controls() -> void:
 	for preset: String in ["Yard","Rail end","Overview"]:
 		_button(camera_bar,preset,func() -> void: preset_requested.emit(preset.to_lower().replace(" ","-")))
 	var grid: CheckButton = CheckButton.new()
+	grid_button = grid
 	grid.text="Grid"
 	grid.button_pressed=true
 	grid.toggled.connect(func(value: bool) -> void: grid_requested.emit(value))
 	camera_bar.add_child(grid)
 	var light: CheckButton = CheckButton.new()
+	lighting_button = light
 	light.text="Dusk"
 	light.toggled.connect(func(value: bool) -> void: lighting_requested.emit(value))
 	camera_bar.add_child(light)
@@ -339,6 +343,8 @@ func _build_menu() -> void:
 	menu.add_item("Restore previous backup",7)
 	menu.add_item("Controls / guide",8)
 	menu.add_item("Open save folder",9)
+	menu.add_separator()
+	menu.add_check_item("Full-resolution 3D (slower on Retina)",10)
 	menu.id_pressed.connect(_menu_action)
 	screen.add_child(menu)
 	confirmation=ConfirmationDialog.new()
@@ -364,6 +370,11 @@ func _menu_action(id: int) -> void:
 		6: _show_startup()
 		7: _send("restore_backup",{})
 		9: file_requested.emit("folder")
+		10:
+			var index: int = menu.get_item_index(10)
+			var enabled: bool = not menu.is_item_checked(index)
+			menu.set_item_checked(index,enabled)
+			command.emit("native_resolution",{"value":enabled})
 		8:
 			var help: AcceptDialog = AcceptDialog.new()
 			help.title="Plant 01 controls"

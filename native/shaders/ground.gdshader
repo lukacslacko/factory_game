@@ -92,12 +92,17 @@ void fragment() {
         c *= 1.0+wear*.14;
         mapped_normal = vec3(.5+(asphalt_grain-.5)*.055*asphalt_detail,.5+(noise(p*12.0+7.1)-.5)*.055*asphalt_detail,1.0);
     }
-    if (show_grid && surface_kind == 0) {
+    if (show_grid && surface_kind != 2) {
         vec2 d = abs(fract(p + .5) - .5);
-        vec2 width = max(fwidth(p),vec2(.006));
-        vec2 lines = 1.0 - smoothstep(vec2(.008),vec2(.008)+width,d);
-        float grid = max(lines.x,lines.y);
-        c = mix(c, vec3(.23, .205, .153), grid * .04);
+        vec2 width = max(fwidth(p), vec2(.001));
+        // Pixel-filtered world-space lines stay readable on soil and paving.
+        // Fade the 1 m lattice before it aliases; the 10 m guides remain.
+        vec2 lines = 1.0 - smoothstep(width * .30, width * 1.05, d);
+        float minor = max(lines.x, lines.y) * (1.0 - smoothstep(.35, .75, footprint));
+        vec2 major_d = abs(fract(p / 10.0 + .5) - .5) * 10.0;
+        vec2 major_lines = 1.0 - smoothstep(width * .50, width * 1.30, major_d);
+        float major = max(major_lines.x, major_lines.y);
+        c = mix(c, vec3(.14, .19, .14), max(minor * .48, major * .68));
     }
     ALBEDO = c;
     ROUGHNESS = surface_kind == 2 ? .91 : .96;

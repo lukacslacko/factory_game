@@ -31,6 +31,8 @@ var backgrounded: bool = false
 var dragging: bool = false
 var orbiting: bool = false
 var drag_point := Vector3.ZERO
+var drag_start_target := Vector3.ZERO
+var drag_camera_transform := Transform3D.IDENTITY
 var click_screen := Vector2.ZERO
 var click_point := Vector3.ZERO
 var was_dragged: bool = false
@@ -48,6 +50,7 @@ var file_dialog: FileDialog
 var file_action: String = ""
 var test_mode: bool = false
 var capture_mode: bool = false
+var native_resolution: bool = false
 var received_snapshots: int = 0
 var reply_results: Dictionary = {}
 
@@ -56,16 +59,19 @@ func _ready() -> void:
 	get_tree().auto_accept_quit = false
 	get_window().title = "Plant 01 | Native factory game"
 	test_mode = "--native-self-test" in OS.get_cmdline_user_args()
-	capture_mode = "--native-capture" in OS.get_cmdline_user_args() or "--fixture-capture" in OS.get_cmdline_user_args()
+	capture_mode = "--native-capture" in OS.get_cmdline_user_args() or "--fixture-capture" in OS.get_cmdline_user_args() or "--camera-capture" in OS.get_cmdline_user_args()
 	_setup_environment()
 	world = GameWorld.new()
 	add_child(world)
 	world.setup()
+	_set_grid(grid)
 	add_child(camera)
 	camera.current = true
 	camera.fov = 33.0
 	camera.near = 0.2
-	camera.far = 500.0
+	camera.far = 650.0
+	get_viewport().size_changed.connect(_update_render_resolution)
+	_update_render_resolution()
 	_update_camera(0, true)
 	ui = GameUI.new()
 	add_child(ui)
@@ -84,10 +90,17 @@ func _ready() -> void:
 	client.reply_received.connect(_reply)
 	client.connection_changed.connect(_connection)
 	client.start()
+	var graphics := ConfigFile.new()
+	if graphics.load(client.data_directory.path_join("rendering.cfg")) == OK:
+		native_resolution = bool(graphics.get_value("graphics","native_resolution",false))
+		_update_render_resolution()
+	ui.menu.set_item_checked(ui.menu.get_item_index(10),native_resolution)
 	_set_lighting(false)
 	print("NATIVE_GAME_STARTED ", JSON.stringify({"engine":Engine.get_version_info().string,"data_directory":client.data_directory}))
 	if test_mode:
 		_run_self_test.call_deferred()
+	elif "--camera-capture" in OS.get_cmdline_user_args():
+		_run_camera_capture.call_deferred()
 	elif "--fixture-capture" in OS.get_cmdline_user_args():
 		_run_fixture_capture.call_deferred()
 	elif capture_mode:
@@ -133,13 +146,17 @@ func _setup_environment() -> void:
 	sun.shadow_enabled = true
 	sun.shadow_bias = 0.025
 	sun.shadow_normal_bias = 0.55
-	sun.directional_shadow_max_distance = 100.0
+	# Cover the visible frustum, rather than dropping shadows behind the yard.
+	sun.directional_shadow_max_distance = 650.0
+	sun.directional_shadow_fade_start = 1.0
 	sun.directional_shadow_mode = DirectionalLight3D.SHADOW_PARALLEL_4_SPLITS
 	sun.directional_shadow_blend_splits = true
 	sun.light_angular_distance = 0.55
 
 func _set_lighting(value: bool) -> void:
 	dusk = value
+	if is_instance_valid(ui) and is_instance_valid(ui.lighting_button):
+		ui.lighting_button.set_pressed_no_signal(value)
 	if value:
 		sun.shadow_bias = 0.12
 		sun.shadow_normal_bias = 1.25
@@ -196,6 +213,13 @@ func _connection(connected: bool, description: String) -> void:
 		ui.show_error(description)
 
 func _command(action: String, args: Dictionary = {}) -> void:
+	if action == "native_resolution":
+		native_resolution = bool(args.get("value",false))
+		_update_render_resolution()
+		var graphics := ConfigFile.new()
+		graphics.set_value("graphics","native_resolution",native_resolution)
+		graphics.save(client.data_directory.path_join("rendering.cfg"))
+		return
 	if action == "rotate":
 		_rotate_placement()
 		return
@@ -237,6 +261,8 @@ func _select_tool(value: String) -> void:
 func _set_grid(value: bool) -> void:
 	grid = value
 	world.set_grid(value)
+	if is_instance_valid(ui) and is_instance_valid(ui.grid_button):
+		ui.grid_button.set_pressed_no_signal(value)
 
 func _preset(name: String) -> void:
 	match name.to_lower():
@@ -264,6 +290,39 @@ func _preset(name: String) -> void:
 
 func _floor_point(screen: Vector2) -> Variant:
 	return Plane(Vector3.UP, 0.0).intersects_ray(camera.project_ray_origin(screen),camera.project_ray_normal(screen))
+
+func _drag_floor_point(screen: Vector2) -> Variant:
+	# Freeze the picking camera at mouse-down. Picking against the smoothing
+	# camera each event would feed its lag back into the pan and cause drift.
+	return Plane(Vector3.UP, 0.0).intersects_ray(drag_camera_transform.origin,
+		drag_camera_transform.basis * camera.project_local_ray_normal(screen))
+
+func _zoom(scroll_steps: float) -> void:
+	distance = clampf(distance * exp(scroll_steps * 0.10), 12.0, 240.0)
+
+func _update_render_resolution() -> void:
+	# Retina windows can otherwise quadruple the 3D pixel work. Reconstruct
+	# larger views temporally; native Controls/text remain at full resolution.
+	if RenderingServer.get_rendering_device() == null:
+		return
+	var viewport := get_viewport()
+	# get_visible_rect() is the stretched 1680×945 UI canvas, not the Retina
+	# backing resolution. Window.size reports the real drawable pixel count.
+	var pixels: float = float(get_window().size.x) * float(get_window().size.y)
+	var scale: float = clampf(sqrt(2350000.0 / maxf(1.0,pixels)),0.5,1.0)
+	if native_resolution:
+		scale = 1.0
+	if scale < 0.99:
+		# FSR2 is GPU-based on every supported desktop. MetalFX temporal caused
+		# an Apple Neural Engine inference failure on the tested M2 Pro.
+		viewport.scaling_3d_mode = Viewport.SCALING_3D_MODE_FSR2
+		viewport.msaa_3d = Viewport.MSAA_DISABLED
+		viewport.use_taa = false
+	else:
+		viewport.scaling_3d_mode = Viewport.SCALING_3D_MODE_BILINEAR
+		viewport.msaa_3d = Viewport.MSAA_4X
+		viewport.use_taa = true
+	viewport.scaling_3d_scale = scale
 
 func _rect(a: Vector3, b: Vector3) -> Dictionary:
 	var x1: int = floori(minf(a.x,b.x))
@@ -336,6 +395,12 @@ func _unhandled_input(event: InputEvent) -> void:
 					_placement_preview(point)
 				else:
 					dragging = true
+					drag_start_target = camera_target
+					drag_camera_transform = camera.global_transform
+					# Stop a previous orbit/zoom at its visible pose for a stable anchor.
+					yaw = camera_yaw
+					pitch = camera_pitch
+					distance = camera_distance
 			elif not mouse.pressed and point is Vector3:
 				if placing:
 					_place(click_point,point)
@@ -354,11 +419,16 @@ func _unhandled_input(event: InputEvent) -> void:
 		elif mouse.button_index == MOUSE_BUTTON_RIGHT:
 			orbiting = mouse.pressed
 		elif mouse.pressed and mouse.button_index == MOUSE_BUTTON_WHEEL_UP:
-			distance = clampf(distance*0.90,12.0,240.0)
+			_zoom(-mouse.factor if mouse.factor > 0.0 else -1.0)
 		elif mouse.pressed and mouse.button_index == MOUSE_BUTTON_WHEEL_DOWN:
-			distance = clampf(distance*1.10,12.0,240.0)
+			_zoom(mouse.factor if mouse.factor > 0.0 else 1.0)
+	elif event is InputEventPanGesture:
+		# Cocoa sends phased two-finger scrolls (including momentum) as pan
+		# gestures, not wheel buttons. Keep their fractional deltas continuous.
+		_zoom(event.delta.y * 0.10)
 	elif event is InputEventMagnifyGesture:
-		distance = clampf(distance/event.factor,12.0,240.0)
+		if event.factor > 0.0:
+			distance = clampf(distance/event.factor,12.0,240.0)
 	elif event is InputEventMouseMotion:
 		var motion := event as InputEventMouseMotion
 		var point = _floor_point(motion.position)
@@ -368,13 +438,13 @@ func _unhandled_input(event: InputEvent) -> void:
 			if motion.position.distance_to(click_screen) > 4.0:
 				was_dragged = true
 			if was_dragged:
-				target += drag_point - (point as Vector3)
-				camera_target = target
-				follow = false
-				_update_camera(0,true)
+				var anchored_point = _drag_floor_point(motion.position)
+				if anchored_point is Vector3:
+					target = drag_start_target + drag_point - (anchored_point as Vector3)
+					follow = false
 		elif orbiting:
 			yaw -= motion.relative.x*0.005
-			pitch = clampf(pitch-motion.relative.y*0.004,deg_to_rad(22),deg_to_rad(76))
+			pitch = clampf(pitch+motion.relative.y*0.004,deg_to_rad(22),deg_to_rad(76))
 	elif event is InputEventKey and event.pressed and not event.echo:
 		if event.is_command_or_control_pressed() and event.keycode == KEY_S:
 			_request_file("save")
@@ -415,7 +485,8 @@ func _reset_drag() -> void:
 func _notification(what: int) -> void:
 	if what == NOTIFICATION_APPLICATION_FOCUS_OUT:
 		backgrounded = true
-		Engine.max_fps = 15
+		# Automated captures keep measuring/rendering even when covered by Codex.
+		Engine.max_fps = 60 if capture_mode else 15
 		dragging = false
 		orbiting = false
 	elif what == NOTIFICATION_APPLICATION_FOCUS_IN:
@@ -432,7 +503,7 @@ func _begin_close() -> void:
 	client.close()
 
 func _update_camera(dt: float, snap: bool = false) -> void:
-	var fraction: float = 1.0 if snap else 1.0-exp(-dt*12.0)
+	var fraction: float = 1.0 if snap else 1.0-exp(-dt*(24.0 if dragging else 12.0))
 	camera_target = camera_target.lerp(target,fraction)
 	camera_distance = lerpf(camera_distance,distance,fraction)
 	camera_yaw = lerp_angle(camera_yaw,yaw,fraction)
@@ -440,6 +511,13 @@ func _update_camera(dt: float, snap: bool = false) -> void:
 	var offset := Vector3(sin(camera_yaw)*cos(camera_pitch),sin(camera_pitch),cos(camera_yaw)*cos(camera_pitch))*camera_distance
 	camera.position = camera_target+offset
 	camera.look_at(camera_target)
+	# Keep the four existing shadow maps, concentrating detail around the
+	# working distance without increasing their texture size or memory.
+	var reach: float = camera.far
+	sun.directional_shadow_max_distance = reach
+	sun.directional_shadow_split_1 = clampf(camera_distance*1.3+10.0,32.0,reach*0.45)/reach
+	sun.directional_shadow_split_2 = clampf(camera_distance*2.25,sun.directional_shadow_split_1*reach+35.0,reach*0.70)/reach
+	sun.directional_shadow_split_3 = clampf(camera_distance*3.5,sun.directional_shadow_split_2*reach+60.0,reach*0.90)/reach
 
 func _process(dt: float) -> void:
 	elapsed += dt
@@ -619,6 +697,67 @@ func _run_capture() -> void:
 	print("NATIVE_CAPTURE_COMPLETE")
 	_begin_close()
 
+
+func _run_camera_capture() -> void:
+	await _wait_connection()
+	var result: Dictionary = await _await_reply(client.send("new_game", {"mode":"example"}))
+	_test_assert(result.get("ok",false),"Camera capture uses actual example simulation")
+	await _await_reply(client.send("pause", {"paused":true}))
+	await get_tree().create_timer(0.5).timeout
+	_notification(NOTIFICATION_APPLICATION_FOCUS_IN)
+	_preset("yard")
+	_update_camera(0,true)
+	_set_grid(true)
+	await get_tree().create_timer(1.5).timeout
+	ui.toast.hide()
+	await _save_capture("camera-grid-on.png")
+	_set_grid(false)
+	await get_tree().create_timer(1.0).timeout
+	await _save_capture("camera-grid-off.png")
+	_preset("overview")
+	_update_camera(0,true)
+	await get_tree().create_timer(1.0).timeout
+	await _save_capture("camera-overview-shadows.png")
+	# Keep a comparison image of the former 100 m cutoff for visual verification.
+	sun.shadow_enabled = false
+	await get_tree().create_timer(0.7).timeout
+	await _save_capture("camera-overview-no-sun-shadows.png")
+	sun.shadow_enabled = true
+	_preset("yard")
+	_update_camera(0,true)
+	await get_tree().create_timer(1.0).timeout
+	var press := InputEventMouseButton.new()
+	press.button_index = MOUSE_BUTTON_LEFT
+	press.position = get_viewport().get_visible_rect().size * Vector2(0.42,0.62)
+	press.pressed = true
+	_unhandled_input(press)
+	var intervals: Array[float] = []
+	var last_time: int = Time.get_ticks_usec()
+	var changed_frames: int = 0
+	var previous_position := camera.position
+	for frame in range(180):
+		# Deliberately sparse mouse events: drawing must still advance between them.
+		if frame % 12 == 0:
+			var motion := InputEventMouseMotion.new()
+			motion.position = press.position + Vector2(frame*0.9,frame*0.12)
+			_unhandled_input(motion)
+		await get_tree().process_frame
+		var now: int = Time.get_ticks_usec()
+		intervals.append(float(now-last_time)/1000.0)
+		last_time = now
+		if camera.position.distance_to(previous_position) > 0.001:
+			changed_frames += 1
+		previous_position = camera.position
+	_reset_drag()
+	intervals.sort()
+	var report := {"frames":intervals.size(),"changedFrames":changed_frames,"inputEvents":15,
+		"medianFrameMs":intervals[90],"p95FrameMs":intervals[171],"shadowReachMeters":sun.directional_shadow_max_distance,
+		"shadowFadeStart":sun.directional_shadow_fade_start,"gridOnOffCaptured":true,
+		"renderScale":get_viewport().scaling_3d_scale,"renderMode":get_viewport().scaling_3d_mode}
+	FileAccess.open("res://captures/camera-render-results.json",FileAccess.WRITE).store_string(JSON.stringify(report,"\t"))
+	_test_assert(changed_frames > 140,"Pan advances on drawing frames between sparse mouse events")
+	print("CAMERA_RENDER_CHECK ",JSON.stringify(report))
+	_begin_close()
 
 func _run_fixture_capture() -> void:
 	await _wait_connection()
