@@ -6,7 +6,7 @@ This is the first playable native migration. The original browser application an
 
 ## Download or open on this Mac
 
-[Download the Apple Silicon Mac app](https://github.com/lukacslacko/factory_game/releases/tag/v0.20.2), unzip it, and open **Plant 01.app**. This checkpoint targets macOS 14 or newer.
+[Download the Apple Silicon Mac app](https://github.com/lukacslacko/factory_game/releases/tag/v0.20.3), unzip it, and open **Plant 01.app**. This checkpoint targets macOS 14 or newer.
 
 Open the **Plant 01.app** built beside the repository in `outputs/`. It includes the Godot runner, Node runtime, simulation, terrain maps, and license notices. It is a local app for this Mac, not a notarized public release.
 
@@ -102,12 +102,14 @@ Excavator cab swivels use the shortest relative turn, including after many chass
 
 Buy **Buffer stop** in Purchase / hire and deliver it like other material. The Railway register lists each completed open endpoint and whether it has a secured stop. Select an uncapped endpoint and choose **Install buffer stop**; an owned machine and crew carry the purchased stop there and clamp it to the rails. Select a stop to plan physical recovery into a stockyard. Reserve a clear 2 × 2 m slot for a recovered stop.
 
+Canceling an incomplete curve or turnout retains its installed panels. Once the assembly's remaining work is canceled and any handling finishes, its physically open ends become available for extension and buffer-stop installation. Straight/turnout placement still requires an exact grid-aligned endpoint and tangent; an unfinished curved segment does not create an artificial square-grid connection. Active construction joints remain protected until their assembly is completed or canceled.
+
 For parallel unloading tracks or a future runaround, select **Turnout**, choose **Converging**, and start from one of two parallel open ends. Both ends must face the same direction and be 5 m apart. Flip the side when the other track is on the opposite side. The preview explains a missing or misaligned connection. The same seven purchased panels are installed from the incoming tails toward the common points assembly. An existing outgoing endpoint can also be joined where the geometry matches exactly.
 
 A stop cannot remain across a completed rail joint. The crew preserves it as a real asset, moves it aside and carries surplus stops into storage. Switches still require a worker to throw their lever. Train drop-off, owned shunting and installing turnouts into an already continuous track remain separate tracked work. Paid scrapping is tracked in [issue #35](https://github.com/lukacslacko/factory_game/issues/35).
 
 
-### Receive multi-car trains — v0.20.2
+### Receive multi-car trains — v0.20.3
 
 Open **Railway → + Receiving point** to name an interval on the original `BOOTSTRAP-SIDING`. Its offset is measured from the siding's western start; length is centered there. An unloading or transfer point can receive supplier freight. The full locomotive and all cars must fit between the mainline switch and the siding's end; protected buffer stops can further restrict access. Five flatcars fit a sufficiently long interval; larger consists remain queued with their required length and receive no arrival invoice. Other factory-track designations await commissioned shunting.
 

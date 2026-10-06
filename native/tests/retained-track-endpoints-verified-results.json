@@ -1,0 +1,47 @@
+{
+  "version": "0.20.3",
+  "date": "2026-10-06",
+  "regressions": {
+    "passed": 429,
+    "failed": 0,
+    "duration_ms": 307645.2005,
+    "new_cases": 6,
+    "node_heap_limit_mb": 384,
+    "sequential": true
+  },
+  "focused": {
+    "passed": 6,
+    "duration_ms": 489.055833
+  },
+  "packaged_native": {
+    "name": "retained-endpoint-packaged",
+    "elapsed_seconds": 15.28,
+    "peak_resident_bytes": 465780736,
+    "returncode": 0,
+    "stopped_reason": null
+  },
+  "private_native_preview": {
+    "isolated": true,
+    "accepted_retained_endpoint": true,
+    "correct_snap_and_heading": true,
+    "endpoint_in_native_register": true,
+    "test_save_imported_into_live_yard": false
+  },
+  "actual_yard": {
+    "native_endpoint_inspector_verified": true,
+    "left_paused": true,
+    "creative_preference_preserved": true,
+    "identity_checks": {
+      "workers": true,
+      "equipment": true,
+      "rails": true,
+      "jobs": true,
+      "orders": true,
+      "stacks": true
+    },
+    "costs_unchanged": true,
+    "buffer_recovery_preserved": true,
+    "clock_advance_seconds": 1.4
+  },
+  "deferred_ui_issue": "https://github.com/lukacslacko/factory_game/issues/38"
+}

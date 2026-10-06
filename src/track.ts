@@ -614,8 +614,18 @@ export function trackOpenPorts(
             candidate.track.route === part.route,
         ),
       )
-    )
-      return false;
+    ) {
+      // Cancellation retains real installed panels. Their now-exposed joints
+      // are usable even though the original curve/turnout was not completed.
+      // Never expose a temporary construction joint while its assembly still
+      // has active work, or an endpoint belonging only to an unbuilt plan.
+      return (
+        network.panels.find((panel) => panel.id === port.assetId)!.source === 'installed' &&
+        !s.jobs.some(
+          (job) => job.track && sameMacro(job.track) && !['done', 'canceled'].includes(job.status),
+        )
+      );
+    }
     return trackMacroPorts(piece).some(
       (external) =>
         external.end === port.end &&
