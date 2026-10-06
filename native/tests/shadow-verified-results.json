@@ -1,0 +1,225 @@
+{
+  "environment": {
+    "cameraDistance": 24.0,
+    "ssao": true,
+    "ssaoIntensity": 1.64999997615814,
+    "ssilIntensity": 0.400000005960464,
+    "ssilRadius": 2.0,
+    "sunEnergy": 1.64999997615814,
+    "sunShadowBias": 0.025000000372529,
+    "sunShadowNormalBias": 0.550000011920929
+  },
+  "failures": [],
+  "mask": "Projected swept real mesh bounds excluded; ground rays sampled every 2 pixels",
+  "modes": [
+    {
+      "fsr2": false,
+      "mode": "old-full-taa",
+      "motionHistory": {
+        "changedAbove4Levels": 717,
+        "darkerTrailingPixels": 334,
+        "maxLuma": 0.144731764705882,
+        "meanAbsLuma": 0.000425137298987049,
+        "p95Luma": 0.0,
+        "sampledGroundPixels": 97850
+      },
+      "msaa4": true,
+      "scale": 1.0,
+      "ssil": true,
+      "stationaryNoise": {
+        "changedAbove4Levels": 1,
+        "darkerTrailingPixels": 0,
+        "maxLuma": 0.020158431372549,
+        "meanAbsLuma": 0.000240366819962512,
+        "p95Luma": 0.00392156862745098,
+        "sampledGroundPixels": 97850
+      },
+      "taa": true
+    },
+    {
+      "fsr2": true,
+      "mode": "old-downscaled-fsr2",
+      "motionHistory": {
+        "changedAbove4Levels": 885,
+        "darkerTrailingPixels": 405,
+        "maxLuma": 0.367926274509804,
+        "meanAbsLuma": 0.00130574960874446,
+        "p95Luma": 0.00392156862745098,
+        "sampledGroundPixels": 97850
+      },
+      "msaa4": false,
+      "scale": 0.6,
+      "ssil": true,
+      "stationaryNoise": {
+        "changedAbove4Levels": 360,
+        "darkerTrailingPixels": 148,
+        "maxLuma": 0.0601921568627451,
+        "meanAbsLuma": 0.000577988317452849,
+        "p95Luma": 0.00392156862745098,
+        "sampledGroundPixels": 97850
+      },
+      "taa": false
+    },
+    {
+      "fsr2": false,
+      "mode": "new-full-msaa4",
+      "motionHistory": {
+        "changedAbove4Levels": 0,
+        "darkerTrailingPixels": 0,
+        "maxLuma": 0.0,
+        "meanAbsLuma": 0.0,
+        "p95Luma": 0.0,
+        "sampledGroundPixels": 97850
+      },
+      "msaa4": true,
+      "scale": 1.0,
+      "ssil": true,
+      "stationaryNoise": {
+        "changedAbove4Levels": 0,
+        "darkerTrailingPixels": 0,
+        "maxLuma": 0.0,
+        "meanAbsLuma": 0.0,
+        "p95Luma": 0.0,
+        "sampledGroundPixels": 97850
+      },
+      "taa": false
+    },
+    {
+      "fsr2": false,
+      "mode": "new-downscaled-fsr1",
+      "motionHistory": {
+        "changedAbove4Levels": 0,
+        "darkerTrailingPixels": 0,
+        "maxLuma": 0.00700941176470588,
+        "meanAbsLuma": 8.25207851152723e-06,
+        "p95Luma": 0.0,
+        "sampledGroundPixels": 97850
+      },
+      "msaa4": true,
+      "scale": 0.6,
+      "ssil": true,
+      "stationaryNoise": {
+        "changedAbove4Levels": 0,
+        "darkerTrailingPixels": 0,
+        "maxLuma": 0.0,
+        "meanAbsLuma": 0.0,
+        "p95Luma": 0.0,
+        "sampledGroundPixels": 97850
+      },
+      "taa": false
+    },
+    {
+      "fsr2": false,
+      "mode": "new-full-msaa4-no-ssil",
+      "motionHistory": {
+        "changedAbove4Levels": 0,
+        "darkerTrailingPixels": 0,
+        "maxLuma": 0.0,
+        "meanAbsLuma": 0.0,
+        "p95Luma": 0.0,
+        "sampledGroundPixels": 97850
+      },
+      "msaa4": true,
+      "scale": 1.0,
+      "ssil": false,
+      "stationaryNoise": {
+        "changedAbove4Levels": 0,
+        "darkerTrailingPixels": 0,
+        "maxLuma": 0.0,
+        "meanAbsLuma": 0.0,
+        "p95Luma": 0.0,
+        "sampledGroundPixels": 97850
+      },
+      "taa": false
+    }
+  ],
+  "motionFrames": 60,
+  "motionMeters": {
+    "excavator": 2.1,
+    "worker": 1.5
+  },
+  "passed": true,
+  "policyChecks": [
+    {
+      "mode": 0,
+      "msaa": 2,
+      "name": "ordinary-window",
+      "passed": true,
+      "scale": 1.0,
+      "taa": false
+    },
+    {
+      "mode": 1,
+      "msaa": 2,
+      "name": "retina-window",
+      "passed": true,
+      "scale": 0.591423988342285,
+      "taa": false
+    },
+    {
+      "mode": 0,
+      "msaa": 2,
+      "name": "retina-native-resolution",
+      "passed": true,
+      "scale": 1.0,
+      "taa": false
+    }
+  ],
+  "productionEnvironment": true,
+  "resolution": [
+    960,
+    640
+  ],
+  "serviceStarted": false,
+  "settleFrames": 24,
+  "stationaryControlFrames": 12,
+  "version": "0.19.10",
+  "resource_checks": {
+    "shadow_comparison": {
+      "name": "shadow-history-fixed",
+      "elapsed_seconds": 16.79,
+      "peak_resident_bytes": 317112320,
+      "returncode": 0,
+      "stopped_reason": null
+    },
+    "retina_camera": {
+      "name": "shadow-camera-retina",
+      "elapsed_seconds": 17.75,
+      "peak_resident_bytes": 408862720,
+      "returncode": 0,
+      "stopped_reason": null
+    },
+    "camera_controls": {
+      "name": "shadow-camera-controls",
+      "elapsed_seconds": 1.02,
+      "peak_resident_bytes": 209518592,
+      "returncode": 0,
+      "stopped_reason": null
+    },
+    "packaged_app": {
+      "name": "shadow-packaged",
+      "elapsed_seconds": 6.64,
+      "peak_resident_bytes": 294322176,
+      "returncode": 0,
+      "stopped_reason": null
+    }
+  },
+  "retina_camera": {
+    "changedFrames": 168,
+    "frames": 180,
+    "gridOnOffCaptured": true,
+    "inputEvents": 15,
+    "medianFrameMs": 17.96,
+    "p95FrameMs": 18.399,
+    "renderMode": 1,
+    "renderScale": 0.591423988342285,
+    "shadowFadeStart": 1.0,
+    "shadowReachMeters": 650.0
+  },
+  "live_yard": {
+    "retained": true,
+    "workers": 12,
+    "paused": true,
+    "speed": 1
+  }
+}

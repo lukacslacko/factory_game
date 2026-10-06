@@ -303,8 +303,8 @@ func _zoom(scroll_steps: float) -> void:
 	distance = clampf(distance * exp(scroll_steps * 0.10), 12.0, 240.0)
 
 func _update_render_resolution() -> void:
-	# Retina windows can otherwise quadruple the 3D pixel work. Reconstruct
-	# larger views temporally; native Controls/text remain at full resolution.
+	# Retina windows can otherwise quadruple the 3D pixel work. Upscale each
+	# current frame spatially; native Controls/text remain at full resolution.
 	if RenderingServer.get_rendering_device() == null:
 		return
 	var viewport := get_viewport()
@@ -314,16 +314,15 @@ func _update_render_resolution() -> void:
 	var scale: float = clampf(sqrt(2350000.0 / maxf(1.0,pixels)),0.5,1.0)
 	if native_resolution:
 		scale = 1.0
+	# Shadows move across stationary ground, whose motion vectors cannot track
+	# them. TAA/FSR2 retains their earlier positions as trails. Spatial MSAA
+	# and FSR1 smooth edges without carrying that history into the next frame.
+	viewport.use_taa = false
+	viewport.msaa_3d = Viewport.MSAA_4X
 	if scale < 0.99:
-		# FSR2 is GPU-based on every supported desktop. MetalFX temporal caused
-		# an Apple Neural Engine inference failure on the tested M2 Pro.
-		viewport.scaling_3d_mode = Viewport.SCALING_3D_MODE_FSR2
-		viewport.msaa_3d = Viewport.MSAA_DISABLED
-		viewport.use_taa = false
+		viewport.scaling_3d_mode = Viewport.SCALING_3D_MODE_FSR
 	else:
 		viewport.scaling_3d_mode = Viewport.SCALING_3D_MODE_BILINEAR
-		viewport.msaa_3d = Viewport.MSAA_4X
-		viewport.use_taa = true
 	viewport.scaling_3d_scale = scale
 
 func _rect(a: Vector3, b: Vector3) -> Dictionary:
