@@ -1151,6 +1151,16 @@ export function tickRailWork(s: State, j: Job, dt: number, api: RailWorkAPI): bo
     }
   }
   const r = j.railWork!;
+  // Traffic recovery owns movement until the physical escape is complete.
+  // An empty path during pedestrian clearance is not arrival at a rail dock.
+  if (e.trafficGoal && (e.path.length || e.trafficYieldWorker)) {
+    if (r.panel.state === 'carried') followLoad(r, e, 'panel', dt);
+    if (r.buffer?.carried) followLoad(r, e, 'buffer', dt);
+    j.reason = e.trafficYieldWorker
+      ? `Making room for ${e.trafficYieldWorker} to walk clear`
+      : `Returning to work after traffic clearance${e.blockedBy ? `; waiting for ${e.blockedBy}` : ''}`;
+    return true;
+  }
   if (e.refueling || e.fuel <= 0) {
     j.reason = 'Rail handling paused for fuel';
     return true;
@@ -1259,6 +1269,7 @@ export function tickRailWork(s: State, j: Job, dt: number, api: RailWorkAPI): bo
     // replay actual steering, and try the opposite lifting face if needed.
     r.clock += dt;
     if (
+      (!e.trafficGoal || (!e.path.length && !e.trafficYieldWorker)) &&
       ((e.trafficWait || 0) >= 4 || !!e.blockedBy) &&
       r.clock >= 5 &&
       !s.workers.some((q) => q.id === e.blockedBy && q.path.length)
@@ -1304,6 +1315,7 @@ export function tickRailWork(s: State, j: Job, dt: number, api: RailWorkAPI): bo
         source.approach = approach;
         source.entering = false;
         e.path = path;
+        e.trafficGoal = undefined;
         e.reverse = reverse;
         e.trafficWait = 0;
         j.reason = '';

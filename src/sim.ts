@@ -948,7 +948,7 @@ export function buyMissing(s: State) {
 function pedestrianObstacles(s: State) {
   return staticObstacleRects(s);
 }
-function stepAside(s: State, w: Worker, e: Equipment) {
+function stepAside(s: State, w: Worker, e: Equipment, knownBlocker = false) {
   if (
     (w.y || 0) > 0.15 ||
     s.jobs.some((j) => j.worker === w.id && j.status === 'doing' && j.shedAssembly?.ladder)
@@ -969,7 +969,9 @@ function stepAside(s: State, w: Worker, e: Equipment) {
   )
     return;
   const destination = e.path[e.path.length - 1];
-  if (dist(w, e) > 8 && (!destination || dist(w, destination) > 5)) return;
+  // A long suspended load can touch someone farther than the chassis radius.
+  // A blocker reported by swept collision must still be offered an escape.
+  if (!knownBlocker && dist(w, e) > 8 && (!destination || dist(w, destination) > 5)) return;
   const yaw = e.yaw ?? 0,
     side = { x: -Math.sin(yaw), z: Math.cos(yaw) };
   const obs = pedestrianObstacles(s);
@@ -1010,12 +1012,115 @@ function stepAside(s: State, w: Worker, e: Equipment) {
     }
   }
 }
+function recordTrafficBlockage(s: State, e: Equipment, blocker: string) {
+  e.trafficBlockedSince ??= s.elapsed;
+  if (s.elapsed - e.trafficBlockedSince < 20 || e.trafficBlockedNotice) return;
+  const detail = `${e.id} cannot move past ${blocker}. Automatic clearance and route retries have not succeeded; inspect the linked blocker and clear space for it or drive the machine to a safe position.`;
+  notice(s, 'Equipment movement blocked', detail, e.id);
+  s.events.push({
+    id: id(s, 'event'),
+    time: s.time,
+    type: 'Traffic',
+    entity: e.id,
+    text: detail,
+    severity: 'warning',
+  });
+  e.trafficBlockedNotice = true;
+}
+
+/** A pedestrian wedged against stock cannot yield until the machine makes room.
+ * Replay a straight withdrawal against every real swept pose, including people;
+ * keep the work goal and execute it normally rather than teleporting either actor. */
+function backOffForPedestrian(s: State, e: Equipment, w: Worker, goal: Point): boolean {
+  if (e.trafficGoal || w.path.length || w.vehicle || w.transition || w.transportOrder) return false;
+  const speed = equipmentTravelSpeed(s, e);
+  for (const distance of [1.25, 2.5, 4]) {
+    const target = localPoint({ ...e, yaw: e.yaw ?? (e.heading * Math.PI) / 2 }, -distance, 0);
+    if (target.x < -48 || target.x > 230 || target.z < -30 || target.z > 115) continue;
+    const probe = { ...e, path: [target], reverse: true, velocity: 0 };
+    let safe = true;
+    for (let i = 0; i < 200 && probe.path.length; i++) {
+      const previous = { ...probe };
+      move(probe, 0.1, speed, true);
+      if (equipmentSweepBlocked(s, previous, probe)) {
+        safe = false;
+        break;
+      }
+    }
+    if (!safe || probe.path.length) continue;
+    // A safe retreat is useful only if it opens an actual walking escape.
+    // Preview against the withdrawn machine, without moving either real actor.
+    const walkingProbe = { ...w, path: [] };
+    const withdrawn = { ...probe, path: [goal], reverse: false };
+    stepAside(
+      {
+        ...s,
+        equipment: s.equipment.map((q) => (q.id === e.id ? withdrawn : q)),
+        workers: s.workers.map((q) => (q.id === w.id ? walkingProbe : q)),
+      },
+      walkingProbe,
+      withdrawn,
+      true,
+    );
+    if (!walkingProbe.path.length) continue;
+    e.trafficYieldWorker = w.id;
+    e.trafficGoal = { ...goal };
+    e.path = [target];
+    e.reverse = true;
+    e.trafficReverse = true;
+    e.trafficWait = 0;
+    event(
+      s,
+      'Traffic',
+      e.id,
+      `${e.id} backing straight clear so ${w.id} can leave a blocked walking space; retaining its work destination.`,
+    );
+    return true;
+  }
+  return false;
+}
+
 function tickMove(s: State, p: Worker | Equipment, dt: number, speed: number) {
+  const vehicle = 'kind' in p;
+  // A job handler may have populated a route during the walking wait.
+  // Protect the accepted escape centrally, after the reverse leg finishes.
+  if (vehicle && p.trafficYieldWorker && !p.trafficReverse) {
+    const yielding = s.workers.find((w) => w.id === p.trafficYieldWorker);
+    if (yielding?.path.length) {
+      p.velocity = 0;
+      recordTrafficBlockage(s, p, yielding.id);
+      return;
+    }
+    p.trafficYieldWorker = undefined;
+  }
+  // A clear-space detour may finish before any route back to work exists.
+  // Retain and retry that destination; an empty path is not completed work.
+  if (vehicle && !p.path.length && p.trafficGoal) {
+    const yielding = s.workers.find((w) => w.id === p.trafficYieldWorker);
+    if (yielding?.path.length) {
+      p.velocity = 0;
+      recordTrafficBlockage(s, p, yielding.id);
+      return;
+    }
+    p.trafficYieldWorker = undefined;
+    if (s.elapsed >= (p.trafficRetry || 0)) {
+      p.trafficRetry = s.elapsed + 1.5;
+      const path = machineRoute(s, p, p.trafficGoal, pedestrianObstacles(s), 250, true);
+      if (path?.length || (path && dist(p, p.trafficGoal) < 0.1)) {
+        p.path = path;
+        p.trafficGoal = undefined;
+        p.blockedBy = undefined;
+      } else
+        p.blockedBy ||=
+          equipmentMoveBlocked(s, p, p.trafficGoal) || 'No clear route to work destination';
+    }
+    if (!p.path.length && p.trafficGoal)
+      recordTrafficBlockage(s, p, p.blockedBy || 'the work destination');
+  }
   if (!p.path.length) {
     p.velocity = 0;
     return;
   }
-  const vehicle = 'kind' in p;
   // Honor the crew's accepted walking escape before advancing into it.
   if (
     vehicle &&
@@ -1054,7 +1159,12 @@ function tickMove(s: State, p: Worker | Equipment, dt: number, speed: number) {
       p.reverse = false;
       p.trafficReverse = undefined;
     }
-    if (vehicle && !p.path.length && p.trafficGoal) {
+    if (vehicle && !p.path.length && p.trafficGoal && p.trafficYieldWorker) {
+      const yielding = s.workers.find((w) => w.id === p.trafficYieldWorker);
+      if (yielding) stepAside(s, yielding, { ...p, path: [p.trafficGoal] }, true);
+      if (!yielding?.path.length) p.trafficYieldWorker = undefined;
+    }
+    if (vehicle && !p.path.length && p.trafficGoal && !p.trafficYieldWorker) {
       const goal = p.trafficGoal;
       p.trafficGoal = undefined;
       p.path =
@@ -1078,16 +1188,26 @@ function tickMove(s: State, p: Worker | Equipment, dt: number, speed: number) {
         if (operator) operator.status = 'Available in cab';
       }
     }
-    p.blockedBy = undefined;
+    p.blockedBy = vehicle ? p.trafficYieldWorker : undefined;
     p.trafficWait = 0;
+    if (vehicle) {
+      if (p.trafficBlockedNotice)
+        for (const n of s.notices)
+          if (n.entity === p.id && n.title === 'Equipment movement blocked') n.state = 'done';
+      p.trafficBlockedSince = undefined;
+      p.trafficBlockedNotice = undefined;
+    }
     return;
   }
   p.velocity = 0;
   p.blockedBy = blocker;
   p.trafficWait = (p.trafficWait || 0) + dt;
   if (vehicle) {
+    recordTrafficBlockage(s, p, blocker);
+  }
+  if (vehicle) {
     const worker = s.workers.find((w) => w.id === blocker);
-    if (worker) stepAside(s, worker, p);
+    if (worker) stepAside(s, worker, p, true);
   }
   if (s.elapsed < (p.trafficRetry || 0)) return;
   p.trafficRetry = s.elapsed + 1.5;
@@ -1110,6 +1230,9 @@ function tickMove(s: State, p: Worker | Equipment, dt: number, speed: number) {
   // Replan around stationary people or parked machines; a crossing person simply gets right of way.
   const otherWorker = s.workers.find((w) => w.id === blocker);
   if (vehicle && otherWorker?.path.length) return;
+  // Ordinary route retries assume a stationary automatic worker will yield.
+  // That assumption fails in a pocket between the chassis/boom and stored goods.
+  if (vehicle && otherWorker && backOffForPedestrian(s, p, otherWorker, goal)) return;
   if (vehicle)
     for (const w of s.workers) {
       if (
@@ -2670,11 +2793,17 @@ export function tick(s: State, dt: number) {
     if (e.fuel > 15) e.lowFuelWarned = false;
     if (e.blockedBy) {
       const blocker = s.workers.find((w) => w.id === e.blockedBy);
-      if (blocker && dist(blocker, e) < 8) stepAside(s, blocker, e);
-      else if (blocker) e.blockedBy = undefined;
+      if (blocker) {
+        if (
+          dist(blocker, e) < 8 ||
+          equipmentBoxes(e).some((b) => personTouchesBox(blocker, b, 0.65))
+        ) {
+          if (blocker.yieldingTo !== e.id) stepAside(s, blocker, e, true);
+        } else e.blockedBy = undefined;
+      }
     }
     if (e.transportOrder) continue;
-    const active = e.path.length > 0 || e.work > 0;
+    const active = e.path.length > 0 || e.work > 0 || !!e.trafficGoal;
     if (active && e.fuel > 0 && !e.refueling) {
       const used = Math.min(e.fuel, dt * (e.work ? 0.014 : 0.008));
       e.fuel -= used;

@@ -1,0 +1,62 @@
+{
+  "version": "0.19.5",
+  "date": "2026-10-06",
+  "scope": "Coordinated physical pedestrian/equipment deadlock recovery",
+  "focused_tests": 6,
+  "real_saved_yard_replay": {
+    "duration_simulated_seconds": 480,
+    "equipment": "EQ-0019",
+    "job": "JOB-0126",
+    "start": {
+      "x": 43.5,
+      "z": 29.5
+    },
+    "end": {
+      "x": 107.373994742662,
+      "z": 29.93935387525547
+    },
+    "final_status": "done",
+    "final_phase": "Complete",
+    "panel": "installed",
+    "observed_pickup": true,
+    "observed_staging": true,
+    "retreat_events": 2,
+    "traffic_warnings": 0
+  },
+  "packaged_native_integration": {
+    "passed": true,
+    "elapsed_seconds": 6.59,
+    "peak_resident_bytes": 290390016,
+    "data_directory": "isolated temporary directory"
+  },
+  "live_yard": {
+    "save_preserved": true,
+    "reopened": true,
+    "equipment_resumed_from_original_blockage": true,
+    "observed_cargo": {
+      "item": "railCurve",
+      "qty": 3
+    },
+    "observed_phase": "Carry panel to staging area"
+  },
+  "safety_checks": [
+    "Continuous normal-speed equipment and worker movement",
+    "Executed swept body/attachment/cargo collision guards",
+    "Stock quantity and reservation conservation",
+    "Loaded payload conservation",
+    "Distant carried-load pedestrian clearance",
+    "One coordinated backoff in compact recovery fixtures",
+    "Retained work destination and retry after empty-route detours",
+    "Closed enclosure remains physically safe and warns once",
+    "Warning resolves after enclosure opens",
+    "Traffic recovery fields survive save/reload and reject malformed values"
+  ],
+  "full_regression_suite": {
+    "tests": 364,
+    "passed": 364,
+    "failed": 0,
+    "elapsed_seconds": 288.865122875,
+    "node_heap_limit_mb": 384,
+    "test_concurrency": 1
+  }
+}

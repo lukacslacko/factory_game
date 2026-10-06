@@ -20,6 +20,10 @@ const point = (p: any) =>
 const motion = (p: any) =>
   (p.trafficGoal === undefined || point(p.trafficGoal)) &&
   (p.trafficReverse === undefined || typeof p.trafficReverse === 'boolean') &&
+  (p.trafficYieldWorker === undefined || typeof p.trafficYieldWorker === 'string') &&
+  (p.trafficBlockedNotice === undefined || typeof p.trafficBlockedNotice === 'boolean') &&
+  (p.trafficBlockedSince === undefined ||
+    (finite(p.trafficBlockedSince) && p.trafficBlockedSince >= 0)) &&
   ['yaw', 'velocity', 'travel', 'y', 'pitch', 'lift', 'reach', 'trafficWait', 'trafficRetry'].every(
     (k) => p[k] === undefined || finite(p[k]),
   );

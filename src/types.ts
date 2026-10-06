@@ -34,7 +34,12 @@ export type Motion = {
   trafficWait?: number;
   trafficReverse?: boolean;
   trafficGoal?: Point;
+  /** Pedestrian whose walking escape must finish after a withdrawal. */
+  trafficYieldWorker?: string;
   trafficRetry?: number;
+  /** Physical blockage duration; route retries must not reset this clock. */
+  trafficBlockedSince?: number;
+  trafficBlockedNotice?: boolean;
 };
 export interface Worker extends Point, Move, Motion {
   id: string;
