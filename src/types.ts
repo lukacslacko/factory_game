@@ -396,6 +396,8 @@ export interface Order {
   drive?: Motion & {
     distance: number;
     roadVersion?: number;
+    /** Last worker addressed during the current driving blockage. */
+    clearanceRequestedFor?: string;
     gearPause?: number;
     yardPermit?: boolean;
   };

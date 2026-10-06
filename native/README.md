@@ -6,7 +6,7 @@ This is the first playable native migration. The original browser application an
 
 ## Download or open on this Mac
 
-[Download the Apple Silicon Mac app](https://github.com/lukacslacko/factory_game/releases/tag/v0.19.5), unzip it, and open **Plant 01.app**. This checkpoint targets macOS 14 or newer.
+[Download the Apple Silicon Mac app](https://github.com/lukacslacko/factory_game/releases/tag/v0.19.6), unzip it, and open **Plant 01.app**. This checkpoint targets macOS 14 or newer.
 
 Open the **Plant 01.app** built beside the repository in `outputs/`. It includes the Godot runner, Node runtime, simulation, terrain maps, and license notices. It is a local app for this Mac, not a notarized public release.
 
@@ -48,6 +48,8 @@ Construction ghosts use cyan for queued plans and amber for work underway; curso
 Use the dense registers for sorting and filtering, and click entity IDs to inspect linked equipment, workers, stock, jobs, and orders. Manual assignment and support-worker controls use the same simulation rules as the browser game. The simulation runs independently of drawing; foreground rendering is capped at 60 FPS and unfocused rendering at 15 FPS. Large Retina windows use temporal reconstruction for smoother 3D motion while text and controls remain at full resolution. The game menu has **Full-resolution 3D (slower on Retina)** if you prefer maximum native detail; this preference is saved.
 
 Automatic equipment traffic recovery checks the full chassis, boom, forks and carried load. If stored material traps a pedestrian beside a machine, the machine backs straight into verified clear space, lets the worker walk out, then resumes its retained destination. Rail handling preserves the escape sequence. A blockage lasting 20 seconds adds one **Equipment movement blocked** notice to Inbox and a warning in Activity; click the linked blocker to inspect it. The notice resolves when the machine moves again. Physically enclosed routes still require clearing access; recovery never teleports workers, stock or cargo.
+
+Road vehicles issue a targeted clearance request to the blocking worker. Automatic ground workers can walk around stock rows and safely reroute a walking trip that is mutually blocked by that same vehicle. Their original destination is retained; once the carrier parks, they become available again instead of waiting for the whole delivery to finish. Manual/resting workers and unsafe physical operations are preserved. A persistent carrier obstruction produces one **Delivery vehicle blocked** notice after 20 seconds, with a linked blocker and recovery guidance. Sound, including request-triggered horns, remains tracked in GitHub issue #20.
 
 ## Actual native screenshots
 

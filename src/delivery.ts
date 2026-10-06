@@ -1420,21 +1420,33 @@ function clearCarrierPedestrian(
   api: DeliveryAPI,
 ) {
   const w = s.workers.find((w) => w.id === blocked);
+  if (!w) return;
+  const d = (o.drive ??= { distance: 0, velocity: 0, yaw: pose.yaw, travel: 0 });
+  if (d.clearanceRequestedFor !== w.id) {
+    d.clearanceRequestedFor = w.id;
+    api.event(s, 'Traffic', o.id, `${o.id} requests ${w.id} to clear its driving corridor.`);
+  }
+  const mutualWait = !!w.path.length && w.blockedBy === o.id && (w.trafficWait || 0) >= 1;
   if (
-    !w ||
     w.duty !== 'auto' ||
-    w.path.length ||
+    (w.path.length && !mutualWait) ||
     w.vehicle ||
     w.transition ||
     w.transportOrder ||
     w.deliveryOrder ||
     w.commuteOrder ||
-    w.parkingEquipment
+    w.parkingEquipment ||
+    (w.y || 0) > 0.15 ||
+    ['home', 'returning', 'aboard'].includes(w.shiftPhase || '')
   )
     return;
   if (s.jobs.some((j) => j.worker === w.id && j.status === 'doing' && j.shedAssembly?.ladder))
     return;
-  if (w.yieldingTo && w.yieldingTo !== o.id) return;
+  // A moving escape owned by another machine is respected unless it is itself
+  // stalled on this carrier. Its original destination remains the return target.
+  if (w.yieldingTo && w.yieldingTo !== o.id && !mutualWait) return;
+  // Do not repeatedly dispatch a worker who has already completed this escape.
+  if (w.yieldingTo === o.id && !w.path.length) return;
   if (s.elapsed < (w.trafficRetry || 0)) return;
   w.trafficRetry = s.elapsed + 1.5;
   const sweep = carrierBoxes(o, pose);
@@ -1443,32 +1455,84 @@ function clearCarrierPedestrian(
     for (let at = o.drive.distance; at <= end; at += 1)
       sweep.push(...carrierBoxes(o, sampleRoad(o, at)));
   }
-  const yaw = o.drive?.yaw || pose.yaw,
+  const yaw = o.drive?.yaw ?? pose.yaw,
     side = { x: -Math.sin(yaw), z: Math.cos(yaw) },
     sign = (w.x - o.vehicle.x) * side.x + (w.z - o.vehicle.z) * side.z >= 0 ? 1 : -1;
-  for (const direction of [sign, -sign])
-    for (const distance of [3, 4.5, 6, 8]) {
-      const target = {
-        x: w.x + side.x * direction * distance,
-        z: w.z + side.z * direction * distance,
-      };
-      if (sweep.some((b) => personTouchesBox(target, b, 0.85)) || workerMoveBlocked(s, w, target))
-        continue;
-      const path = walkRoute(s, w, target, staticObstacleRects(s));
-      if (!path?.length) continue;
-      w.yieldTarget ??= { x: w.x, z: w.z };
-      w.yieldingTo = o.id;
-      w.path = path;
-      w.status = 'Stepping clear of road vehicle';
-      api.event(
-        s,
-        'Traffic',
-        w.id,
-        `Walking clear of ${o.id}; return to the previous task after it passes.`,
-      );
-      return;
-    }
+  const candidates = [sign, -sign].flatMap((direction) =>
+    [3, 4.5, 6, 8].map((distance) => ({
+      x: w.x + side.x * direction * distance,
+      z: w.z + side.z * direction * distance,
+    })),
+  );
+  // Stock rows and walls may block both perpendicular exits. Search bounded
+  // nearby refuge points around the actual vehicle corridor, not just its sides.
+  candidates.push(
+    ...[5, 9, 13].flatMap((radius) =>
+      Array.from({ length: 8 }, (_, i) => ({
+        x: w.x + Math.cos(yaw + (i * Math.PI) / 4) * radius,
+        z: w.z + Math.sin(yaw + (i * Math.PI) / 4) * radius,
+      })),
+    ),
+  );
+  for (const target of candidates) {
+    if (sweep.some((b) => personTouchesBox(target, b, 0.85)) || workerMoveBlocked(s, w, target))
+      continue;
+    const path = walkRoute(s, w, target, staticObstacleRects(s));
+    if (!path?.length) continue;
+    w.yieldTarget ??= mutualWait ? { ...w.path[w.path.length - 1] } : { x: w.x, z: w.z };
+    w.yieldingTo = o.id;
+    w.path = path;
+    w.status = 'Stepping clear of road vehicle';
+    api.event(
+      s,
+      'Traffic',
+      w.id,
+      `Walking clear of ${o.id}; return to the previous task after it passes.`,
+    );
+    return;
+  }
 }
+function carrierBlockage(s: State, o: Order, blocked: string, api: DeliveryAPI) {
+  const d = o.drive!;
+  d.blockedBy = blocked || undefined;
+  if (!blocked) {
+    if (d.trafficBlockedNotice)
+      for (const n of s.notices)
+        if (n.entity === o.id && n.title === 'Delivery vehicle blocked') n.state = 'done';
+    d.trafficBlockedSince = undefined;
+    d.trafficBlockedNotice = undefined;
+    d.clearanceRequestedFor = undefined;
+    return;
+  }
+  d.trafficBlockedSince ??= s.elapsed;
+  if (s.elapsed - d.trafficBlockedSince < 20 || d.trafficBlockedNotice) return;
+  const w = s.workers.find((w) => w.id === blocked);
+  const reason = w
+    ? w.duty !== 'auto'
+      ? `${w.id} is under ${w.duty} control; move them clear or restore automatic duty.`
+      : w.vehicle ||
+          w.transition ||
+          w.deliveryOrder ||
+          w.transportOrder ||
+          w.commuteOrder ||
+          w.parkingEquipment ||
+          (w.y || 0) > 0.15
+        ? `${w.id} is occupied with another physical operation; inspect the worker and clear the route safely.`
+        : `Requested ${w.id} to move, but no walking clearance has completed; inspect the worker and nearby obstacles.`
+    : `Inspect ${blocked} and clear the driving route.`;
+  const detail = `${o.id} has been blocked by ${blocked} for 20 seconds. ${reason}`;
+  api.notice(s, 'Delivery vehicle blocked', detail, o.id);
+  s.events.push({
+    id: api.id(s, 'event'),
+    time: s.time,
+    type: 'Traffic',
+    entity: o.id,
+    text: detail,
+    severity: 'warning',
+  });
+  d.trafficBlockedNotice = true;
+}
+
 function roadBlocked(s: State, o: Order, pose: Point & { yaw: number }, api: DeliveryAPI) {
   const blocked = roadMoveBlocked(s, o, pose);
   if (blocked) {
@@ -1721,9 +1785,11 @@ export function tickDelivery(s: State, o: Order, dt: number, api: DeliveryAPI) {
     const obstruction = rail ? roadMoveBlocked(s, o, pose) : roadBlocked(s, o, pose, api);
     if (obstruction) {
       d.velocity = 0;
+      carrierBlockage(s, o, obstruction, api);
       o.note = `Yielding to ${obstruction}`;
       return;
     }
+    carrierBlockage(s, o, aheadBlock, api);
     d.distance = next;
     d.travel = (d.travel || 0) + traveled * (backing ? -1 : 1);
     d.reverse = backing;

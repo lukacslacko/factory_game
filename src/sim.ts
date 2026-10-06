@@ -1383,7 +1383,14 @@ function restoreYieldingWorkers(s: State) {
     if (!w.yieldingTo || w.path.length) continue;
     const e = s.equipment.find((e) => e.id === w.yieldingTo);
     const carrier = s.orders.find((o) => o.id === w.yieldingTo);
-    if (carrier && carrier.status !== 'done') continue;
+    // Once the vehicle is parked, its delivery may itself need this worker.
+    // Wait for motion to pass, not for the entire unloading order to finish.
+    if (
+      carrier &&
+      !carrier.carrierDeparted &&
+      ['approaching', 'departing'].includes(carrier.status)
+    )
+      continue;
     if (e && (e.path.length || e.blockedBy === w.id)) continue;
     w.yieldingTo = undefined;
     const target = w.yieldTarget;

@@ -998,6 +998,9 @@ func _work_inspector(work: Dictionary,group: bool) -> void:
 func _order_inspector(order: Dictionary) -> void:
 	var id: String = str(order.id)
 	for pair: Array in [["State","status"],["Transport","mode"],["Receiving note","note"],["Equipment","equipmentId"],["Operator","operatorId"],["Automatic machine","automaticEquipment"]]: _detail(pair[0],order.get(pair[1],"—"))
+	var driving: Dictionary = order.get("drive",{})
+	_detail("Driving blocker",driving.get("blockedBy","—"))
+	_detail("Clearance requested from",driving.get("clearanceRequestedFor","—"))
 	_detail("ETA",_clock(order.get("eta",0)))
 	_detail("Total",_money(order.get("total",0)))
 	for line: Dictionary in order.get("manifest",[{"item":order.get("item",""),"qty":order.get("qty",0),"arrived":order.get("arrived",0)}]):

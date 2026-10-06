@@ -985,6 +985,11 @@ export function validateState(value: any): asserts value is State {
       (!finite(o.drive.gearPause) || o.drive.gearPause < 0)
     )
       fail('invalid gear change pause');
+    if (
+      o.drive?.clearanceRequestedFor !== undefined &&
+      typeof o.drive.clearanceRequestedFor !== 'string'
+    )
+      fail('invalid carrier clearance request');
     if (o.drive?.roadVersion !== undefined && !Number.isInteger(o.drive.roadVersion))
       fail('invalid road route version');
     if (o.drive?.yardPermit !== undefined && typeof o.drive.yardPermit !== 'boolean')
