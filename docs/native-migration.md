@@ -48,3 +48,5 @@ Measurements and verification are saved under `native/tests/`; actual screenshot
 ## Packaged Mac checkpoint
 
 `Plant 01.app` is a self-contained arm64 app of approximately 323 MB. It uses copied Godot 4.7.2 and Node 24.19.0 runtimes, requiring only macOS system frameworks; neither Homebrew nor the repository is needed at runtime. Its local ad-hoc signature verifies. The packaged headless integration check passed in 6.69 seconds with 317.7 MB sampled renderer resident memory and 27 live snapshots; the unfocused real-time interval advanced by 2.25 simulation seconds. Launch Services opened the actual app successfully, and its opening choices and corrected popup background were visually checked. It is ready at the startup screen with no invented user save. The app is for this Mac and is not a notarized cross-platform public release.
+
+Source commit `d18bc6e` and the self-contained Mac app are published as [prerelease v0.19.0](https://github.com/lukacslacko/factory_game/releases/tag/v0.19.0). Native migration issue #19 records the checkpoint and remains open for creator playtest feedback.
