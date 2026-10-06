@@ -647,7 +647,7 @@ func _refresh_register() -> void:
 				rows.append(_row(str(e.id),[e.id,e.get("item","rail"),_position(e),e.get("length",5),e.get("selectedRoute","straight"),e.get("track",{}).get("groupId","")]))
 			_set_table(1,rows); rows=[]
 			for e: Dictionary in metadata.get("render",{}).get("railOpenEndpoints",[]):
-				rows.append(_row(str(e.get("id","")),[e.get("id",""),e.get("panelId",e.get("trackId","")),e.get("route","straight"),_position(e),e.get("occupiedBy","")]))
+				rows.append(_row(str(e.get("id","")),[e.get("id",""),e.get("panelId",e.get("trackId","")),e.get("route","straight"),_position(e),e.get("occupiedBy","")],[],{"0":str(e.get("id",""))}))
 			_set_table(2,rows); rows=[]
 			for e: Dictionary in _buffer_records():
 				rows.append(_row(str(e.id),[e.id,_position(e),"Yes" if e.get("secured",false) else "No","Yes" if e.get("carried",false) else "No",e.get("source","")]))

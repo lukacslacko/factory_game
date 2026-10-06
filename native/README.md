@@ -6,7 +6,7 @@ This is the first playable native migration. The original browser application an
 
 ## Download or open on this Mac
 
-[Download the Apple Silicon Mac app](https://github.com/lukacslacko/factory_game/releases/tag/v0.19.11), unzip it, and open **Plant 01.app**. This checkpoint targets macOS 14 or newer.
+[Download the Apple Silicon Mac app](https://github.com/lukacslacko/factory_game/releases/tag/v0.19.12), unzip it, and open **Plant 01.app**. This checkpoint targets macOS 14 or newer.
 
 Open the **Plant 01.app** built beside the repository in `outputs/`. It includes the Godot runner, Node runtime, simulation, terrain maps, and license notices. It is a local app for this Mac, not a notarized public release.
 
@@ -96,7 +96,7 @@ Rail installation and buffer approaches request clearance from idle automatic ma
 
 Excavator cab swivels use the shortest relative turn, including after many chassis revolutions and when a new movement snapshot arrives mid-turn. Rail and building rigging animations retain the same physical pickup points and supported loads.
 
-### Buffer stops and converging switches — v0.19.11
+### Buffer stops and converging switches — v0.19.12
 
 Buy **Buffer stop** in Purchase / hire and deliver it like other material. The Railway register lists each completed open endpoint and whether it has a secured stop. Select an uncapped endpoint and choose **Install buffer stop**; an owned machine and crew carry the purchased stop there and clamp it to the rails. Select a stop to plan physical recovery into a stockyard. Reserve a clear 2 × 2 m slot for a recovered stop.
 

@@ -39,7 +39,7 @@ func _red_vertices(node:Node3D)->Array[Vector3]:
 func _run()->void:
 	var fixture:Dictionary=JSON.parse_string(FileAccess.get_file_as_string("res://tests/renderer-fixtures.json")).empty.duplicate(true)
 	fixture.state.buffers=[{"id":"BUFFER-001","x":125,"z":5,"y":.2,"yaw":0,"secured":true,"carried":false},{"id":"BUFFER-9002","x":95,"z":30,"y":.2,"yaw":PI/2,"secured":true,"carried":false,"source":"STK-9002"}]
-	fixture.render.railOpenEndpoints=[{"id":"END-9001","x":125,"z":5,"yaw":0,"trackId":"RAIL-9001","panelId":"RAIL-9001","route":"straight","occupiedBy":"BUFFER-001"},{"id":"END-9002","x":150,"z":5,"yaw":0,"trackId":"RAIL-9002","panelId":"RAIL-9002","route":"straight","occupiedBy":""}]
+	fixture.render.railOpenEndpoints=[{"id":"END:RAIL-9001:1","x":125,"z":5,"yaw":0,"trackId":"RAIL-9001","panelId":"RAIL-9001","route":"straight","occupiedBy":"BUFFER-001"},{"id":"END:RAIL-9002:1","x":150,"z":5,"yaw":0,"trackId":"RAIL-9002","panelId":"RAIL-9002","route":"straight","occupiedBy":""}]
 	var ui:=UI.new();root.add_child(ui);ui.setup()
 	ui.command.connect(func(action:String,args:Dictionary)->void:actions.append({"action":action,"args":args}))
 	ui.update_snapshot(fixture)
@@ -50,12 +50,19 @@ func _run()->void:
 	_check(actions.back()=={"action":"rail_flow","args":{"flow":"converging"}},"Converging choice emits the explicit flow mode")
 	ui.show_tab("Railway")
 	_check(ui.tables.size()==4 and ui.tables[2].rows.size()==2 and ui.tables[3].rows.size()==2,"Railway register lists actual endpoints and independent buffers")
-	ui.show_entity("END-9002")
+	var endpoints:Control=ui.tables[2]
+	var endpoint_item:TreeItem=endpoints.tree.get_root().get_first_child().get_next()
+	endpoint_item.select(0)
+	endpoints._selected()
+	_check(ui.selected_id=="END:RAIL-9002:1","Clicking a compound endpoint ID selects the endpoint instead of its embedded rail ID")
+	_check(_button(ui.inspector_body,"Install buffer stop here")!=null,"Actual endpoint table selection exposes the direct install control")
+	_check(endpoints.row_id_pattern.search("BUFFER-9002")!=null,"Every independently numbered buffer ID remains clickable in reference columns")
+	ui.show_entity("END:RAIL-9002:1")
 	var install:=_button(ui.inspector_body,"Install buffer stop here")
 	_check(install!=null and not install.disabled,"Open endpoint exposes an installation action")
 	if install:install.pressed.emit()
 	_check(actions.back()=={"action":"plan_buffer","args":{"x":150.0,"z":5.0}},"Installation command uses the actual endpoint coordinates")
-	ui.show_entity("END-9001")
+	ui.show_entity("END:RAIL-9001:1")
 	install=_button(ui.inspector_body,"Install buffer stop here")
 	_check(install!=null and install.disabled,"Occupied endpoint does not invite duplicate stops")
 	ui.show_entity("BUFFER-9002")
@@ -70,7 +77,7 @@ func _run()->void:
 	fixture.state.buffers[1].carried=false;fixture.state.buffers[1].secured=true
 	var world:=W.new();root.add_child(world);world.setup();world.sync_snapshot(fixture)
 	_check(world.statics.has("BUFFER-001") and world.statics.has("BUFFER-9002"),"All actual buffer assets render independently")
-	_check(world.entity_position("END-9002").is_equal_approx(Vector3(150,0,5)),"Endpoint Locate targets its actual track position")
+	_check(world.entity_position("END:RAIL-9002:1").is_equal_approx(Vector3(150,0,5)),"Endpoint Locate targets its actual track position")
 	_check(world.statics.size()==2,"Legacy compatibility buffer does not create a duplicate model")
 	_check(world.entity_position("BUFFER-9002").is_equal_approx(Vector3(95,.2,30)),"Second buffer uses its actual pose")
 	_check(world.pick_ground(Vector3(95,0,30))=="BUFFER-9002","Buffer floor picking preserves stable asset identity")

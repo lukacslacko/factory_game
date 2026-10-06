@@ -1,19 +1,19 @@
 {
-  "version": "0.19.11",
+  "version": "0.19.12",
   "simulationTests": 405,
   "simulationSeconds": 296.4,
   "nativeUi": {
-    "checks": 36,
-    "name": "switch-ui-smoke",
+    "checks": 39,
+    "name": "switches-final-links",
     "elapsed_seconds": 1.52,
-    "peak_resident_bytes": 313753600,
+    "peak_resident_bytes": 259325952,
     "returncode": 0,
     "stopped_reason": null
   },
   "packagedApp": {
-    "name": "switches-packaged",
-    "elapsed_seconds": 6.6,
-    "peak_resident_bytes": 298450944,
+    "name": "switches-packaged-final",
+    "elapsed_seconds": 6.63,
+    "peak_resident_bytes": 298090496,
     "returncode": 0,
     "stopped_reason": null
   },

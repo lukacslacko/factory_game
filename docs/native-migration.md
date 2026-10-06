@@ -71,3 +71,5 @@ The final moving-shadow check passes: 717 ground pixels exceed a 4/255 change in
 The native railway planner can join two parallel endpoints using a converging turnout. Physical construction reuses the existing seven module types, installing tails before points. Purchasable 850 kg buffer stops have independent identities, collision footprints, installation/recovery handling and saved poses. Railway exposes completed open endpoints and buffer protection; SQL includes `buffers` and turnout `flow`. Redundant stops are carried into reachable stockyard slots before track connections can finish, with one retained stop moved to the common open end. The original saved yard remains intact.
 
 Paid disposal remains future work in issue #35. Existing-track turnout insertion, main-line reception conversion and owned shunting retain their separate tracker scope.
+
+The v0.19.12 follow-up corrects compound endpoint-ID clicks and generalizes numbered buffer links. Its 39 focused native UI/model/picking checks include selecting the actual Tree cell rather than calling the inspector directly.
