@@ -41,6 +41,7 @@ export function equipmentIntent(s: State, e: Equipment): EquipmentIntent {
     const h = job.handling,
       r = job.railWork;
     references.push(
+      ...(r?.siteClearance?.blockers || []),
       ...[h?.sourceId, r?.source?.stackId, r?.panel.stackId].filter((v): v is string => !!v),
     );
     if (h) {

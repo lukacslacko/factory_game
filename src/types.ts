@@ -192,6 +192,14 @@ export interface RailBatchBuffer {
   ownerJob?: string;
 }
 export interface RailWork {
+  /** Temporary staging occupants addressed by this crew; saved for deduplicated warnings. */
+  siteClearance?: {
+    blockers: string[];
+    requested: string[];
+    since: number;
+    warned?: boolean;
+    retryAt?: number;
+  };
   /** Same-type panels transported together by this staging pass; installation remains per panel. */
   stagingBatch?: { jobIds: string[]; qty: number };
   configuredHand?: 1 | -1;

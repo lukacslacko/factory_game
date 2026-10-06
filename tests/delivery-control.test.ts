@@ -188,3 +188,27 @@ test('resuming a paused empty forklift still physically withdraws before releasi
   assert.equal(S.totals(s, 'diesel').stored, 1);
   assert.equal(e.deliveryOrder, undefined);
 });
+
+test('the shared release control action safely resumes a manually paused loaded delivery', () => {
+  const { s, e, o, w } = carriedDelivery();
+  assert.equal(pauseDeliveryHandling(s, e.id), '');
+  const cargo = { ...e.cargo! },
+    point = { x: e.x, z: e.z };
+  assert.equal(S.releaseWorker(s, w.id), '');
+  assert.equal(w.duty, 'auto');
+  assert.equal(o.unloadPaused, undefined);
+  assert.deepEqual(e.cargo, cargo);
+  assert.deepEqual({ x: e.x, z: e.z }, point);
+  tickUntil(s, () => !o.unload, 300);
+  assert.equal(S.totals(s, 'diesel').stored, 1);
+});
+
+test('release refuses an unsafe paused transfer without hiding its manual control state', () => {
+  const { s, e, o, w } = carriedDelivery();
+  assert.equal(pauseDeliveryHandling(s, e.id), '');
+  o.unload!.phase = 'lower';
+  assert.match(S.releaseWorker(s, w.id), /current rigging, lifting, lowering/);
+  assert.equal(w.duty, 'manual');
+  assert.equal(o.unloadPaused, true);
+  assert.equal(e.cargo?.item, 'diesel');
+});

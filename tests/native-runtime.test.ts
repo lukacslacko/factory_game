@@ -8,6 +8,7 @@ import { spawn, execFileSync } from 'node:child_process';
 import { once } from 'node:events';
 import * as Sim from '../src/sim';
 import { MATERIALS } from '../src/catalog';
+import { seedHandlingResources } from './support/yard';
 import { renderState } from '../native-runtime/render';
 const root = path.resolve(import.meta.dirname, '..');
 execFileSync(process.execPath, ['native-runtime/build.mjs'], { cwd: root, stdio: 'pipe' });
@@ -368,4 +369,29 @@ test('bounded display ledgers preserve authoritative totals and full SQL/file hi
   });
   assert.deepEqual(sql[0].values, [[2500, 2500]]);
   assert.equal(JSON.parse((await c.ok('export')).json).costs.length, 2500);
+});
+
+test('native release command clears manual vehicle control and its stale driving destination', async (t) => {
+  const host = await launch();
+  t.after(() => host.close());
+  const s = Sim.createState(),
+    e = seedHandlingResources(s, 'excavator');
+  const op = s.workers.find((w) => w.role === 'operator')!;
+  e.operator = op.id;
+  op.vehicle = e.id;
+  op.x = e.x;
+  op.z = e.z;
+  s.paused = true;
+  const c = host.client;
+  await c.ok('import', { json: Sim.save(s) });
+  await c.ok('pause', { paused: true });
+  await c.ok('control', { id: op.id });
+  await c.ok('move_worker', { id: op.id, x: 20, z: 45 });
+  await c.ok('release', { id: op.id });
+  const released = Sim.load((await c.ok('export')).json);
+  const actual = released.equipment.find((q) => q.id === e.id)!;
+  assert.equal(released.workers.find((w) => w.id === op.id)!.duty, 'auto');
+  assert.equal(actual.path.length, 0);
+  assert.equal(actual.trafficGoal, undefined);
+  assert.equal(actual.operator, op.id);
 });

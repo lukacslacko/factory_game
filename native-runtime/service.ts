@@ -458,8 +458,7 @@ async function dispatch(action: string, a: any) {
     }
     case 'release': {
       const w = worker(entityId(a));
-      if (w.job) w.duty = 'auto';
-      else Sim.releaseWorker(state, w.id);
+      check(Sim.releaseWorker(state, w.id));
       return {};
     }
     case 'worker_duty': {

@@ -72,6 +72,7 @@ var menu: PopupMenu
 var confirmation: ConfirmationDialog
 var pending_confirmation: Callable
 var tool_label: Label
+var release_control_button: Button
 var group_expansion: Dictionary = {}
 
 func setup() -> void:
@@ -317,6 +318,8 @@ func _build_yard_controls() -> void:
 	_button(rail_row,"Rotate R",func() -> void: _send("rotate",{}))
 	_button(rail_row,"Left / right",func() -> void: _send("rail_hand",{}))
 	_button(rail_row,"Buy missing",func() -> void: _send("buy_missing",{}))
+	release_control_button=_button(rail_row,"Return to automatic",func() -> void: _return_to_automatic(controlled_worker))
+	release_control_button.visible=false
 	tool_label=_label(rail_row,"Select · 1 m grid")
 	tool_label.tooltip_text="Construction ghosts: cyan queued, amber underway. Placement preview: green valid, red invalid."
 	tool_label.size_flags_horizontal=Control.SIZE_EXPAND_FILL
@@ -325,7 +328,7 @@ func _build_yard_controls() -> void:
 func _select_tool(kind: String) -> void:
 	active_tool=kind
 	_switch_tab("Yard")
-	tool_label.text="%s · click / drag the yard"%kind
+	_update_control_banner()
 	if not selected_id.is_empty(): entity_selected.emit(selected_id)
 	tool_selected.emit(kind)
 
@@ -454,6 +457,7 @@ func update_snapshot(message: Dictionary) -> void:
 	refresh_pending=true
 	inspector_pending=true
 	_check_notices()
+	_update_control_banner()
 
 func _process(delta: float) -> void:
 	update_clock+=delta
@@ -588,7 +592,7 @@ func _build_register() -> void:
 			_table(register_body,"Physical stacks",["ID","Material","Qty","Reserved","Footprint","Position","Source","Diesel L"])
 		"Workers": _table(register_body,"",["ID","Name","Role","Duty","Shift","Status","Job / delivery","Vehicle","Support","Hours"])
 		"Equipment":
-			_table(register_body,"Mobile equipment",["ID","Type","Auto work","Operator","Job / delivery","Fuel L","Used L","Parking","Status"])
+			_table(register_body,"Mobile equipment",["ID","Type","Control","Auto work","Operator","Job / delivery","Fuel L","Used L","Parking","Status"])
 			_table(register_body,"Buildings",["ID","Name","Kind","Position","Footprint","Utilities"])
 		"Deliveries": _table(register_body,"",["ID","Items","Qty","Arrived","Mass","Mode","ETA","Status","Receiving note","Cost"])
 		"Work":
@@ -647,7 +651,7 @@ func _refresh_register() -> void:
 			_set_table(0,rows)
 		"Equipment":
 			for e: Dictionary in _records("equipment"):
-				rows.append(_row(str(e.id),[e.id,_name(str(e.get("kind",""))),", ".join(e.get("allowedWork",[e.get("workRole","all")])),e.get("operator",""),e.get("job",e.get("deliveryOrder","")),"%.1f / %s"%[float(e.get("fuel",0)),e.get("tank",0)],"%.1f"%float(e.get("used",0)),_position(e.parking) if e.has("parking") else "Not assigned",e.get("blockedBy",e.get("parkingState","Ready"))]))
+				rows.append(_row(str(e.id),[e.id,_name(str(e.get("kind",""))),_equipment_control(e),", ".join(e.get("allowedWork",[e.get("workRole","all")])),e.get("operator",""),e.get("job",e.get("deliveryOrder","")),"%.1f / %s"%[float(e.get("fuel",0)),e.get("tank",0)],"%.1f"%float(e.get("used",0)),_position(e.parking) if e.has("parking") else "Not assigned",e.get("blockedBy",e.get("parkingState","Ready"))]))
 			_set_table(0,rows); rows=[]
 			for e: Dictionary in _records("buildings"):
 				rows.append(_row(str(e.id),[e.id,e.get("name",""),_name(str(e.get("kind",""))),_position(e),"%s × %s m"%[e.get("w",1),e.get("d",1)],"Connected" if e.get("connected",false) else "Needs connection"]))
@@ -868,7 +872,7 @@ func _worker_inspector(worker: Dictionary) -> void:
 	_button(inspector_body,"Apply shift schedule",func() -> void: _send("worker_schedule",{"id":id,"startHour":start.value,"endHour":end.value}))
 	_button(inspector_body,"Always on duty",func() -> void: _send("worker_schedule",{"id":id,"startHour":null}))
 	_button(inspector_body,"Take direct control / walk",func() -> void: controlled_worker=id; _send("control",{"id":id}); _select_tool("drive"))
-	_button(inspector_body,"Return to automatic duty",func() -> void: _send("release",{"id":id}); controlled_worker="")
+	_button(inspector_body,"Return to automatic duty",func() -> void: _return_to_automatic(id))
 	_button(inspector_body,"Rest / hold automatic work",func() -> void: _send("worker_duty",{"id":id,"duty":"auto" if worker.get("duty")=="rest" else "rest"}))
 	if worker.has("vehicle"): _button(inspector_body,"Leave vehicle",func() -> void: _send("exit_vehicle",{"id":id}))
 	if worker.has("assistingEquipment"): _button(inspector_body,"Release support assignment",func() -> void: _send("assistant",{"id":worker.assistingEquipment}))
@@ -876,8 +880,53 @@ func _worker_inspector(worker: Dictionary) -> void:
 	_button(inspector_body,"Board selected equipment",func() -> void:
 		if not _selection(machine).is_empty(): _send("enter_vehicle",{"workerId":id,"equipmentId":_selection(machine)}))
 
+func _seated_operator(equipment: Dictionary) -> Dictionary:
+	var worker_id: String = str(equipment.get("operator",""))
+	for worker: Dictionary in _records("workers"):
+		if str(worker.id)==worker_id and str(worker.get("vehicle",""))==str(equipment.id): return worker
+	return {}
+
+func _equipment_control(equipment: Dictionary) -> String:
+	var operator: Dictionary = _seated_operator(equipment)
+	if operator.is_empty(): return "No operator"
+	match str(operator.get("duty","auto")):
+		"manual": return "Manual driving"
+		"rest": return "Resting"
+	return "Automatic"
+
+func _return_to_automatic(worker_id: String) -> void:
+	if worker_id.is_empty(): return
+	_send("release",{"id":worker_id})
+	controlled_worker=""
+	if active_tool=="drive":
+		active_tool="select"
+		tool_selected.emit("select")
+	_update_control_banner()
+
+func _update_control_banner() -> void:
+	if not is_instance_valid(tool_label): return
+	var driving: bool = active_tool=="drive" and not controlled_worker.is_empty()
+	release_control_button.visible=driving
+	if driving:
+		var worker: Dictionary = _entity(controlled_worker).get("entity",{})
+		var vehicle_id: String = str(worker.get("vehicle",""))
+		tool_label.text="Manual driving · %s"%(vehicle_id if not vehicle_id.is_empty() else controlled_worker)
+		tool_label.tooltip_text="Automatic work stays suspended until you return this worker to automatic duty. Click the yard to drive or walk."
+	else:
+		tool_label.text="Select · 1 m grid" if active_tool=="select" else "%s · click / drag the yard"%active_tool
+		tool_label.tooltip_text="Construction ghosts: cyan queued, amber underway. Placement preview: green valid, red invalid."
+
 func _equipment_inspector(equipment: Dictionary) -> void:
 	var id: String = str(equipment.id)
+	var control: String = _equipment_control(equipment)
+	var operator_worker: Dictionary = _seated_operator(equipment)
+	var indicator: Label = _label(inspector_body,"Control: "+control)
+	indicator.add_theme_font_size_override("font_size",14)
+	if control=="Manual driving": indicator.add_theme_color_override("font_color",Color("8b571f"))
+	if control in ["Manual driving","Resting"]:
+		var release_button: Button = _button(inspector_body,"Return to automatic work",func() -> void: _return_to_automatic(str(operator_worker.id)))
+		release_button.custom_minimum_size.y=30
+		_note(inspector_body,"Automatic jobs are suspended while the operator is under manual control." if control=="Manual driving" else "The seated operator is resting; automatic jobs are suspended.")
 	_detail("Fuel","%.1f / %s L"%[float(equipment.get("fuel",0)),equipment.get("tank",0)])
 	_detail("Diesel used","%.2f L"%float(equipment.get("used",0)))
 	_detail("Lift limit",_mass(float(catalog.get(equipment.get("kind",""),{}).get("capacity",0))))
@@ -927,12 +976,23 @@ func _equipment_inspector(equipment: Dictionary) -> void:
 	var operator: OptionButton = _entity_option(inspector_body,"workers","Choose operator to board…",str(equipment.get("operator","")),true)
 	_button(inspector_body,"Board operator",func() -> void:
 		if not _selection(operator).is_empty(): _send("enter_vehicle",{"workerId":_selection(operator),"equipmentId":id}))
-	_button(inspector_body,"Drive manually",func() -> void:
-		if equipment.has("operator"): controlled_worker=str(equipment.operator); _send("control",{"id":controlled_worker})
+	var drive_button: Button = _button(inspector_body,"Drive manually",func() -> void:
+		controlled_worker=str(operator_worker.id)
+		_send("control",{"id":controlled_worker})
 		_select_tool("drive"))
+	drive_button.disabled=operator_worker.is_empty()
+	drive_button.tooltip_text="Board an operator first." if operator_worker.is_empty() else "Automatic jobs pause until you return this operator to automatic duty."
 	if equipment.has("deliveryOrder"):
-		_button(inspector_body,"Pause unloading for manual recovery",func() -> void: _send("delivery_pause",{"id":id}); _select_tool("drive"))
-		_button(inspector_body,"Resume automatic unloading",func() -> void: _send("delivery_resume",{"id":id}))
+		var unloading_paused: bool = false
+		for order: Dictionary in _records("orders"):
+			if str(order.id)==str(equipment.deliveryOrder): unloading_paused=bool(order.get("unloadPaused",false))
+		var pause_delivery_button: Button = _button(inspector_body,"Pause unloading for manual recovery",func() -> void:
+			_send("delivery_pause",{"id":id})
+			controlled_worker=str(operator_worker.get("id",""))
+			_select_tool("drive"))
+		pause_delivery_button.disabled=unloading_paused or operator_worker.is_empty()
+		var resume_delivery_button: Button = _button(inspector_body,"Resume automatic unloading",func() -> void: _return_to_automatic(str(operator_worker.get("id",""))))
+		resume_delivery_button.disabled=not unloading_paused or operator_worker.is_empty()
 	_label(inspector_body,"Parking bay")
 	var parking: Dictionary = equipment.get("parking",{})
 	var x: SpinBox = _number(inspector_body,"East (m)",float(parking.get("x",equipment.get("x",0))),-10000,10000,0.5)
@@ -952,6 +1012,9 @@ func _work_inspector(work: Dictionary,group: bool) -> void:
 		_button(inspector_body,"Expand / collapse this work",func() -> void: group_expansion[id]=not group_expansion.get(id,false); _refresh_register())
 	else:
 		for pair: Array in [["State","status"],["Current step","phase"],["Condition","reason"],["Worker","worker"],["Operator","operator"],["Equipment","equipment"],["Reserved stock","stack"],["Parent work","parentId"]]: _detail(pair[0],work.get(pair[1],"—"))
+		if work.get("railWork",{}).has("siteClearance"):
+			_detail("Staging blockers"," · ".join(work.railWork.siteClearance.get("blockers",[])))
+			_detail("Staging position",_position(work.railWork.stage))
 		_detail("Progress","%d%%"%roundi(float(work.get("progress",0))*100))
 		if work.has("item"): _detail("Material","%s × %s"%[work.get("qty",0),_name(str(work.item))])
 		if work.has("shedAssembly"):

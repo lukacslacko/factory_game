@@ -1,0 +1,49 @@
+{
+  "version": "0.19.7",
+  "date": "2026-10-06",
+  "regressions": {
+    "passed": 382,
+    "failed": 0,
+    "duration_ms": 298873.900084,
+    "node_heap_limit_mb": 384,
+    "sequential": true,
+    "new_staging_clearance_cases": 6,
+    "new_manual_delivery_control_cases": 5,
+    "new_native_release_case": 1
+  },
+  "native_manual_ui": {
+    "name": "rail-clearance-manual-ui",
+    "elapsed_seconds": 1.02,
+    "peak_resident_bytes": 152092672,
+    "returncode": 0,
+    "stopped_reason": null
+  },
+  "native_ui": {
+    "name": "rail-clearance-ui",
+    "elapsed_seconds": 1.53,
+    "peak_resident_bytes": 263979008,
+    "returncode": 0,
+    "stopped_reason": null
+  },
+  "packaged_native": {
+    "name": "rail-clearance-packaged",
+    "elapsed_seconds": 7.14,
+    "peak_resident_bytes": 313229312,
+    "returncode": 0,
+    "stopped_reason": null
+  },
+  "saved_yard_replay": {
+    "isolated": true,
+    "seconds": 600,
+    "simulated_manual_duty_release": true,
+    "rail_jobs_completed": 4,
+    "independent_other_waits_remain": true,
+    "replay_imported_into_live_yard": false
+  },
+  "actual_yard": {
+    "saved_and_continued": true,
+    "workers": 12,
+    "recorded_costs_usd": 250290,
+    "manual_controls_preserved": true
+  }
+}

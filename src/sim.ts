@@ -8,7 +8,7 @@ import {
 import { packPurchase, orderLines, orderDescription } from './procurement';
 export { packPurchase as planPurchaseBatch } from './procurement';
 import { tickWorkforce, workerAvailable } from './workforce';
-import { isPausedDeliveryOperator } from './delivery-control';
+import { isPausedDeliveryOperator, resumeDeliveryHandling } from './delivery-control';
 import {
   equipmentAssistant,
   availableEquipmentAssistant,
@@ -1481,13 +1481,43 @@ export function exitVehicle(s: State, wid: string) {
   if (w.transition) return;
   leaveMachine(s, w);
 }
-export function releaseWorker(s: State, wid: string) {
+export function releaseWorker(s: State, wid: string): string {
   const w = s.workers.find((w) => w.id === wid);
-  if (!w || !workerAvailable(s, w) || w.job || w.deliveryOrder || w.transportOrder) return;
-  w.path = [];
+  if (!w) return 'Worker not found.';
+  if (w.vehicle && s.orders.some((o) => o.id === w.deliveryOrder && o.unloadPaused)) {
+    const error = resumeDeliveryHandling(s, w.vehicle);
+    if (error) return error;
+  }
+  // Release the control mode even during active work or off shift; preserve the
+  // physical assignment/boarding sequence rather than canceling an attached load.
+  const e = s.equipment.find((e) => e.id === w.vehicle);
+  if (!w.job && !w.deliveryOrder && !w.transportOrder && !w.transition) {
+    w.path = [];
+    if (e && !e.job && !e.deliveryOrder && !e.transportOrder) {
+      e.path = [];
+      e.velocity = 0;
+      e.trafficGoal = undefined;
+      e.trafficReverse = undefined;
+      e.trafficYieldWorker = undefined;
+      e.trafficWait = 0;
+      e.trafficRetry = undefined;
+      e.blockedBy = undefined;
+    }
+    w.status = e ? 'Available in cab' : 'Available';
+  }
+  const changed = w.duty !== 'auto';
   w.duty = 'auto';
-  w.status = 'Available';
+  if (changed)
+    event(
+      s,
+      'Control',
+      e?.id || w.id,
+      `${w.id} returned ${e?.id || 'on-foot work'} to automatic control.`,
+    );
+  s.revision++;
+  return '';
 }
+
 export function refuel(s: State, eid: string) {
   const e = s.equipment.find((e) => e.id === eid);
   if (!e) return 'Equipment not found.';

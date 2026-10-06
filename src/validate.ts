@@ -798,6 +798,18 @@ export function validateState(value: any): asserts value is State {
         !['stored', 'carried', 'staged', 'placed', 'installed'].includes(r.panel.state)
       )
         fail('invalid rail work sequence');
+      if (
+        r.siteClearance &&
+        (!Array.isArray(r.siteClearance.blockers) ||
+          !r.siteClearance.blockers.every((v: any) => typeof v === 'string') ||
+          !Array.isArray(r.siteClearance.requested) ||
+          !r.siteClearance.requested.every((v: any) => typeof v === 'string') ||
+          !finite(r.siteClearance.since) ||
+          r.siteClearance.since < 0 ||
+          (r.siteClearance.warned !== undefined && typeof r.siteClearance.warned !== 'boolean') ||
+          (r.siteClearance.retryAt !== undefined && !finite(r.siteClearance.retryAt)))
+      )
+        fail('invalid rail staging clearance request');
       if (r.from && !pose(r.from)) fail('invalid rail lifting origin');
       if (r.lifting !== undefined && !['panel', 'buffer'].includes(r.lifting))
         fail('invalid rail lifting attachment');

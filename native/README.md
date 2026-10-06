@@ -6,7 +6,7 @@ This is the first playable native migration. The original browser application an
 
 ## Download or open on this Mac
 
-[Download the Apple Silicon Mac app](https://github.com/lukacslacko/factory_game/releases/tag/v0.19.6), unzip it, and open **Plant 01.app**. This checkpoint targets macOS 14 or newer.
+[Download the Apple Silicon Mac app](https://github.com/lukacslacko/factory_game/releases/tag/v0.19.7), unzip it, and open **Plant 01.app**. This checkpoint targets macOS 14 or newer.
 
 Open the **Plant 01.app** built beside the repository in `outputs/`. It includes the Godot runner, Node runtime, simulation, terrain maps, and license notices. It is a local app for this Mac, not a notarized public release.
 
@@ -84,3 +84,10 @@ python3 scripts/package-native-macos.py
 Automated native tests use isolated data directories. The watchdog launches one Godot process, stops it on script errors, and limits time and resident memory. Existing simulation regressions remain in `tests/`; `native-runtime/` covers the transport, reporting, and persistence boundary. See the migration notes for feature coverage and measured results.
 
 The native project includes the same CC0 terrain maps as the visual proof. [Terrain credits](assets/CREDITS.md), Godot, Node, SQLite/sql.js, and build-helper notices, and the repository MIT license accompany the app. Packaging currently targets the architecture of the Mac performing the build.
+
+
+## Rail staging clearance and manual driving
+
+Future rail staging space is planned against permanent geometry, without treating a nearby empty parked machine as a permanent wall. The staging crew can collect its real load and travel toward the site while requesting clearance. An idle empty machine with a seated automatic operator and fuel drives to a checked refuge through normal movement. Manual/rest control, unattended machines, active loads and physical operations are protected. A supported rail panel cannot be lowered while the staging footprint, handling area or withdrawal is occupied. Persistent site obstruction produces one linked warning after 20 seconds, with the staging position and blocker IDs in the work inspector.
+
+The equipment inspector and Equipment register show a separate **Control** status: **Manual driving**, **Automatic**, **Resting**, or **No operator**. Allowed automatic job kinds do not imply that manual control has been released. Click **Return to automatic work** near the top of the equipment inspector, or **Return to automatic** in the driving bar. It restores the same operator to automatic duty, stops an idle manual driving route, retains cab ownership, and allows queued assignments to resume. A paused delivery resumes through its existing safe handling checks; active supported loads and work are retained. Off-shift workers retain their shift restrictions.
