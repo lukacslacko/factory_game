@@ -229,6 +229,8 @@ func _window_background(window: Window) -> void:
 func _button(parent: Node,text: String,callback: Callable) -> Button:
 	var button: Button = Button.new()
 	button.text=text
+	button.button_down.connect(func() -> void: button.set_meta("interaction_pressed",true))
+	button.button_up.connect(func() -> void: button.set_meta("interaction_pressed",false))
 	button.pressed.connect(callback)
 	parent.add_child(button)
 	return button
@@ -493,14 +495,17 @@ func _process(delta: float) -> void:
 		inspector_pending=false
 
 func _editing(node: Control) -> bool:
-	if _open_popup(node): return true
+	if _interacting(node): return true
 	var focus: Control = node.get_viewport().gui_get_focus_owner()
 	return focus!=null and node.is_ancestor_of(focus) and (focus is LineEdit or focus is TextEdit or focus is SpinBox or focus is OptionButton)
 
-func _open_popup(node: Node) -> bool:
+func _interacting(node: Node) -> bool:
+	# A live refresh must not remove a button between press and release,
+	# including keyboard activation. Rebuild after the interaction finishes.
+	if node is BaseButton and bool(node.get_meta("interaction_pressed",false)): return true
 	if (node is MenuButton or node is OptionButton) and node.get_popup().visible: return true
 	for child: Node in node.get_children():
-		if _open_popup(child): return true
+		if _interacting(child): return true
 	return false
 
 func show_entity(id: String) -> void:
@@ -761,6 +766,8 @@ func _work_tasks(group_id: String) -> Array[Dictionary]:
 	return result
 
 func _entity(id: String) -> Dictionary:
+	# Missing optional reference IDs are empty too; they are not a selection.
+	if id.is_empty(): return {}
 	for key: String in ["workers","equipment","stacks","buildings","rails","zones","jobs","jobGroups","orders","railLocations","notices","events","costs","movements"]:
 		for entity: Dictionary in _records(key):
 			if str(entity.get("id",""))==id: return {"type":key,"entity":entity}
