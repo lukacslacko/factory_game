@@ -6,7 +6,7 @@ This is the first playable native migration. The original browser application an
 
 ## Download or open on this Mac
 
-[Download the Apple Silicon Mac app](https://github.com/lukacslacko/factory_game/releases/tag/v0.19.8), unzip it, and open **Plant 01.app**. This checkpoint targets macOS 14 or newer.
+[Download the Apple Silicon Mac app](https://github.com/lukacslacko/factory_game/releases/tag/v0.19.9), unzip it, and open **Plant 01.app**. This checkpoint targets macOS 14 or newer.
 
 Open the **Plant 01.app** built beside the repository in `outputs/`. It includes the Godot runner, Node runtime, simulation, terrain maps, and license notices. It is a local app for this Mac, not a notarized public release.
 
@@ -93,3 +93,5 @@ Future rail staging space is planned against permanent geometry, without treatin
 The equipment inspector and Equipment register show a separate **Control** status: **Manual driving**, **Automatic**, **Resting**, or **No operator**. Allowed automatic job kinds do not imply that manual control has been released. Click **Return to automatic work** near the top of the equipment inspector, or **Return to automatic** in the driving bar. It restores the same operator to automatic duty, stops an idle manual driving route, retains cab ownership, and allows queued assignments to resume. A paused delivery resumes through its existing safe handling checks; active supported loads and work are retained. Off-shift workers retain their shift restrictions.
 
 Rail installation and buffer approaches request clearance from idle automatic machines occupying their handling space, just as preparation-area work does. Manual or unattended blockers remain in place and generate a linked warning after 20 seconds. Work details show **Handling blockers**. Safe approach can continue while an automatic blocker drives clear; alignment and lowering wait for an empty footprint.
+
+Excavator cab swivels use the shortest relative turn, including after many chassis revolutions and when a new movement snapshot arrives mid-turn. Rail and building rigging animations retain the same physical pickup points and supported loads.

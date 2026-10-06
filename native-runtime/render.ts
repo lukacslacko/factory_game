@@ -6,6 +6,7 @@ import { equipmentIntent } from '../src/equipment-intent';
 import { trackGeometry, trackNetwork } from '../src/track';
 import { freightPose, shipmentLots, stackHeight } from '../src/delivery';
 import {
+  angleDelta,
   carPose,
   COUPLED_CENTERS,
   deckPose,
@@ -175,7 +176,9 @@ export function renderState(s: State) {
             0.7 -
             pose.y;
           reach = Math.hypot(anchor.x - pose.x, anchor.z - pose.z);
-          upperYaw = -(Math.atan2(anchor.z - pose.z, anchor.x - pose.x) - pose.yaw);
+          // Chassis yaw accumulates full revolutions. Blend only the physical
+          // relative swivel, or a half-finished rigging move unwinds that history.
+          upperYaw = -angleDelta(pose.yaw, Math.atan2(anchor.z - pose.z, anchor.x - pose.x));
           if (
             e.kind === 'excavator' &&
             ['source-rig', 'panel-rig', 'buffer-rig', 'buffer-rig-return'].includes(rail.phase)
@@ -198,7 +201,10 @@ export function renderState(s: State) {
           lift = handling.pose.y - pose.y + (e.kind === 'excavator' ? 0.82 : 0);
           reach = Math.hypot(handling.pose.x - pose.x, handling.pose.z - pose.z);
           if (e.kind === 'excavator')
-            upperYaw = -(Math.atan2(handling.pose.z - pose.z, handling.pose.x - pose.x) - pose.yaw);
+            upperYaw = -angleDelta(
+              pose.yaw,
+              Math.atan2(handling.pose.z - pose.z, handling.pose.x - pose.x),
+            );
         }
       }
       if (
@@ -211,7 +217,7 @@ export function renderState(s: State) {
             p.kind === 'post' ? 2.15 : p.kind === 'wall' ? 1.9 : p.kind === 'brace' ? 1.95 : 0.4;
         lift = p.pose.y - pose.y + top + 0.7;
         reach = Math.hypot(p.pose.x - pose.x, p.pose.z - pose.z);
-        upperYaw = -(Math.atan2(p.pose.z - pose.z, p.pose.x - pose.x) - pose.yaw);
+        upperYaw = -angleDelta(pose.yaw, Math.atan2(p.pose.z - pose.z, p.pose.x - pose.x));
         if (shed.phase === 'rig') {
           const f = smoothstep(shed.clock / 2);
           lift = 2 + (lift - 2) * f;

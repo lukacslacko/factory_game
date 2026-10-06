@@ -1,0 +1,46 @@
+{
+  "version": "0.19.9",
+  "fixes": [
+    "canonical shortest relative excavator swivel before rigging blend",
+    "shortest-arc cab interpolation including interrupted snapshots"
+  ],
+  "regression_tests": {
+    "typescript_rotation": 8,
+    "focused_native_total": 17,
+    "passed": 17,
+    "duration_ms": 8851.797666
+  },
+  "native_model": {
+    "rendered_frames": 700,
+    "name": "rotation-smoke",
+    "elapsed_seconds": 1.52,
+    "peak_resident_bytes": 252411904,
+    "returncode": 0,
+    "stopped_reason": null
+  },
+  "recording_analysis": {
+    "equipment_position_samples": 998,
+    "working_excavator_max_sampled_chassis_rate_rad_s": 1.5,
+    "rendered_cab_angle_recorded": false
+  },
+  "renderer": {
+    "name": "rotation-renderer",
+    "elapsed_seconds": 1.53,
+    "peak_resident_bytes": 260669440,
+    "returncode": 0,
+    "stopped_reason": null
+  },
+  "packaged_app": {
+    "name": "rotation-packaged",
+    "elapsed_seconds": 7.15,
+    "peak_resident_bytes": 279314432,
+    "returncode": 0,
+    "stopped_reason": null
+  },
+  "live_yard": {
+    "retained": true,
+    "paused": true,
+    "speed": 1,
+    "workers": 12
+  }
+}

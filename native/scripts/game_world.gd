@@ -179,9 +179,12 @@ func advance(delta:float)->void:
 		if not models.has(id):continue
 		var record:Dictionary=records[id]; var a:Dictionary=record.from; var b:Dictionary=record.to
 		var p:Dictionary=b.duplicate()
-		for field in ["x","z","y","lift","reach","travel","pitch","upperYaw","clock","workClock","forkSupportY","ramp"]:
+		for field in ["x","z","y","lift","reach","travel","pitch","clock","workClock","forkSupportY","ramp"]:
 			if b.has(field):p[field]=lerpf(float(a.get(field,b[field])),float(b[field]),alpha)
 		p["yaw"]=lerp_angle(float(a.get("yaw",0)),float(b.get("yaw",0)),alpha)
+		# A swivel crossing +/-PI must take the short arc, including when an
+		# incoming snapshot interrupts a partially displayed turn.
+		if b.has("upperYaw"):p["upperYaw"]=lerp_angle(float(a.get("upperYaw",b.upperYaw)),float(b.upperYaw),alpha)
 		record.current=p
 		var model:Node3D=models[id]; _apply_pose(model,p)
 		if str(model.get_meta("kind","")) in ["worker","excavator","forklift"]:Models.animate_actor(model,p,delta)
