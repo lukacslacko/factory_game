@@ -567,3 +567,32 @@ test('native creative toggle instantly places completed assets and persists with
   await host.client.ok('creative', { enabled: false });
   assert.equal((await host.client.ok('plan', { kind: 'office', x: 80, z: 30 })).job.status, 'todo');
 });
+
+test('native recovery command stores installed steel and exposes both ends of a gap', async (t) => {
+  const host = await launch();
+  t.after(() => host.close());
+  const s = Sim.createState();
+  s.paused = true;
+  Sim.setCreativeMode(s, true);
+  s.zones.push({ id: Sim.id(s, 'zone'), name: 'Recovered steel', x: 40, z: 35, w: 65, d: 35 });
+  for (let x = 125; x < 150; x += 5)
+    assert.equal(Sim.planRailLayout(s, 'straight', { x, z: 5 }).error, '');
+  const panel = s.rails[2];
+  await host.client.ok('import', { json: Sim.save(s) });
+  assert.equal(
+    (await host.client.request('remove_rail', { id: panel.id, scope: 'teleport' })).ok,
+    false,
+  );
+  await host.client.ok('remove_rail', { id: panel.id, scope: 'panel' });
+  await host.client.ok('save');
+  const saved = Sim.load(await fs.readFile(path.join(host.dir, 'yard.json'), 'utf8'));
+  assert(!saved.rails.some((r) => r.id === panel.id));
+  assert.equal(saved.stacks.find((t) => t.assetId === panel.id)?.qty, 1);
+  const endpoints = renderState(saved).railOpenEndpoints;
+  assert(endpoints.some((p: any) => p.x === 135 && p.z === 5));
+  assert(endpoints.some((p: any) => p.x === 140 && p.z === 5));
+  const preview = await host.client.ok('rail_preview', { layout: 'straight', x: 140, z: 5 });
+  assert.deepEqual(preview.origin, { x: 140, z: 5 });
+  assert.equal(preview.heading, 2);
+  assert.equal(preview.error, '');
+});

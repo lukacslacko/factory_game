@@ -187,7 +187,8 @@ export function validateState(value: any): asserts value is State {
   for (const j of s.jobs)
     if (
       j.railStageOnly !== undefined &&
-      (typeof j.railStageOnly !== 'boolean' || !['rail', 'moveStock'].includes(j.kind))
+      (typeof j.railStageOnly !== 'boolean' ||
+        (!j.railRecovery && !['rail', 'moveStock'].includes(j.kind)))
     )
       fail('invalid rail staging pass');
   for (const j of s.jobs)
@@ -489,10 +490,40 @@ export function validateState(value: any): asserts value is State {
     }
   }
   for (const j of s.jobs) {
+    if (j.railRecovery !== undefined) {
+      const h = j.railRecovery;
+      const active = !['done', 'canceled'].includes(j.status);
+      const rail = s.rails.find((t: any) => t.id === h?.railId);
+      if (
+        !h ||
+        j.kind !== 'remove' ||
+        typeof h.railId !== 'string' ||
+        h.railId.startsWith('BOOTSTRAP-') ||
+        j.target !== h.railId ||
+        h.recoveredItem !== j.item ||
+        !j.item?.startsWith('rail') ||
+        (h.rail && (h.rail.item || 'rail') !== h.recoveredItem) ||
+        j.qty !== 1 ||
+        !h.rail ||
+        h.rail.id !== h.railId ||
+        !point(h.rail) ||
+        !finite(h.rail.length) ||
+        h.rail.length <= 0 ||
+        (h.rail.track && !validTrackPiece(h.rail.track)) ||
+        !Array.isArray(h.buffers) ||
+        !h.buffers.every((v: any) => typeof v === 'string') ||
+        ['unbolted', 'lifted'].some((k) => h[k] !== undefined && typeof h[k] !== 'boolean') ||
+        (h.retightenClock !== undefined && (!finite(h.retightenClock) || h.retightenClock < 0)) ||
+        (active && (!h.lifted ? !rail : !!rail)) ||
+        (active && rail && JSON.stringify(rail) !== JSON.stringify(h.rail)) ||
+        (active && h.lifted && !j.railWork)
+      )
+        fail('invalid installed rail recovery');
+    }
     if (j.kind === 'moveStock' || j.stockMove !== undefined) {
       const m = j.stockMove;
       if (
-        j.kind !== 'moveStock' ||
+        (j.kind !== 'moveStock' && !j.railRecovery) ||
         !m ||
         typeof m.sourceId !== 'string' ||
         j.target !== m.sourceId ||
@@ -501,8 +532,19 @@ export function validateState(value: any): asserts value is State {
         j.qty !== 1 ||
         !finite(m.yaw) ||
         !point(m.destination) ||
+        (j.railRecovery &&
+          !['done', 'canceled'].includes(j.status) &&
+          (!s.zones.some(
+            (z: any) =>
+              m.destination.x >= z.x &&
+              m.destination.z >= z.z &&
+              m.destination.x + m.destination.w <= z.x + z.w &&
+              m.destination.z + m.destination.d <= z.z + z.d,
+          ) ||
+            m.destination.w !== MATERIALS[j.item as keyof typeof MATERIALS].w ||
+            m.destination.d !== MATERIALS[j.item as keyof typeof MATERIALS].d)) ||
         ![m.destination.w, m.destination.d].every(finite) ||
-        ['x', 'z', 'w', 'd'].some((k) => j[k] !== m.destination[k]) ||
+        (!j.railRecovery && ['x', 'z', 'w', 'd'].some((k) => j[k] !== m.destination[k])) ||
         j.track ||
         j.railStagingBatch ||
         j.railBufferCleanup
@@ -513,9 +555,8 @@ export function validateState(value: any): asserts value is State {
       const points = s.rails.find((r: any) => r.id === j.target);
       if (
         !['straight', 'branch'].includes(j.requestedRoute) ||
-        !points?.track ||
-        points.track.layout !== 'turnout' ||
-        points.track.section !== 0 ||
+        (!['done', 'canceled'].includes(j.status) && !points?.track) ||
+        (points && (points.track?.layout !== 'turnout' || points.track.section !== 0)) ||
         j.qty !== 0 ||
         j.item !== undefined ||
         j.track !== undefined ||
@@ -859,7 +900,7 @@ export function validateState(value: any): asserts value is State {
       if (r.legacyForkYaw !== undefined && !finite(r.legacyForkYaw))
         fail('invalid imported panel orientation');
       if (
-        !['rail', 'moveStock'].includes(j.kind) ||
+        (!j.railRecovery && !['rail', 'moveStock'].includes(j.kind)) ||
         !phases.includes(r.phase) ||
         !finite(r.clock) ||
         r.clock < 0 ||

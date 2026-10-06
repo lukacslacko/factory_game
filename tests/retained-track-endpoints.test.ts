@@ -150,7 +150,7 @@ test('retained tails can start a new convergence after the two real ends are ali
   assert.doesNotThrow(() => S.load(S.save(s)));
 });
 
-test('unbuilt canceled assemblies do not invent endpoints and disconnected retained stock cannot become a building anchor', () => {
+test('unbuilt canceled assemblies invent no endpoints while real disconnected rails remain explicit rebuilding anchors', () => {
   const s = S.createState(),
     unbuilt = S.planRailLayout(s, 'curve', { x: 125, z: 5 });
   for (const j of unbuilt.jobs) S.cancelJob(s, j.id);
@@ -164,9 +164,13 @@ test('unbuilt canceled assemblies do not invent endpoints and disconnected retai
     trackOpenPorts(retained.s, false).some((p) => p.assetId === retained.rail.id),
     false,
   );
-  assert.match(
-    S.validRailLayout(retained.s, 'straight', { x: 90, z: 45 }, 2),
-    /open track endpoint/,
+  assert.equal(S.validRailLayout(retained.s, 'straight', { x: 90, z: 45 }, 2), '');
+  assert.ok(
+    renderState(retained.s).railOpenEndpoints.some((p: any) => p.trackId === retained.rail.id),
+  );
+  assert.deepEqual(
+    snapTrackStart(retained.s, { x: 90, z: 45 }, undefined, false, 8, false)?.origin,
+    { x: 90, z: 45 },
   );
 });
 

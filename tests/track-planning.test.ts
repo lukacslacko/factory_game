@@ -97,7 +97,10 @@ test('turnout control requires every physically installed panel and saves the se
   seedHandlingResources(s, 'excavator');
   tickUntil(s, () => s.rails[0].selectedRoute === 'branch', 600);
   assert.equal(S.load(S.save(s)).rails[0].selectedRoute, 'branch');
-  assert.match(S.removeBuilding(s, points.id), /Recovery/);
+  assert.equal(S.removeBuilding(s, points.id), '');
+  assert(s.jobs.some((j) => j.railRecovery?.railId === points.id && j.status === 'todo'));
+  assert.match(S.setTurnoutRoute(s, points.id, 'branch'), /recovery/);
+  S.load(S.save(s));
 });
 
 test('canceled unbuilt track panels can resume without changing their work order or demand', () => {

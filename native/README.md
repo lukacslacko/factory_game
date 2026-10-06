@@ -6,7 +6,7 @@ This is the first playable native migration. The original browser application an
 
 ## Download or open on this Mac
 
-[Download the Apple Silicon Mac app](https://github.com/lukacslacko/factory_game/releases/tag/v0.20.3), unzip it, and open **Plant 01.app**. This checkpoint targets macOS 14 or newer.
+[Download the Apple Silicon Mac app](https://github.com/lukacslacko/factory_game/releases/tag/v0.20.4), unzip it, and open **Plant 01.app**. This checkpoint targets macOS 14 or newer.
 
 Open the **Plant 01.app** built beside the repository in `outputs/`. It includes the Godot runner, Node runtime, simulation, terrain maps, and license notices. It is a local app for this Mac, not a notarized public release.
 
@@ -109,7 +109,7 @@ For parallel unloading tracks or a future runaround, select **Turnout**, choose 
 A stop cannot remain across a completed rail joint. The crew preserves it as a real asset, moves it aside and carries surplus stops into storage. Switches still require a worker to throw their lever. Train drop-off, owned shunting and installing turnouts into an already continuous track remain separate tracked work. Paid scrapping is tracked in [issue #35](https://github.com/lukacslacko/factory_game/issues/35).
 
 
-### Receive multi-car trains — v0.20.3
+### Receive multi-car trains — v0.20.4
 
 Open **Railway → + Receiving point** to name an interval on the original `BOOTSTRAP-SIDING`. Its offset is measured from the siding's western start; length is centered there. An unloading or transfer point can receive supplier freight. The full locomotive and all cars must fit between the mainline switch and the siding's end; protected buffer stops can further restrict access. Five flatcars fit a sufficiently long interval; larger consists remain queued with their required length and receive no arrival invoice. Other factory-track designations await commissioned shunting.
 
@@ -124,3 +124,14 @@ For focused native verification, run `node --max-old-space-size=384 --import tsx
 ## Creative placement
 
 Turn on **Creative** in the Yard toolbar to place completed concrete, buildings (including foundations), straight rails, curves, turnouts and buffer stops directly. Use the existing tools; no deliveries, workers or construction charges are required for these new placements. Existing work remains unchanged. The status bar displays CREATIVE and the setting saves with your yard. Turn it off to resume normal construction. Grid, occupied-space and rail-endpoint rules still apply.
+
+
+## Recover installed rail — v0.20.4
+
+Select an installed panel from Yard or Railway and click **Recover this rail panel**. A curve or switch inspector also offers **Recover whole curve / turnout**, which groups all its remaining installed sections into one assignable work order. Recovery uses an excavator, an operator and a construction worker. Workers undo the joint fasteners and attach slings before the excavator lifts the steel. It then carries the same component to an accessible stockyard, lowers it, releases the slings and withdraws. Actual panel types, handedness, IDs and movement history are retained; recovered panels can be used for subsequent construction. Attached buffer stops are physically recovered first. Make stockyard space and finish interfering work or let occupying delivery vehicles leave. A named point anchored to a selected panel must be removed first.
+
+To replace straight rails with a switch, recover the four 5-meter panels occupying its 20-meter length, then build a turnout from the exposed endpoint. The through route can reconnect to surviving track beyond the gap; leave its branch footprint clear. The original receiving siding and public mainline remain protected infrastructure. Recovery pending on a turnout also prevents its lever from being operated.
+
+Cancellation before the lift secures the original track; cancellation after lifting still stores the suspended panel safely. Saves preserve these phases. In Creative, the whole selected recovery is immediate and requires finite stockyard slots for the panels and attached stops. If there is insufficient storage, nothing in the selected assembly changes.
+
+Physical rail loops are supported. Close them with exact, opposing endpoints and appropriate curves or turnouts. The network follows real connections around the loop; overlapping rails without a proper joint do not connect. Supplier freight still uses the original receiving siding, while owned shunting and broader train routing remain future operations checkpoints.

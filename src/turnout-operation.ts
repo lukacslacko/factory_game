@@ -66,6 +66,15 @@ export function queueTurnoutOperation(
   route: 'straight' | 'branch',
   api: TurnoutOperationAPI,
 ): string {
+  if (
+    s.jobs.some(
+      (j) =>
+        j.railRecovery &&
+        !['done', 'canceled'].includes(j.status) &&
+        j.railRecovery.rail.track?.groupId === rail.track?.groupId,
+    )
+  )
+    return 'Finish or cancel rail recovery before operating this turnout.';
   if (!turnoutIsComplete(s, rail))
     return 'Finish all seven panels and rail joints before changing the turnout.';
   if (!['straight', 'branch'].includes(route)) return 'Choose Straight or Branch.';

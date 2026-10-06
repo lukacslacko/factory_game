@@ -35,7 +35,7 @@ export function bufferAt(s: State, p: Point) {
   return bufferAssets(s).find((b) => !b.carried && dist(b, p) < 0.15);
 }
 export function openBufferEndpoint(s: State, p: Point) {
-  return trackOpenPorts(s, false).find((q) => dist(q, p) < 0.02);
+  return trackOpenPorts(s, false, false).find((q) => dist(q, p) < 0.02);
 }
 export function bufferSource(s: State, j: Job): Stack | undefined {
   if (j.kind !== 'remove' || j.item !== 'bufferStop') return undefined;

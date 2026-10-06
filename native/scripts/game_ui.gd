@@ -903,6 +903,7 @@ func _render_inspector() -> void:
 			if str(entity.get("track",{}).get("flow",""))=="converging":_detail("Turnout flow","Converging · two incoming tracks join one")
 			_button(inspector_body,"Install buffer at open endpoint",func() -> void: _buffer_endpoint_form(selected_id))
 			_button(inspector_body,"Designate named rail location",func() -> void: _rail_location_form(entity))
+			_rail_recovery_controls(entity)
 		"railLocations":
 			_detail("Track",entity.get("trackId",""))
 			_detail("Purpose",entity.get("kind",""))
@@ -934,6 +935,39 @@ func _render_inspector() -> void:
 				if key!="id": _detail(key,entity[key])
 
 	inspector_scroll.set_deferred("scroll_vertical",previous_scroll)
+
+func _rail_recovery_controls(rail: Dictionary) -> void:
+	var rail_id: String = str(rail.get("id",""))
+	if rail_id.begins_with("BOOTSTRAP-"):
+		_note(inspector_body,"The original main line and receiving siding are protected infrastructure and cannot be recovered.")
+		return
+	var track: Dictionary = rail.get("track",{})
+	var group_id: String = str(track.get("groupId",""))
+	var members: int = 0
+	var assembly_pending: bool = false
+	if not group_id.is_empty():
+		for installed: Dictionary in _records("rails"):
+			if str(installed.get("track",{}).get("groupId",""))==group_id:
+				members+=1
+				if not _pending_rail_recovery(str(installed.id)).is_empty():assembly_pending=true
+	var pending: Dictionary = _pending_rail_recovery(rail_id)
+	if not pending.is_empty():
+		_detail("Recovery work",pending.id)
+		_detail("Recovery state",pending.get("reason","") if not str(pending.get("reason","")).is_empty() else pending.get("phase",pending.get("status","")))
+		var recovery_id: String = str(pending.id)
+		_button(inspector_body,"Open recovery work",func() -> void: _user_entity(recovery_id))
+	var recover: Button = _button(inspector_body,"Recover this rail panel",func() -> void: _send("remove_rail",{"id":rail_id,"scope":"panel"}))
+	recover.disabled=not pending.is_empty()
+	if members>1:
+		var assembly: String = "turnout" if str(track.get("layout",""))=="turnout" else "curve" if str(track.get("layout",""))=="curve" else "assembly"
+		var recover_assembly: Button = _button(inspector_body,"Recover whole %s (%d panels)"%[assembly,members],func() -> void: _send("remove_rail",{"id":rail_id,"scope":"assembly"}))
+		recover_assembly.disabled=assembly_pending
+	_note(inspector_body,"Recovery is a work order: a worker unfastens each panel, then equipment lifts and carries it to physical stockyard storage. Attached buffer stops are recovered first. Track must be clear of trains and active construction. In Creative, recovery is immediate.")
+
+func _pending_rail_recovery(rail_id: String) -> Dictionary:
+	for work: Dictionary in _records("jobs"):
+		if str(work.get("status","")) in ["todo","doing"] and str(work.get("railRecovery",{}).get("railId",""))==rail_id:return work
+	return {}
 
 func _worker_inspector(worker: Dictionary) -> void:
 	var id: String = str(worker.id)
@@ -1095,6 +1129,12 @@ func _work_inspector(work: Dictionary,group: bool) -> void:
 			var assembly: Dictionary = work.shedAssembly
 			_detail("Assembly",assembly.get("phase",""))
 			_detail("Installed parts","%s anchors · %s posts · %s beams · %s roof sheets"%[assembly.get("anchors",0),assembly.get("posts",0),assembly.get("beams",0),assembly.get("roofSheets",0)])
+		if work.has("railRecovery"):
+			var recovery: Dictionary = work.railRecovery
+			_detail("Recovering rail",recovery.get("railId",""))
+			_detail("Recovered material",_name(str(recovery.get("recoveredItem","rail"))))
+			_detail("Attached buffers"," · ".join(recovery.get("buffers",[])))
+			_note(inspector_body,"The crew unfastens this installed panel and equipment carries it to stockyard storage. Its rail remains in place until it is lifted.")
 	_label(inspector_body,"Manually assign equipment")
 	var preferred: OptionButton = _entity_option(inspector_body,"equipment","Automatic assignment",str(work.get("preferredEquipment","")))
 	_button(inspector_body,"Apply equipment to this whole work",func() -> void:
@@ -1289,7 +1329,10 @@ func _rail_help_paragraphs() -> Array[String]:
 		"Use real handling equipment. An owned machine and its operator unload the cars, and a ground helper rigs loads that require one. Workers must be on duty and the machine must be allowed to receive deliveries. Clicking a car in Railway opens its manifest; its order ID opens the delivery controls. You can change the stockyard between lifts to direct the remaining cargo to a different yard. An ongoing lift keeps its current destination.",
 		"Track progress and departure. The Railway freight-car register shows each car's remaining load and links it to the parent train order. Deliveries shows the train's waiting reason, assigned equipment, and unloading phase. Cars retain their individual IDs and cargo records when you save. The current supplier locomotive remains coupled during unloading and departs with the complete empty train when unloading is finished.",
 		"The next rail operations are locomotive handoff, an owned shunter and driver, coupling and uncoupling selected cars, transfer between named locations, and forming an empty return train for a requested mainline locomotive. These controls are not available in this checkpoint. The present multi-car records, named reception intervals, and explicit unloading destinations are the foundation for those operations.",
-		"Build the track layout first. Straight rails, curves, and diverging or converging turnouts are available in the Yard tools. A converging turnout joins two parallel incoming tracks 5 meters apart. Install buffer stops at open endpoints from Railway; redundant stops are physically carried to stockyard storage. Track designations alone do not provide a train route or certify clearance."
+		"Build the track layout first. Straight rails, curves, and diverging or converging turnouts are available in the Yard tools. A converging turnout joins two parallel incoming tracks 5 meters apart. Install buffer stops at open endpoints from Railway; redundant stops are physically carried to stockyard storage. Track designations alone do not provide a train route or certify clearance.",
+		"Recover installed track from its inspector. Select a panel in Yard or Railway, then click Recover this rail panel. Curves and turnouts also offer Recover whole assembly to recover their installed panels together. A worker unfastens the panels and equipment carries them to physical stockyard storage; attached buffer stops are recovered first. Keep the track free of trains and active construction, and provide accessible stockyard space. The original main line and receiving siding are protected. In Creative, recovery is immediate.",
+		"Replace straight track with a switch by recovering the panels that occupy its complete footprint, then using the turnout tool at the newly exposed endpoint. Recovery opens both sides of a gap; plan from the endpoint facing the new track and leave enough room for the turnout and its branch. Merely crossing rails does not join them. Converging turnouts need parallel incoming ends aligned 5 meters apart.",
+		"Rail layouts can form loops. To close one, the two open endpoints must coincide and face in opposite directions, with matching rail geometry and enough clear space. The grid does not make a crossing into a junction; use turnouts for branches and joins. Loops are physical track connections in this version, while supplier reception remains restricted to the original siding and owned shunting is still planned."
 	]
 
 func _buffer_records() -> Array:

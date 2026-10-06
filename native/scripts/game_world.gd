@@ -112,7 +112,8 @@ func sync_snapshot(message:Dictionary)->void:
 		if not panel.is_empty() and (str(panel.get("state","stored")) in ["carried","placed"] or str(task.get("phase",""))=="configure-staged-panel"):
 			var id:=str(task.jobId)+"/panel"; live[id]=true
 			var qty:int=int(task.get("stagingBatch",{}).get("qty",1))
-			_ensure_load(id,str(job.get("item","rail")),qty,int(job.get("track",{}).get("hand",1))); _new_pose(id,_attachment_pose(panel,str(task.get("equipmentId","")),str(panel.get("state",""))=="carried"))
+			var physical_hand:int=int(task.get("configuredHand",job.get("track",{}).get("hand",1)))
+			_ensure_load(id,str(job.get("item","rail")),qty,physical_hand); _new_pose(id,_attachment_pose(panel,str(task.get("equipmentId","")),str(panel.get("state",""))=="carried"))
 		var buffer:Dictionary=task.get("buffer",{})
 		if not buffer.is_empty():
 			var id:=str(task.jobId)+"/buffer"; live[id]=true

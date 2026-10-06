@@ -288,7 +288,7 @@ function railPreview(a: any) {
   const hand = a.hand ?? 1;
   if (![1, -1].includes(hand)) throw new Error('Rail hand must be 1 or -1.');
   if (a.snap !== false) {
-    const snap = snapTrackStart(state, origin, undefined, true, 8);
+    const snap = snapTrackStart(state, origin, undefined, true, 8, false);
     if (snap) {
       origin = snap.origin;
       heading = snap.heading;
@@ -610,6 +610,17 @@ async function dispatch(action: string, a: any) {
       return {};
     case 'refuel':
       check(Sim.refuel(state, entityId(a)));
+      return {};
+    case 'remove_rail':
+      if (a.scope !== undefined && !['panel', 'assembly'].includes(String(a.scope)))
+        throw new Error('Choose panel or assembly recovery.');
+      check(
+        Sim.removeRailInfrastructure(
+          state,
+          entityId(a),
+          (a.scope || 'panel') as 'panel' | 'assembly',
+        ),
+      );
       return {};
     case 'remove_building':
       check(Sim.removeBuilding(state, entityId(a)));

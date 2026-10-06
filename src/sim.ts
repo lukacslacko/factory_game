@@ -28,6 +28,7 @@ import {
   updateEquipmentAssistants,
 } from './work-crews';
 import { recordEquipmentTravel } from './ground-wear';
+import { railRecoveryConflict } from './rail-recovery';
 import { tickRailWork, railStagingStackOwned } from './railwork';
 import { staticRailPickupFaces } from './rail-pickup';
 import { tickShedConstruction } from './shed-construction';
@@ -350,7 +351,14 @@ export function removeZone(s: State, zid: string) {
   if (
     s.stacks.some((t) => (t.qty > 0 || t.item === 'diesel') && overlap(t, zone)) ||
     s.orders.some((o) => o.allocated && overlap(o.allocated, zone)) ||
-    s.jobs.some((j) => j.recoveryStack && overlap(j.recoveryStack, zone))
+    s.jobs.some(
+      (j) =>
+        (j.recoveryStack && overlap(j.recoveryStack, zone)) ||
+        (j.railRecovery &&
+          !['done', 'canceled'].includes(j.status) &&
+          j.stockMove &&
+          overlap(j.stockMove.destination, zone)),
+    )
   )
     return 'This stockyard still holds material or has an incoming reserved load.';
   s.zones = s.zones.filter((z) => z.id !== zid);
@@ -381,7 +389,12 @@ export function allocate(
           ) &&
           !s.buildings.some((b) => overlap(b, r)) &&
           !s.equipment.some((e) => overlap({ x: e.x - 1.2, z: e.z - 1.2, w: 2.4, d: 2.4 }, r)) &&
-          !s.jobs.some((j) => j.status === 'doing' && overlap(j, r)) &&
+          !s.jobs.some(
+            (j) =>
+              j.status === 'doing' &&
+              (overlap(j, r) ||
+                (j.railRecovery && j.stockMove && overlap(j.stockMove.destination, r))),
+          ) &&
           (!from || approach(from, r, obstacles(s), 1.1)) &&
           storageAccessible(item, r) &&
           (!accessible || accessible(r))
@@ -817,7 +830,7 @@ export function validRailLayout(
   // Legal connections are exact opposing rail ports, including both incoming
   // tails of a converging turnout. Cell proximity alone cannot make a joint.
   const external = trackMacroPorts(pieces[0]);
-  const ports = trackOpenPorts(s, !s.creative);
+  const ports = trackOpenPorts(s, !s.creative, false);
   const entries = external.filter((p) => p.end === 'entry');
   if (!entries.every((entry) => ports.some((port) => portsConnect(port, entry, 0.02, 0.02))))
     return flow === 'converging'
@@ -1076,6 +1089,7 @@ export function missingMaterials(s: State) {
   for (const j of s.jobs) {
     if (
       j.kind === 'moveStock' ||
+      j.kind === 'remove' ||
       railBatchHeld(s, j) ||
       s.stacks.some((t) => stagedRailStackOwnedBy(s, t, j) && t.qty >= j.qty && t.reserved >= j.qty)
     )
@@ -1715,7 +1729,7 @@ function recoveryTarget(s: State, target?: string) {
   if (rail)
     return {
       ...rail,
-      kind: 'rail' as BuildKind,
+      kind: (rail.item || 'rail') as BuildKind,
       ...railFootprint(rail),
       source: rail.id,
     };
@@ -1775,11 +1789,145 @@ export function removeBufferStop(s: State, bufferId: string): string {
   ensureBuffers(s);
   return removeBuilding(s, bufferId);
 }
+/** Recover selected installed steel. No network deletion occurs before the actual lift. */
+export function removeRailInfrastructure(
+  s: State,
+  railId: string,
+  scope: 'panel' | 'assembly' = 'panel',
+): string {
+  if (!['panel', 'assembly'].includes(scope)) return 'Choose panel or assembly recovery.';
+  const rail = s.rails.find((r) => r.id === railId);
+  if (!rail) return 'Installed factory rail not found.';
+  const rails =
+    scope === 'assembly' && rail.track?.groupId
+      ? s.rails.filter((r) => r.track?.groupId === rail.track!.groupId)
+      : [rail];
+  for (const r of rails) {
+    const error = railRecoveryConflict(s, r);
+    if (error) return error;
+    if (
+      s.jobs.some(
+        (j) => j.railRecovery?.railId === r.id && !['done', 'canceled'].includes(j.status),
+      )
+    )
+      return `Recovery already planned for ${r.id}.`;
+  }
+  // Preflight the entire instant edit before changing anything. Storage stays finite in Creative.
+  const creativeSpots = new Map<string, Rect>();
+  if (s.creative) {
+    const preview = structuredClone(s);
+    for (const r of rails) {
+      const geometry = trackGeometry(r);
+      const attached = bufferAssets(s).filter(
+        (b) => !b.carried && [...geometry.entries, ...geometry.ends].some((p) => dist(b, p) < 0.2),
+      );
+      for (const asset of [
+        ...attached.map((b) => ({ id: b.id, item: 'bufferStop' as Item })),
+        { id: r.id, item: r.item || ('rail' as Item) },
+      ]) {
+        if (creativeSpots.has(asset.id)) continue;
+        const spot = allocate(preview, asset.item);
+        if (!spot)
+          return `Recovery needs stockyard space for ${asset.id}. Enlarge or add a stockyard first.`;
+        creativeSpots.set(asset.id, spot);
+        preview.stacks.push({
+          ...spot,
+          id: `recovery-preview-${asset.id}`,
+          item: asset.item,
+          qty: 1,
+          reserved: 0,
+          source: 'preview',
+        });
+      }
+    }
+  }
+  const group = createJobGroup(
+    s,
+    `Recover ${rails.length} rail panel${rails.length === 1 ? '' : 's'}`,
+    railFootprint(rail),
+  );
+  for (const r of rails) {
+    const geometry = trackGeometry(r);
+    const buffers = bufferAssets(s).filter(
+      (b) => !b.carried && [...geometry.entries, ...geometry.ends].some((p) => dist(b, p) < 0.2),
+    );
+    if (s.creative) {
+      for (const b of buffers) {
+        ensureBuffers(s);
+        s.buffers = s.buffers!.filter((t) => t.id !== b.id);
+        const stockId = id(s, 'stack');
+        s.stacks.push({
+          ...creativeSpots.get(b.id)!,
+          id: stockId,
+          item: 'bufferStop',
+          qty: 1,
+          reserved: 0,
+          source: b.id,
+          assetId: b.id,
+        });
+        movement(s, 'bufferStop', 1, b.id, stockId, 'Buffer stop recovered in Creative mode');
+      }
+      const item = r.item || 'rail',
+        spot = creativeSpots.get(r.id)!;
+      s.rails = s.rails.filter((t) => t.id !== r.id);
+      const stockId = id(s, 'stack');
+      s.stacks.push({
+        ...spot,
+        id: stockId,
+        item,
+        qty: 1,
+        reserved: 0,
+        source: r.id,
+        assetId: r.id,
+        trackHand: r.track?.hand ?? 1,
+      });
+      movement(s, item, 1, r.id, stockId, 'Installed rail recovered in Creative mode');
+      const j = newJob(s, 'remove', railFootprint(r), r.rotation, r.id, group.id);
+      j.item = item;
+      j.railRecovery = {
+        railId: r.id,
+        recoveredItem: item,
+        rail: structuredClone(r),
+        buffers: [],
+        lifted: true,
+      };
+      complete(s, j);
+      continue;
+    }
+    for (const b of buffers) {
+      if (
+        !s.jobs.some(
+          (j) =>
+            j.kind === 'remove' && j.target === b.id && !['done', 'canceled'].includes(j.status),
+        )
+      ) {
+        const q = newJob(s, 'remove', { x: b.x - 1, z: b.z - 1, w: 2, d: 2 }, 0, b.id, group.id);
+        q.item = 'bufferStop';
+      }
+    }
+    const j = newJob(s, 'remove', railFootprint(r), r.rotation, r.id, group.id);
+    j.item = r.item || 'rail';
+    j.railRecovery = {
+      railId: r.id,
+      recoveredItem: j.item,
+      rail: structuredClone(r),
+      buffers: buffers.map((b) => b.id),
+    };
+    j.railStageOnly = true;
+    event(
+      s,
+      'Planning',
+      j.id,
+      `Recover ${r.id}: unbolt joints, rig and lift ${label(j.item)}, then carry it into a stockyard.`,
+    );
+  }
+  s.revision++;
+  return '';
+}
 export function removeBuilding(s: State, bid: string) {
   const b = recoveryTarget(s, bid);
   if (!b) return 'Structure or paving not found.';
-  if ('track' in b && b.track)
-    return 'Recovery of these new track assemblies will be added with owned railway operation. Canceling unfinished work retains its real installed and staged panels.';
+  if (s.rails.some((r) => r.id === bid)) return removeRailInfrastructure(s, bid);
   if (!(b.kind in MATERIALS))
     return 'Utility service connections cannot be removed in this version.';
   if (
@@ -1812,6 +1960,22 @@ export function recoverAt(s: State, p: Point) {
 export function cancelJob(s: State, jid: string) {
   const j = s.jobs.find((j) => j.id === jid);
   if (!j || j.status === 'done' || j.status === 'canceled') return;
+  if (
+    j.kind === 'remove' &&
+    j.item === 'bufferStop' &&
+    bufferAssets(s).some((b) => b.id === j.target)
+  ) {
+    for (const dependent of s.jobs.filter(
+      (q) => q.status === 'todo' && q.railRecovery?.buffers.includes(j.target!),
+    )) {
+      dependent.status = 'canceled';
+      dependent.phase = 'Canceled; prerequisite buffer recovery canceled';
+      dependent.reason = `Replan rail recovery to recover attached ${j.target} first.`;
+      dependent.finished = s.time;
+      event(s, 'Work', dependent.id, dependent.reason);
+      s.revision++;
+    }
+  }
   if (j.kind === 'throwSwitch' && j.status === 'doing' && j.elapsed > 0) {
     j.cancel = true;
     j.phase = 'Return lever to original route';
@@ -2014,6 +2178,16 @@ function assign(s: State, j: Job) {
     j.reason = '';
     return;
   }
+  if (j.railRecovery) {
+    const source = s.rails.find((r) => r.id === j.railRecovery!.railId);
+    const pending = j.railRecovery.buffers.filter((id) => bufferAssets(s).some((b) => b.id === id));
+    const error = source ? railRecoveryConflict(s, source, j.id) : 'Rail no longer exists';
+    if (pending.length || error) {
+      j.reason = pending.length ? `Waiting for ${pending.join(', ')} to be recovered` : error;
+      return;
+    }
+    j.railStageOnly = true;
+  }
   if (j.kind === 'remove') {
     const b = recoveryTarget(s, j.target);
     if (!b) {
@@ -2081,7 +2255,7 @@ function assign(s: State, j: Job) {
       pieces.findIndex((p) => p.section === job.track?.section && p.route === job.track?.route);
     if (ordinal(j) === 0 || (j.track.flow === 'converging' && j.track.section === 3)) {
       const entry = trackGeometry(j).entry,
-        predecessor = trackOpenPorts(s, false).find(
+        predecessor = trackOpenPorts(s, false, false).find(
           (p) =>
             dist(p, entry) < 0.02 &&
             Math.abs(Math.abs(angleDelta(p.yaw, entry.yaw)) - Math.PI) < 0.02,
@@ -2316,6 +2490,7 @@ function assign(s: State, j: Job) {
           !e.path.length &&
           allowed(e) &&
           (!e.operator || e.operator === candidate.id) &&
+          (!j.railRecovery || e.kind === 'excavator') &&
           (!['rail', 'shed'].includes(j.kind) || j.railStageOnly || e.kind === 'excavator') &&
           EQUIPMENT[e.kind].capacity >= mass &&
           (!equipmentAssistant(s, e.id) ||
@@ -2346,6 +2521,7 @@ function assign(s: State, j: Job) {
             (e) =>
               !e.job &&
               allowed(e) &&
+              (!j.railRecovery || e.kind === 'excavator') &&
               (!['rail', 'shed'].includes(j.kind) || j.railStageOnly || e.kind === 'excavator') &&
               EQUIPMENT[e.kind].capacity >= mass &&
               e.fuel <= 0.2,
@@ -2353,12 +2529,14 @@ function assign(s: State, j: Job) {
         ? 'Equipment needs diesel — request refueling'
         : s.equipment.some(
               (e) =>
+                (!j.railRecovery || e.kind === 'excavator') &&
                 (!['rail', 'shed'].includes(j.kind) || j.railStageOnly || e.kind === 'excavator') &&
                 EQUIPMENT[e.kind].capacity >= mass,
             ) &&
             !s.equipment.some(
               (e) =>
                 allowed(e) &&
+                (!j.railRecovery || e.kind === 'excavator') &&
                 (!['rail', 'shed'].includes(j.kind) || j.railStageOnly || e.kind === 'excavator') &&
                 EQUIPMENT[e.kind].capacity >= mass,
             )
@@ -2428,12 +2606,15 @@ function assign(s: State, j: Job) {
   const operatorFrom = oldVehicle ? machineStep(oldVehicle) : operator;
   const obs = obstacles(s),
     workerPath =
-      worker && !['rail', 'moveStock'].includes(j.kind) ? approach(worker, j, obs, 0.1) : [],
+      worker && !j.railRecovery && !['rail', 'moveStock'].includes(j.kind)
+        ? approach(worker, j, obs, 0.1)
+        : [],
     operatorPath = operator.vehicle === eq.id ? [] : route(operatorFrom, machineStep(eq), obs, 0.1);
   // Slabs use physical docking in construction-handling after boarding.
   // A generic stock approach would be discarded immediately, and can search
   // the whole yard twice before a busy placement lane is even checked.
   let loadPath =
+    j.railRecovery ||
     ['slab', 'bufferStop', 'rail', 'moveStock'].includes(j.kind) ||
     (j.kind === 'remove' && j.item === 'bufferStop')
       ? []
@@ -2495,10 +2676,12 @@ function assign(s: State, j: Job) {
   // Rail rigging starts only after the crane is parked and aligned. Preserve
   // an existing step-aside walk, but do not send the crew into its approach.
   if (worker) {
-    if (!['rail', 'moveStock', 'slab'].includes(j.kind)) worker.path = workerPath;
-    worker.status = ['rail', 'moveStock', 'slab'].includes(j.kind)
-      ? 'Waiting for equipment to park'
-      : 'Walk to installation';
+    if (!j.railRecovery && !['rail', 'moveStock', 'slab'].includes(j.kind))
+      worker.path = workerPath;
+    worker.status =
+      j.railRecovery || ['rail', 'moveStock', 'slab'].includes(j.kind)
+        ? 'Waiting for equipment to park'
+        : 'Walk to installation';
   }
   if (oldVehicle) leaveMachine(s, operator);
   operator.job = j.id;
@@ -2748,8 +2931,16 @@ function tickJob(s: State, j: Job, dt: number) {
     }
   }
   if (
-    ['rail', 'moveStock'].includes(j.kind) &&
-    tickRailWork(s, j, dt, { id, obstacles, movement, event, complete, release: finishRelease })
+    (j.railRecovery || ['rail', 'moveStock'].includes(j.kind)) &&
+    tickRailWork(s, j, dt, {
+      id,
+      allocate,
+      obstacles,
+      movement,
+      event,
+      complete,
+      release: finishRelease,
+    })
   )
     return;
   if (
@@ -2785,7 +2976,9 @@ function tickJob(s: State, j: Job, dt: number) {
     e.path =
       ['slab', 'bufferStop'].includes(j.kind) || j.item === 'bufferStop'
         ? []
-        : machineApproach(s, e, target) || [];
+        : j.railRecovery
+          ? []
+          : machineApproach(s, e, target) || [];
     j.phase = 'Collect material';
     op.status = 'Driving to stock';
   } else if (j.phase === 'Collect material' && !e.path.length) {

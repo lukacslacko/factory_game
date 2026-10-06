@@ -640,8 +640,9 @@ export function snapTrackStart(
   requestedHeading?: TrackPiece['heading'],
   includePlanned = true,
   maximum = 3,
+  connectedOnly = true,
 ): { origin: Point; heading: TrackPiece['heading']; port: TrackNetworkPort } | undefined {
-  const candidates = trackOpenPorts(s, includePlanned).flatMap((port) => {
+  const candidates = trackOpenPorts(s, includePlanned, connectedOnly).flatMap((port) => {
     const rounded = Math.round(port.yaw / (Math.PI / 2));
     const heading = (((rounded % 4) + 4) % 4) as TrackPiece['heading'];
     if (

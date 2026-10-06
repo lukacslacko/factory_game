@@ -349,6 +349,16 @@ export interface Job extends Rect {
   kind: BuildKind | 'refuel' | 'remove' | 'throwSwitch' | 'moveStock';
   /** Exact-source physical rail relocation, never a construction material demand. */
   stockMove?: { sourceId: string; destination: Rect; yaw: number };
+  /** Installed steel remains in the network until its joints and slings are released. */
+  railRecovery?: {
+    railId: string;
+    recoveredItem: Item;
+    rail: Rail;
+    buffers: string[];
+    unbolted?: boolean;
+    lifted?: boolean;
+    retightenClock?: number;
+  };
   requestedRoute?: 'straight' | 'branch';
   rotation: number;
   item?: Item;

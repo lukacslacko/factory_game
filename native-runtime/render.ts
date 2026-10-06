@@ -407,7 +407,7 @@ export function renderState(s: State) {
     railGeometry,
     buffers: bufferAssets(s),
     railNetwork: trackNetwork(s),
-    railOpenEndpoints: trackOpenPorts(s, false).map((p) => ({
+    railOpenEndpoints: trackOpenPorts(s, false, false).map((p) => ({
       id: `END:${p.assetId}:${p.portIndex}`,
       x: p.x,
       z: p.z,

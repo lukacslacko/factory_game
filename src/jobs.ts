@@ -279,6 +279,7 @@ export function equipmentCanDoJob(e: Equipment, j: Job, s?: State): boolean {
           : (s.buildings.find((b) => b.id === j.target)?.kind as Item | undefined)
       : undefined);
   return (
+    (!j.railRecovery || e.kind === 'excavator') &&
     (!['rail', 'shed'].includes(j.kind) ||
       (j.kind === 'rail' && j.railStageOnly) ||
       e.kind === 'excavator') &&
@@ -330,7 +331,11 @@ export function reconcileEquipmentAssignments(s: State): void {
     }
     const railUnloaded =
       !r ||
-      (r.panel.state === 'stored' &&
+      ((r.panel.state === 'stored' ||
+        (j.railRecovery &&
+          r.panel.state === 'installed' &&
+          !j.railRecovery.unbolted &&
+          !j.railRecovery.lifted)) &&
         ['source-approach', 'source-rig'].includes(r.phase) &&
         (r.phase !== 'source-rig' || r.clock === 0) &&
         (!r.buffer || r.buffer.secured));
