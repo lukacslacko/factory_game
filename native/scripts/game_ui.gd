@@ -1013,7 +1013,7 @@ func _work_inspector(work: Dictionary,group: bool) -> void:
 	else:
 		for pair: Array in [["State","status"],["Current step","phase"],["Condition","reason"],["Worker","worker"],["Operator","operator"],["Equipment","equipment"],["Reserved stock","stack"],["Parent work","parentId"]]: _detail(pair[0],work.get(pair[1],"—"))
 		if work.get("railWork",{}).has("siteClearance"):
-			_detail("Staging blockers"," · ".join(work.railWork.siteClearance.get("blockers",[])))
+			_detail("Handling blockers"," · ".join(work.railWork.siteClearance.get("blockers",[])))
 			_detail("Staging position",_position(work.railWork.stage))
 		_detail("Progress","%d%%"%roundi(float(work.get("progress",0))*100))
 		if work.has("item"): _detail("Material","%s × %s"%[work.get("qty",0),_name(str(work.item))])

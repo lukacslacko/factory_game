@@ -1,0 +1,44 @@
+{
+  "version": "0.19.8",
+  "date": "2026-10-06",
+  "regressions": {
+    "passed": 388,
+    "failed": 0,
+    "existing_suite_duration_ms": 297854.587459,
+    "new_clearance_duration_ms": 518.293375,
+    "node_heap_limit_mb": 384,
+    "sequential": true,
+    "new_cases": 6
+  },
+  "native_ui": {
+    "name": "handling-ui",
+    "elapsed_seconds": 1.52,
+    "peak_resident_bytes": 268763136,
+    "returncode": 0,
+    "stopped_reason": null
+  },
+  "packaged_native": {
+    "name": "handling-packaged",
+    "elapsed_seconds": 7.1,
+    "peak_resident_bytes": 298303488,
+    "returncode": 0,
+    "stopped_reason": null
+  },
+  "saved_yard_replay": {
+    "isolated": true,
+    "seconds": 600,
+    "manual_duties_preserved": true,
+    "remaining_rail_jobs_completed": 7,
+    "replay_imported_into_live_yard": false
+  },
+  "actual_yard": {
+    "saved_and_continued": true,
+    "original_blocked_job_completed": true,
+    "rail_jobs_completed_during_verification": 6,
+    "workers": 12,
+    "recorded_costs_usd": 250384,
+    "left_paused": true,
+    "speed": 1,
+    "manual_controls_preserved": true
+  }
+}

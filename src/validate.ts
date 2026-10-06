@@ -800,7 +800,8 @@ export function validateState(value: any): asserts value is State {
         fail('invalid rail work sequence');
       if (
         r.siteClearance &&
-        (!Array.isArray(r.siteClearance.blockers) ||
+        ((r.siteClearance.area !== undefined && typeof r.siteClearance.area !== 'string') ||
+          !Array.isArray(r.siteClearance.blockers) ||
           !r.siteClearance.blockers.every((v: any) => typeof v === 'string') ||
           !Array.isArray(r.siteClearance.requested) ||
           !r.siteClearance.requested.every((v: any) => typeof v === 'string') ||

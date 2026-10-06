@@ -792,6 +792,9 @@ function machineAt(
   dt: number,
   api: RailWorkAPI,
 ) {
+  // Every future handling destination needs the same addressed clearance as
+  // staging. A route planner cannot resolve an idle actor occupying its goal.
+  const approachBlockers = requestApproachClearance(s, j, e, point, target, api);
   if (e.path.length) {
     const next = e.path[0],
       direction = facing(e, next),
@@ -815,10 +818,16 @@ function machineAt(
     if (!path) {
       if (
         j.kind === 'rail' &&
-        j.railWork?.panel.state === 'carried' &&
-        ['stage-travel', 'stage-align', 'cancel-panel-return', 'cancel-panel-align'].includes(
-          j.railWork.phase,
-        )
+        ((j.railWork?.panel.state === 'carried' &&
+          [
+            'stage-travel',
+            'stage-align',
+            'panel-carry',
+            'panel-align',
+            'cancel-panel-return',
+            'cancel-panel-align',
+          ].includes(j.railWork.phase)) ||
+          !!j.railWork?.buffer?.carried)
       ) {
         // Travel toward a temporarily occupied site. The normal swept movement
         // guard stops before contact and the site coordinator requests clearance.
@@ -830,7 +839,9 @@ function machineAt(
         }
       }
       if (!path) {
-        j.reason = 'Machine route blocked during rail work; clear the approach';
+        j.reason = approachBlockers.length
+          ? `Waiting for ${approachBlockers.join(', ')} to clear the rail-handling approach`
+          : 'Machine route blocked during rail work; clear the approach';
         return false;
       }
     }
@@ -839,6 +850,10 @@ function machineAt(
     return false;
   }
   e.velocity = 0;
+  if (approachBlockers.length) {
+    j.reason = `Waiting for ${approachBlockers.join(', ')} to clear the rail-handling approach`;
+    return false;
+  }
   if (!crewClearForTurn(s, j, e, target, api)) return false;
   const candidate = { x: e.x, z: e.z, yaw: e.yaw ?? (e.heading * Math.PI) / 2 };
   const aligned = turn(candidate, facing(e, target), dt, 1.15);
@@ -942,6 +957,80 @@ function requestStagingClearance(s: State, j: Job, e: Equipment, api: RailWorkAP
   for (const angle of [yaw, yaw - Math.PI / 2, yaw + Math.PI / 2])
     envelope.push(...equipmentBoxes(probe, { ...r.stageDock, yaw: angle }));
   envelope.push(...equipmentBoxes(probe, localPoint({ ...r.stageDock, yaw }, -3.5, 0)));
+  return requestAreaClearance(s, j, e, p, envelope, api, 'staging');
+}
+
+/** Preview the arrival body, attached load and subsequent alignment together.
+ * Keep static obstacles and all actual collision guards; temporary occupancy
+ * requests cooperation rather than invalidating the destination forever. */
+function requestApproachClearance(
+  s: State,
+  j: Job,
+  e: Equipment,
+  point: Point,
+  target: Point,
+  api: RailWorkAPI,
+): string[] {
+  const r = j.railWork;
+  if (
+    !r ||
+    ![
+      'panel-carry',
+      'panel-align',
+      'panel-lower',
+      'buffer-carry-aside',
+      'buffer-lower-aside',
+      'buffer-retrieve',
+      'buffer-carry-end',
+      'buffer-align-end',
+      'buffer-lower-end',
+    ].includes(r.phase)
+  )
+    return [];
+  const yaw = facing(point, target);
+  const probe = { ...e, reach: dist(point, target) };
+  const envelope: TrafficBox[] = [];
+  // Include likely arrival headings and their full turn into the lifting pose.
+  for (const from of [e.yaw ?? (e.heading * Math.PI) / 2, yaw - Math.PI / 2, yaw + Math.PI / 2])
+    for (let i = 0; i <= 12; i++)
+      envelope.push(...equipmentBoxes(probe, { ...point, yaw: mixAngle(from, yaw, i / 12) }));
+  if (r.buffer?.carried) {
+    const pose = { ...target, yaw: r.phase.includes('aside') ? entryYaw(r) : finalBufferYaw(s, j) };
+    envelope.push({ ...localPoint(pose, 0.55, 0), yaw: pose.yaw, length: 1.75, width: 2.05 });
+  }
+  return requestAreaClearance(
+    s,
+    j,
+    e,
+    target,
+    envelope,
+    api,
+    `approach:${point.x.toFixed(3)},${point.z.toFixed(3)}`,
+    true,
+  );
+}
+
+function resolveAreaNotices(s: State, j: Job) {
+  for (const n of s.notices)
+    if (n.entity === j.id && ['Rail staging blocked', 'Rail handling blocked'].includes(n.title))
+      n.state = 'done';
+}
+
+function requestAreaClearance(
+  s: State,
+  j: Job,
+  e: Equipment,
+  p: Point,
+  envelope: TrafficBox[],
+  api: RailWorkAPI,
+  area: string,
+  ownCrewMayRig = false,
+): string[] {
+  const r = j.railWork!;
+  if (r.siteClearance && (r.siteClearance.area || 'staging') !== area) {
+    resolveAreaNotices(s, j);
+    r.siteClearance = undefined;
+  }
   const machines = s.equipment.filter(
     (q) =>
       q.id !== e.id &&
@@ -952,28 +1041,26 @@ function requestStagingClearance(s: State, j: Job, e: Equipment, api: RailWorkAP
     (w) =>
       !w.vehicle &&
       !w.transition &&
+      (!ownCrewMayRig || w.id !== j.worker) &&
       (w.y || 0) <= 0.15 &&
       envelope.some((b) => personTouchesBox(w, b, 0.65)),
   );
   const blockers = [...machines.map((q) => q.id), ...people.map((w) => w.id)];
   if (!blockers.length) {
-    if (r.siteClearance?.warned)
-      for (const n of s.notices)
-        if (n.entity === j.id && n.title === 'Rail staging blocked') n.state = 'done';
+    if (r.siteClearance?.warned) resolveAreaNotices(s, j);
     r.siteClearance = undefined;
     return blockers;
   }
-  const clearance = (r.siteClearance ??= { blockers, requested: [], since: s.elapsed });
+  const clearance = (r.siteClearance ??= { area, blockers, requested: [], since: s.elapsed });
+  const areaName =
+    area === 'staging'
+      ? 'rail staging and unloading area'
+      : 'rail-handling approach and alignment area';
   clearance.blockers = blockers;
   for (const blocker of blockers)
     if (!clearance.requested.includes(blocker)) {
       clearance.requested.push(blocker);
-      api.event(
-        s,
-        'Traffic',
-        j.id,
-        `${e.id} requests ${blocker} to clear ${j.id}'s rail staging and unloading area.`,
-      );
+      api.event(s, 'Traffic', j.id, `${e.id} requests ${blocker} to clear ${j.id}'s ${areaName}.`);
     }
   if (s.elapsed >= (clearance.retryAt || 0)) {
     clearance.retryAt = s.elapsed + 1.5;
@@ -1006,18 +1093,19 @@ function requestStagingClearance(s: State, j: Job, e: Equipment, api: RailWorkAP
         }
         if (path?.length) {
           w.path = path;
-          w.status = 'Walking clear of rail staging';
+          w.status =
+            area === 'staging' ? 'Walking clear of rail staging' : 'Walking clear of rail handling';
           break;
         }
       }
     }
   }
   if (s.elapsed - clearance.since >= 20 && !clearance.warned) {
-    const detail = `${e.id} needs ${blockers.join(', ')} to clear ${j.id}'s rail staging area. Automatic occupied idle equipment is asked to move; inspect manual control, operator availability, fuel, active loads, and escape space. Collection and safe approach may continue, but the panel cannot be lowered here yet.`;
+    const detail = `${e.id} needs ${blockers.join(', ')} to clear ${j.id}'s ${areaName}. Automatic occupied idle equipment is asked to move; inspect manual control, operator availability, fuel, active loads, and escape space. Collection and safe approach may continue, but handling cannot proceed through occupied space.`;
     s.notices.unshift({
       id: api.id(s, 'notice'),
       time: s.time,
-      title: 'Rail staging blocked',
+      title: area === 'staging' ? 'Rail staging blocked' : 'Rail handling blocked',
       detail,
       entity: j.id,
       state: 'todo',
@@ -1257,8 +1345,7 @@ function finish(s: State, j: Job, api: RailWorkAPI) {
   const r = j.railWork!;
   r.phase = 'complete';
   r.siteClearance = undefined;
-  for (const n of s.notices)
-    if (n.entity === j.id && n.title === 'Rail staging blocked') n.state = 'done';
+  resolveAreaNotices(s, j);
   r.clock = 0;
   r.lifting = undefined;
   r.from = undefined;
@@ -1917,6 +2004,10 @@ export function tickRailWork(s: State, j: Job, dt: number, api: RailWorkAPI): bo
       }
     }
   } else if (r.phase === 'buffer-lower-aside') {
+    if (requestApproachClearance(s, j, e, bufferDock(r.bufferAside), r.bufferAside, api).length) {
+      j.reason = 'Waiting for the buffer landing area to clear';
+      return true;
+    }
     const b = r.buffer!;
     r.clock += dt;
     if (
@@ -1977,6 +2068,10 @@ export function tickRailWork(s: State, j: Job, dt: number, api: RailWorkAPI): bo
     } else if (!e.path.length && r.phase === 'cancel-panel-return')
       transition(s, j, 'cancel-panel-align');
   } else if (r.phase === 'panel-lower') {
+    if (requestApproachClearance(s, j, e, r.railDock, trackGeometry(j).pose, api).length) {
+      j.reason = 'Waiting for the rail landing area to clear';
+      return true;
+    }
     r.clock += dt;
     if (animatePose(r, installedPose(j), 4, r.panel)) {
       r.panel.state = 'placed';
@@ -2051,6 +2146,10 @@ export function tickRailWork(s: State, j: Job, dt: number, api: RailWorkAPI): bo
   } else if (r.phase === 'buffer-lower-end') {
     const b = r.buffer!,
       target = finalBufferPoint(s, j);
+    if (requestApproachClearance(s, j, e, bufferDock(target), target, api).length) {
+      j.reason = 'Waiting for the buffer landing area to clear';
+      return true;
+    }
     r.clock += dt;
     if (animatePose(r, { ...target, y: 0.2, yaw: finalBufferYaw(s, j) }, 3.5, b)) {
       b.carried = false;

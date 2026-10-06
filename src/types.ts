@@ -192,8 +192,9 @@ export interface RailBatchBuffer {
   ownerJob?: string;
 }
 export interface RailWork {
-  /** Temporary staging occupants addressed by this crew; saved for deduplicated warnings. */
+  /** Temporary handling-site occupants addressed by this crew; saved for deduplicated warnings. */
   siteClearance?: {
+    area?: string;
     blockers: string[];
     requested: string[];
     since: number;
