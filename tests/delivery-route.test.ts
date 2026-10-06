@@ -18,8 +18,8 @@ function partialCurveStack() {
   tickUntil(s, () => o.status === 'unloading');
   assert.equal(requestRailUnloading(s, id), undefined);
   tickUntil(s, () => o.unload?.phase === 'clear' && !!o.unload.mergeId && !e.path.length, 900);
-  assert.equal(o.arrived, 4);
-  assert.equal(o.unload!.qty, 1);
+  assert.equal(o.arrived, 6);
+  assert.equal(o.unload!.qty, 3);
   assert.equal(s.stacks.find((t) => t.id === o.unload!.mergeId)!.qty, 3);
   return { s, id, eid: e.id };
 }
@@ -145,7 +145,7 @@ test('a trainload of eight curved rail panels tops up physical stacks after save
   assert.equal(o.arrived, 8);
   assert.deepEqual(
     s.stacks.filter((t) => t.item === 'railCurve').map((t) => t.qty),
-    [4, 4],
+    [8],
   );
   assert.equal(e.cargo, undefined);
   assert.equal(e.deliveryOrder, undefined);
@@ -188,7 +188,7 @@ test('a genuinely blocked loaded storage dock retains cargo and reports its stac
   assert.deepEqual(e.cargo, cargo);
   assert.deepEqual(t.cargo, pose);
   assert.equal(S.totals(s, 'railCurve').stored, 3);
-  assert.equal(S.totals(s, 'railCurve').cargo, 1);
+  assert.equal(S.totals(s, 'railCurve').cargo, 3);
   const retry = e.trafficRetry;
   const note = o.note;
   for (let i = 0; i < 10; i++) S.tick(s, 0.1);

@@ -102,6 +102,13 @@ static func animate_actor(model:Node3D,p:Dictionary,delta:float)->void:
 	elif kind=="forklift":
 		var carriage:Node3D=model.get_node("Carriage")
 		carriage.position.y=maxf(-.21,float(p.get("forkSupportY",float(p.get("y",0))+float(p.get("toolLift",.12))))-float(p.get("y",0))-.3125)
+		# Nested channels retain overlap with the fixed mast and with each other.
+		# Drive them from the displayed carriage pose so rendering interpolation
+		# raises the complete mechanism smoothly, including high flatcar pickups.
+		var mast_travel:=maxf(0.0,carriage.position.y-.55)
+		var intermediate:Node3D=model.get_node("TelescopicMast")
+		intermediate.position.y=mast_travel*.5
+		(intermediate.get_node("InnerMast") as Node3D).position.y=mast_travel*.5
 		var extension:=maxf(0.0,float(p.get("reach",2.45))-2.45)
 		carriage.position.z=-extension
 		var slider:Node3D=model.get_node("MastSlider");slider.position.y=carriage.position.y
@@ -355,6 +362,23 @@ static func _asset_labels(node:Node,id:String)->void:
 	for child in node.get_children():_asset_labels(child,id)
 
 static func _fork_reach_links(root:Node3D,m:Dictionary)->void:
+	# A three-section mast: the original upright stays fixed, while these two
+	# nested steel channels extend to support ~4 m lifts without a floating
+	# carriage. Both sections retain over 0.4 m overlap at the highest pickup.
+	var intermediate:=Node3D.new();intermediate.name="TelescopicMast";root.add_child(intermediate)
+	var inner:=Node3D.new();inner.name="InnerMast";intermediate.add_child(inner)
+	for stage in [intermediate,inner]:
+		var first:bool=stage==intermediate
+		var depth:float=-1.025 if first else -1.085
+		var width:float=.13 if first else .10
+		for side in [-1,1]:
+			var x:float=side*.46
+			var channel:=G.beveled_box(stage,Vector3(x,1.33,depth),Vector3(width,2.14,.09 if first else .065),m.steel)
+			channel.name="ChannelL" if side<0 else "ChannelR"
+			G.beveled_box(stage,Vector3(x,1.33,depth-.05),Vector3(width*.32,2.03,.016),m.bright_steel)
+			G.rod(stage,Vector3(x*.67,.42,depth),Vector3(x*.67,2.16,depth),.013,m.black,8)
+			G.cylinder(stage,Vector3(x*.67,2.15,depth),.058,.035,m.steel,12).rotation.x=PI*.5
+		G.beveled_box(stage,Vector3(0,2.33,depth),Vector3(1.0,.075,.07),m.steel)
 	var slider:=Node3D.new();slider.name="MastSlider";root.add_child(slider)
 	for x in [-.46,.46]:G.beveled_box(slider,Vector3(x,.77,-.995),Vector3(.19,.83,.085),m.steel)
 	var links:=Node3D.new();links.name="Pantograph";slider.add_child(links)

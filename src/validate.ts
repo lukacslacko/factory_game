@@ -6,6 +6,7 @@ import {
   FREIGHT_DECK_LENGTH,
   CREW_BUS_SEATS,
   orderDeckLength,
+  freightStackLimits,
   orderMass,
 } from './procurement';
 import type { State } from './types';
@@ -980,6 +981,24 @@ export function validateState(value: any): asserts value is State {
     }
   }
   for (const o of s.orders) {
+    if (
+      o.stackLimits !== undefined &&
+      (!o.stackLimits ||
+        typeof o.stackLimits !== 'object' ||
+        Array.isArray(o.stackLimits) ||
+        Object.entries(o.stackLimits).some(
+          ([item, limit]) =>
+            !Object.hasOwn(MATERIALS, item) ||
+            !Number.isInteger(limit) ||
+            (limit as number) < 1 ||
+            (limit as number) > MATERIALS[item as keyof typeof MATERIALS].max,
+        ) ||
+        !(o.item in MATERIALS) ||
+        (Array.isArray(o.manifest) ? o.manifest : [{ item: o.item }]).some(
+          (line: any) => !Object.hasOwn(o.stackLimits, line.item),
+        ))
+    )
+      fail('invalid freight stack limits');
     const freightProblem = freightValidationProblem(s, o, ids);
     if (freightProblem) fail(freightProblem);
     if (
@@ -1020,7 +1039,8 @@ export function validateState(value: any): asserts value is State {
         !o.railFreight &&
         (!['road', 'rail'].includes(o.mode) ||
           orderMass(o) > FREIGHT_CAPACITY[o.mode as 'road' | 'rail'] ||
-          orderDeckLength(lines) > FREIGHT_DECK_LENGTH[o.mode as 'road' | 'rail'])
+          orderDeckLength(lines, freightStackLimits(o)) >
+            FREIGHT_DECK_LENGTH[o.mode as 'road' | 'rail'])
       )
         fail('overfilled freight carrier');
       // Loading order is physical: completed earlier lines, at most one partial line.

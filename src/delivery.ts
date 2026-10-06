@@ -1,5 +1,5 @@
 export { orderLines, orderDescription, orderMass, itemMass } from './procurement';
-import { orderLines, orderDescription, pendingOrderLine } from './procurement';
+import { orderLines, orderDescription, pendingOrderLine, freightStackLimit } from './procurement';
 import { railFreightCarPose, railReceptionPlan, railStopDistance } from './rail-freight';
 import { workerAvailable, commuteDoor } from './workforce';
 import {
@@ -127,9 +127,10 @@ export function shipmentLots(o: Order) {
       const m = MATERIALS[line.item as Item];
       if (!m) continue;
       const lineIndex = 'orderLineIndex' in line ? Number(line.orderLineIndex) : localLineIndex;
+      const limit = freightStackLimit(o, line.item as Item);
       let taken = line.arrived;
-      for (let i = 0; i < Math.ceil(line.qty / m.max); i++) {
-        const original = Math.min(m.max, line.qty - i * m.max),
+      for (let i = 0; i < Math.ceil(line.qty / limit); i++) {
+        const original = Math.min(limit, line.qty - i * limit),
           qty = Math.max(0, original - taken);
         taken = Math.max(0, taken - original);
         out.push({

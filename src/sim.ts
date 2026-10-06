@@ -464,6 +464,13 @@ export function purchaseBatch(
       item: first.item,
       qty,
       arrived: 0,
+      ...(first.item in MATERIALS
+        ? {
+            stackLimits: Object.fromEntries(
+              manifest.map((line) => [line.item, MATERIALS[line.item as Item].max]),
+            ),
+          }
+        : {}),
       ...(manifest.length > 1 || load.mode === 'rail' ? { manifest } : {}),
       ...(load.mode === 'rail'
         ? {
@@ -3727,7 +3734,8 @@ export function demoState(): State {
     while (remaining > 0) {
       const spot = allocate(s, item);
       if (!spot) break;
-      const qty = Math.min(remaining, MATERIALS[item].max);
+      // Preserve the example's established aisles and two half-height rail stacks.
+      const qty = Math.min(remaining, item === 'rail' ? 4 : MATERIALS[item].max);
       const t: Stack = { ...spot, id: id(s, 'stack'), item, qty, reserved: 0, source };
       if (item === 'diesel') t.liters = 200;
       s.stacks.push(t);

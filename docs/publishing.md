@@ -144,3 +144,10 @@ Fix the upper-right close control by rejecting empty record IDs, preventing miss
 ## Native stockyard traffic recovery — v0.20.6
 
 Publish Apple Silicon Mac build 209 and source. Tight stockyard departures now use a checked straight reverse maneuver before continuing forward. Automatic empty equipment clears loaded traffic and retains its assignment while waiting to return; manual driving and active lifting remain protected. Construction refreshes slab-setting docks blocked by completed structures. The complete 456-test suite, both TypeScript builds, and packaged native GPU/bridge integration pass. Install the verified bundle and confirm the reported forklift reaches its train in the real yard, then leave it paused and saved. Previous app and save backups remain private. Browser hosting remains at 0.18.0.
+
+
+## Native stacked rail material — v0.20.7
+
+Publish Apple Silicon Mac build 210 and source. All six rail panel/module types stack eight high (2.85 meters with spacers), using bounded physical footprints and actual vehicle payload, deck-length and equipment lift limits. Existing saved freight retains its original parcel arrangement and current lift. Add stock capacity/height in the inspector and telescoping forklift mast support for high-stack handling. All 478 simulation/native-host regressions, both builds, the native headless geometry/UI check and packaged GPU/bridge integration pass.
+
+Save and pause the creator's current yard at D1 13:54:29 through the actual game controls, then close it. Retain private backups of both yard and previous app. Install the verified bundle and reopen: the existing yard appears behind its normal Continue dialog, paused and byte-identical to the checkpoint. Browser hosting remains 0.18.0. No private gameplay data is published.

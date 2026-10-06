@@ -249,7 +249,7 @@ test('large rail orders split by actual flatcar deck area as well as weight', ()
   S.purchase(s, 'rail', 33, 'rail');
   assert.deepEqual(
     s.orders[0].railFreight!.cars.map((car) => car.manifest.reduce((n,line) => n + line.qty,0)),
-    [12, 12, 9],
+    [24, 9],
   );
 });
 test('save validation rejects broken paths, fuel, and missing crew references', () => {

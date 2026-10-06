@@ -21,7 +21,7 @@ test('one batched supplier order has two bounded real flatcars, stable identitie
   const ids = S.purchaseBatch(
     s,
     [
-      { item: 'rail', qty: 16 },
+      { item: 'rail', qty: 32 },
       { item: 'diesel', qty: 1 },
     ],
     'rail',
@@ -32,10 +32,10 @@ test('one batched supplier order has two bounded real flatcars, stable identitie
   assert.equal(f.cars.length, 2);
   assert.match(f.locomotiveId, /^LOCO-/);
   assert.equal(new Set([f.locomotiveId, ...f.cars.map((c) => c.id)]).size, 3);
-  assert.equal(o.qty, 17);
+  assert.equal(o.qty, 33);
   assert.equal(
     f.cars.reduce((n, c) => n + c.mass, 0),
-    16 * 1450 + 185,
+    32 * 1450 + 185,
   );
   assert.ok(f.cars.every((c) => c.mass <= 48000 && c.deckLength <= 16));
   for (const car of f.cars) {
@@ -53,7 +53,7 @@ test('one batched supplier order has two bounded real flatcars, stable identitie
 
 test('all flatcar bodies and bogies travel continuously around the surveyed entrance switch', () => {
   const s = S.createState();
-  S.purchaseBatch(s, [{ item: 'rail', qty: 24 }], 'rail');
+  S.purchaseBatch(s, [{ item: 'rail', qty: 48 }], 'rail');
   const o = s.orders[0];
   assert.equal(o.railFreight!.cars.length, 2);
   for (let distance = 100; distance <= 170; distance += 0.1) {
@@ -177,7 +177,7 @@ test('multi-car unloading conserves every line through source pickup, storage, s
 
 test('freight save validation rejects duplicate assets, overfilled wagons, and mismatched quantities', () => {
   const s = S.createState();
-  S.purchaseBatch(s, [{ item: 'rail', qty: 16 }], 'rail');
+  S.purchaseBatch(s, [{ item: 'rail', qty: 32 }], 'rail');
   const mutate = (change: (state: typeof s) => void) => {
     const copy = JSON.parse(S.save(s)) as typeof s;
     change(copy);

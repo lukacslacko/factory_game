@@ -882,7 +882,13 @@ func _render_inspector() -> void:
 			_button(inspector_body,"Open train delivery controls",func() -> void: _user_entity(str(entity.get("orderId",""))))
 		"stacks":
 			_detail("Material",_name(str(entity.get("item",""))))
-			_detail("Quantity",entity.get("qty",0))
+			var stock_item: String = str(entity.get("item",""))
+			var stock_quantity: int = int(entity.get("qty",0))
+			if stock_item.begins_with("rail"):
+				_detail("Quantity","%d / %d per stack"%[stock_quantity,int(catalog.get(stock_item,{}).get("max",8))])
+				_detail("Stack height","%.2f m"%(0.325+maxi(0,stock_quantity-1)*0.36 if stock_quantity>0 else 0.0))
+			else:
+				_detail("Quantity",stock_quantity)
 			_detail("Reserved",entity.get("reserved",0))
 			_detail("Footprint","%s × %s m"%[entity.get("w",1),entity.get("d",1)])
 			_detail("Mass",_mass(float(entity.get("qty",0))*float(catalog.get(entity.get("item",""),{}).get("mass",0))))

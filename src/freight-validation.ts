@@ -1,5 +1,5 @@
 import type { Order, State } from './types';
-import { orderLines, orderDeckLength, itemMass } from './procurement';
+import { orderLines, orderDeckLength, itemMass, freightStackLimits } from './procurement';
 import { MATERIALS } from './catalog';
 
 /** Validate real car identities and their allocation against the order ledger. */
@@ -46,7 +46,7 @@ export function freightValidationProblem(s: State, o: Order, ids: Set<string>): 
       totals[n].arrived += line.arrived;
       mass += itemMass(line.item)! * line.qty;
     }
-    if (mass > 48000 || car.mass !== mass || car.deckLength !== orderDeckLength(car.manifest) || car.deckLength > 16)
+    if (mass > 48000 || car.mass !== mass || car.deckLength !== orderDeckLength(car.manifest, freightStackLimits(o)) || car.deckLength > 16)
       return 'overfilled or inconsistent freight car';
   }
   if (totals.some((total, i) => total.qty !== lines[i].qty || total.arrived !== lines[i].arrived))

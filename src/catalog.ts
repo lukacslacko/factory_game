@@ -1,6 +1,8 @@
 import type { Item, BuildKind, EquipmentKind, Role } from './types';
 export const TRACK_GAUGE = 1.435;
 export const RAIL_HEAD_WIDTH = 0.072;
+/** Eight supported layers stay below 3 m; lift and carrier mass limits are independent. */
+export const RAIL_STACK_LIMIT = 8;
 export const RAIL_CENTER_OFFSET = (TRACK_GAUGE + RAIL_HEAD_WIDTH) / 2;
 export const MATERIALS: Record<
   Item,
@@ -50,11 +52,11 @@ export const MATERIALS: Record<
     mass: 1450,
     w: 5,
     d: 3,
-    max: 4,
+    max: RAIL_STACK_LIMIT,
     work: 9,
     color: 0x676c68,
     description:
-      '5 m panel; 1,435 mm gauge. Two-cell track footprint; 5 × 3 m storage slots include handling clearance.',
+      '5 m panel; 1,435 mm gauge. Two-cell track footprint; 5 × 3 m storage slots include handling clearance. Stack up to eight panels with spacers (2.85 m high).',
   },
   railCurve: {
     name: 'Curved rail panel · 15°',
@@ -63,11 +65,11 @@ export const MATERIALS: Record<
     mass: 1520,
     w: 6,
     d: 3,
-    max: 4,
+    max: RAIL_STACK_LIMIT,
     work: 9,
     color: 0x676c68,
     description:
-      '20 m radius; 5.236 m arc, 1,435 mm gauge. Six separately lifted panels make a 90° curve. 6 × 3 m storage slot.',
+      '20 m radius; 5.236 m arc, 1,435 mm gauge. Six separately lifted panels make a 90° curve. 6 × 3 m storage slot. Stack up to eight panels with spacers (2.85 m high).',
   },
   railPoints: {
     name: 'Turnout points module',
@@ -76,11 +78,11 @@ export const MATERIALS: Record<
     mass: 1750,
     w: 6,
     d: 3,
-    max: 1,
+    max: RAIL_STACK_LIMIT,
     work: 12,
     color: 0x676c68,
     description:
-      'First 5 m of a 20 m modular turnout: stock rails, movable blades, sleepers, and a manual lever.',
+      'First 5 m of a 20 m modular turnout: stock rails, movable blades, sleepers, and a manual lever. Stack up to eight modules with spacers (2.85 m high).',
   },
   railFrog: {
     name: 'Turnout frog module',
@@ -89,11 +91,11 @@ export const MATERIALS: Record<
     mass: 1520,
     w: 6,
     d: 3,
-    max: 1,
+    max: RAIL_STACK_LIMIT,
     work: 12,
     color: 0x676c68,
     description:
-      'Second diverging panel: crossing frog and guard rails. Lay a separate straight panel alongside.',
+      'Second diverging panel: crossing frog and guard rails. Lay a separate straight panel alongside. Stack up to eight modules with spacers (2.85 m high).',
   },
   railClosure: {
     name: 'Turnout closure module',
@@ -102,10 +104,11 @@ export const MATERIALS: Record<
     mass: 1520,
     w: 6,
     d: 3,
-    max: 1,
+    max: RAIL_STACK_LIMIT,
     work: 12,
     color: 0x676c68,
-    description: 'Third diverging panel: closure rails. Lay a separate straight panel alongside.',
+    description:
+      'Third diverging panel: closure rails. Lay a separate straight panel alongside. Stack up to eight modules with spacers (2.85 m high).',
   },
   railExit: {
     name: 'Turnout exit module',
@@ -114,11 +117,11 @@ export const MATERIALS: Record<
     mass: 1520,
     w: 6,
     d: 3,
-    max: 1,
+    max: RAIL_STACK_LIMIT,
     work: 12,
     color: 0x676c68,
     description:
-      'Fourth diverging panel: grid-aligned exit 5 m from the through track. Lay a separate straight panel alongside.',
+      'Fourth diverging panel: grid-aligned exit 5 m from the through track. Lay a separate straight panel alongside. Stack up to eight modules with spacers (2.85 m high).',
   },
   office: {
     name: 'Office container',

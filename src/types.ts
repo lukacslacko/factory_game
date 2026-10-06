@@ -418,6 +418,8 @@ export interface RailFreight {
   unloadRequested?: boolean;
 }
 export interface Order {
+  /** Original parcel sizes: storage limits may increase without repacking an existing carrier. */
+  stackLimits?: Partial<Record<Item, number>>;
   railFreight?: RailFreight;
   /** Manual recovery pauses only site handling; an empty carrier still departs. */
   unloadPaused?: boolean;

@@ -1,9 +1,24 @@
-import type { Order, OrderLine } from './types';
+import type { Item, Order, OrderLine } from './types';
 import { MATERIALS, EQUIPMENT, ROLES, SERVICES, label } from './catalog';
 
 export const FREIGHT_CAPACITY = { road: 12000, rail: 48000 };
 export const FREIGHT_DECK_LENGTH = { road: 6, rail: 16 };
 export const CREW_BUS_SEATS = 12;
+/** Existing freight keeps its original positions, including partially unloaded lots. */
+const LEGACY_RAIL_STACK_LIMITS = {
+  rail: 4,
+  railCurve: 4,
+  railPoints: 1,
+  railFrog: 1,
+  railClosure: 1,
+  railExit: 1,
+};
+export function freightStackLimits(o: Pick<Order, 'stackLimits'>): Partial<Record<Item, number>> {
+  return o.stackLimits ?? LEGACY_RAIL_STACK_LIMITS;
+}
+export function freightStackLimit(o: Pick<Order, 'stackLimits'>, item: Item): number {
+  return freightStackLimits(o)[item] ?? MATERIALS[item].max;
+}
 export function itemMass(item: string): number | undefined {
   return Object.hasOwn(MATERIALS, item)
     ? (MATERIALS as any)[item].mass
@@ -22,10 +37,13 @@ export function orderDescription(o: Pick<Order, 'item' | 'qty' | 'arrived' | 'ma
 export function orderMass(o: Pick<Order, 'item' | 'qty' | 'arrived' | 'manifest'>) {
   return orderLines(o).reduce((sum, line) => sum + (itemMass(line.item) || 0) * line.qty, 0);
 }
-export function orderDeckLength(lines: Pick<OrderLine, 'item' | 'qty'>[]) {
+export function orderDeckLength(
+  lines: Pick<OrderLine, 'item' | 'qty'>[],
+  stackLimits?: Partial<Record<Item, number>>,
+) {
   return lines.reduce((sum, line) => {
     const m = Object.hasOwn(MATERIALS, line.item) ? (MATERIALS as any)[line.item] : undefined;
-    return sum + (m ? Math.ceil(line.qty / m.max) * m.w : 0);
+    return sum + (m ? Math.ceil(line.qty / (stackLimits?.[line.item as Item] ?? m.max)) * m.w : 0);
   }, 0);
 }
 export function pendingOrderLine(o: Order) {
