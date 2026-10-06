@@ -739,3 +739,12 @@ Recovery preflights compatible partial stacks before new ground slots, including
 A recovered multi-panel stack needs per-layer asset identity rather than one ID for the whole pile. Store original component IDs bottom to top, with null for new supplier steel; update layers during pickup, batch staging, installation, and delivery top-ups. Keep existing singleton identity readable. Verify that rebuilding takes the top recovered panel's ID without duplicating installed identities, including across reload.
 
 Final review adds validation of carried batch layer IDs, preventing a malformed save from creating extra inventory. Verification: 491 complete sequential tests, 208 handling tests, then 54 final validation/recovery/native-service tests pass. Both builds and the packaged GPU/bridge check pass. Native switch, recovery and stack geometry checks pass 58, 23 and 3,621 assertions. Install v0.20.8 build 211 with the creator's current Creative yard paused, retaining its private checkpoint and previous app; test data remains isolated.
+
+
+## 2026-10-06 — Typing names must not drive the camera
+
+The creator reports that typing WASD in a railway location name moves the view. The existing focus check inspects only the main viewport; the railway form has its own Window viewport. Suppress physical camera polling and unhandled game-key shortcuts while a text editor or any UI popup window is active. The protection lasts through button focus and ends when the dialog closes. Keep ordinary yard keyboard behavior intact.
+
+The regression uses the actual railway naming form and production camera processing, injecting held-key state because a headless display server has no physical keyboard layout. Before the fix it fails popup panning, shortcut isolation and modal button-focus checks. Afterward all 13 checks pass; existing camera (44 assertions) and general UI (11 registers, 10 inspector types) regressions pass. Save and pause the private Creative yard before installing v0.20.9 build 212, with private checkpoint and previous-app backup.
+
+The packaged native integration passes in 9.70 seconds at a sampled 390.2 MB memory peak. Both builds pass; install and reopen the tested self-contained package while preserving the paused yard.

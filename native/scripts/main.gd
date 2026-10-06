@@ -386,7 +386,7 @@ func _place(a: Vector3, b: Vector3) -> void:
 			client.send("plan", {"kind":tool,"x":floori(a.x),"z":floori(a.z),"rotation":placement_rotation%2,"foundations":true})
 
 func _unhandled_input(event: InputEvent) -> void:
-	if closing:
+	if closing or (event is InputEventKey and _keyboard_controls_blocked()):
 		return
 	if event is InputEventMouseButton:
 		var mouse := event as InputEventMouseButton
@@ -526,6 +526,21 @@ func _update_camera(dt: float, snap: bool = false) -> void:
 	sun.directional_shadow_split_2 = clampf(camera_distance*2.25,sun.directional_shadow_split_1*reach+35.0,reach*0.70)/reach
 	sun.directional_shadow_split_3 = clampf(camera_distance*3.5,sun.directional_shadow_split_2*reach+60.0,reach*0.90)/reach
 
+func _keyboard_controls_blocked() -> bool:
+	var focus := get_viewport().gui_get_focus_owner()
+	if focus is LineEdit or focus is TextEdit:
+		return true
+	# Popups have independent viewport focus. Pause yard keyboard controls
+	# for the whole dialog lifetime, including while its buttons have focus.
+	if is_instance_valid(ui):
+		for window: Window in ui.find_children("*","Window",true,false):
+			if window.visible:
+				return true
+	return false
+
+func _camera_key_pressed(key: Key) -> bool:
+	return Input.is_physical_key_pressed(key)
+
 func _process(dt: float) -> void:
 	elapsed += dt
 	preview_clock += dt
@@ -544,20 +559,19 @@ func _process(dt: float) -> void:
 	if is_instance_valid(world):
 		world.visible = ui.active_tab == "Yard"
 		world.advance(dt)
-	var text_input: bool = get_viewport().gui_get_focus_owner() is LineEdit or get_viewport().gui_get_focus_owner() is TextEdit
-	if not backgrounded and not text_input and not test_mode and not capture_mode:
+	if not backgrounded and not test_mode and not capture_mode and not _keyboard_controls_blocked():
 		var forward := Vector3(-sin(camera_yaw),0,-cos(camera_yaw))
 		var right := Vector3(cos(camera_yaw),0,-sin(camera_yaw))
 		var movement := Vector3.ZERO
-		if Input.is_physical_key_pressed(KEY_W): movement += forward
-		if Input.is_physical_key_pressed(KEY_S): movement -= forward
-		if Input.is_physical_key_pressed(KEY_D): movement += right
-		if Input.is_physical_key_pressed(KEY_A): movement -= right
+		if _camera_key_pressed(KEY_W): movement += forward
+		if _camera_key_pressed(KEY_S): movement -= forward
+		if _camera_key_pressed(KEY_D): movement += right
+		if _camera_key_pressed(KEY_A): movement -= right
 		if movement.length_squared() > 0:
 			target += movement.limit_length()*dt*distance*0.25
 			follow = false
-		if Input.is_physical_key_pressed(KEY_Q): yaw -= dt*0.65
-		if Input.is_physical_key_pressed(KEY_E): yaw += dt*0.65
+		if _camera_key_pressed(KEY_Q): yaw -= dt*0.65
+		if _camera_key_pressed(KEY_E): yaw += dt*0.65
 	if follow and not selected_id.is_empty():
 		var pos: Vector3 = world.entity_position(selected_id)
 		target = Vector3(pos.x,0,pos.z)

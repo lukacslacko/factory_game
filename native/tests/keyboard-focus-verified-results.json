@@ -1,0 +1,40 @@
+{
+  "version": "0.20.9",
+  "build": 212,
+  "focus_checks": 13,
+  "camera_checks": 44,
+  "ui_registers": 11,
+  "ui_inspector_types": 10,
+  "regression_reproduced_before_fix": true,
+  "checks": [
+    {
+      "name": "keyboard-focus-fixed",
+      "elapsed_seconds": 1.02,
+      "peak_resident_bytes": 172785664,
+      "returncode": 0,
+      "stopped_reason": null
+    },
+    {
+      "name": "keyboard-camera-regression",
+      "elapsed_seconds": 1.02,
+      "peak_resident_bytes": 215433216,
+      "returncode": 0,
+      "stopped_reason": null
+    },
+    {
+      "name": "keyboard-ui-regression",
+      "elapsed_seconds": 1.02,
+      "peak_resident_bytes": 223412224,
+      "returncode": 0,
+      "stopped_reason": null
+    },
+    {
+      "name": "v0209-package",
+      "elapsed_seconds": 9.7,
+      "peak_resident_bytes": 390168576,
+      "returncode": 0,
+      "stopped_reason": null
+    }
+  ],
+  "private_data_included": false
+}

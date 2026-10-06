@@ -6,7 +6,7 @@ This is the first playable native migration. The original browser application an
 
 ## Download or open on this Mac
 
-[Download the Apple Silicon Mac app](https://github.com/lukacslacko/factory_game/releases/tag/v0.20.8), unzip it, and open **Plant 01.app**. This checkpoint targets macOS 14 or newer.
+[Download the Apple Silicon Mac app](https://github.com/lukacslacko/factory_game/releases/tag/v0.20.9), unzip it, and open **Plant 01.app**. This checkpoint targets macOS 14 or newer.
 
 Open the **Plant 01.app** built beside the repository in `outputs/`. It includes the Godot runner, Node runtime, simulation, terrain maps, and license notices. It is a local app for this Mac, not a notarized public release.
 
@@ -161,3 +161,8 @@ Existing trains and trucks keep their original stack sizes and positions after t
 Use the separate **Diverging switch** and **Converging switch** buttons in Yard. Selecting Straight rail or 90° curve always selects normal rail construction; a previous convergence selection cannot affect those tools. Rotate R and Left / right adjust the selected layout as before. The selected rail button is highlighted.
 
 Recovered rails fill compatible partial stockyard stacks before allocating another footprint, in Creative and normal construction. Each rail material stacks eight high; differently handed curve and switch modules remain separate. Active handling and reserved preparation stock are excluded. When recovering normally, the excavator lowers the panel onto the actual top of the stack. Every recovered panel keeps its original identity through storage, transport, save/reload, and subsequent installation. Existing separate stacks stay in place; future recovery fills available compatible stacks.
+
+
+## Keyboard focus — v0.20.9
+
+Camera keys and game shortcuts pause while a text editor or popup dialog is active, including the named railway location form. Close the dialog to resume WASD panning and Q/E orbiting. Text fields in the registers and SQL editor also keep typing separate from game controls.

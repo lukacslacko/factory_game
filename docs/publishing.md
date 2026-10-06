@@ -158,3 +158,10 @@ Save and pause the creator's current yard at D1 13:54:29 through the actual game
 Publish Apple Silicon Mac build 211 and source. Separate diverging/converging switch tools remove the leaked convergence setting that blocked straight rails and curves. Creative and physical recovery fill compatible finite stockyard stacks up to eight high, with original rail identities retained per layer. Keep private saves, diagnostic records and captures outside the source and package. Preserve the currently open creative yard with a paused checkpoint and previous-app backup before installation.
 
 Verified 491 complete sequential regressions, 208 focused handling tests, and 54 final layer-validation/recovery/native-service tests; both builds; 58 switch, 23 recovery UI and 3,621 geometry assertions. Final packaged integration: 8.61 seconds, sampled 366.1 MB peak. The last save-import guard and its regression are checked after the complete suite begins. Install and publish the same self-contained build, leaving the private Creative yard paused and unchanged.
+
+
+## Native keyboard focus — v0.20.9
+
+Publish Apple Silicon build 212 and source. Typing railway location names or using other text editors/popups no longer pans or orbits the yard or activates game shortcuts. Camera controls resume after closing the dialog. Verify the new native focus regression plus existing camera/UI checks and packaged native integration. Keep private gameplay data outside the package and repository; preserve the live yard during replacement.
+
+Final verification passes 13 focus checks, 44 camera checks, the general UI smoke check, both builds, and packaged GPU/bridge integration (9.70 seconds, sampled 390.2 MB). The install preserves the real paused save.
