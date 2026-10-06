@@ -201,6 +201,10 @@ export interface RailBatchBuffer {
   ownerJob?: string;
 }
 export interface RailWork {
+  /** Stable alternate crane dock; keep the same safe approach through lowering and saves. */
+  approach?: { preferred: Point; target: Point; point: Point };
+  /** Deduplicated static route warnings and bounded route retry cadence. */
+  routeBlockage?: { blocker: string; since: number; retryAt: number; warned?: boolean };
   /** Temporary handling-site occupants addressed by this crew; saved for deduplicated warnings. */
   siteClearance?: {
     area?: string;

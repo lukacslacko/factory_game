@@ -401,7 +401,11 @@ for (const curve of [false, true])
     if (curve) {
       assert(recoveredOldBufferTarget);
       assert(
-        s.events.some((e) => /accessible alternate buffer resting place/.test(e.text)),
+        s.events.some((e) =>
+          /accessible alternate buffer resting place|selects an alternate rail-handling approach/.test(
+            e.text,
+          ),
+        ),
         'A carried legacy buffer reroutes physically around the new staged stock',
       );
     }

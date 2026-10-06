@@ -784,6 +784,45 @@ function crewClearForTurn(s: State, j: Job, e: Equipment, target: Point, api: Ra
   return false;
 }
 
+function resolvedApproach(j: Job, preferred: Point, target: Point): Point {
+  const dock = j.railWork?.approach;
+  return dock && dist(dock.preferred, preferred) < 0.02 && dist(dock.target, target) < 0.02
+    ? dock.point
+    : preferred;
+}
+/** An excavator can lift from another side; a forklift's straight fork dock cannot. */
+function alternateCraneApproach(
+  s: State,
+  j: Job,
+  e: Equipment,
+  preferred: Point,
+  target: Point,
+  api: RailWorkAPI,
+): { point: Point; path: Point[]; reverse: boolean } | undefined {
+  const reach = dist(preferred, target);
+  if (e.kind !== 'excavator' || reach < 2 || reach > 6) return;
+  const angle = Math.atan2(preferred.z - target.z, preferred.x - target.x);
+  const staticState = { ...s, workers: [], equipment: [e], orders: [] };
+  const candidates = [1, -1, 2, -2, 3, -3, 4]
+    .map((n) => ({
+      x: target.x + Math.cos(angle + (n * Math.PI) / 4) * reach,
+      z: target.z + Math.sin(angle + (n * Math.PI) / 4) * reach,
+    }))
+    .sort((a, b) => dist(e, a) - dist(e, b));
+  for (const point of candidates) {
+    const yaw = facing(point, target);
+    if (equipmentMoveBlocked(staticState, e, { ...point, yaw })) continue;
+    for (const reverse of [!!e.reverse, !e.reverse]) {
+      const path = machineRoute(s, { ...e, reverse }, point, api.obstacles(s), 450, true, yaw);
+      if (path) return { point, path, reverse };
+    }
+  }
+}
+function clearRouteBlockage(s: State, j: Job) {
+  if (j.railWork) j.railWork.routeBlockage = undefined;
+  for (const n of s.notices)
+    if (n.entity === j.id && n.title === 'Rail route blocked') n.state = 'done';
+}
 function machineAt(
   s: State,
   j: Job,
@@ -795,6 +834,8 @@ function machineAt(
 ) {
   // Every future handling destination needs the same addressed clearance as
   // staging. A route planner cannot resolve an idle actor occupying its goal.
+  const preferred = point;
+  point = resolvedApproach(j, preferred, target);
   const approachBlockers = requestApproachClearance(s, j, e, point, target, api);
   if (e.path.length) {
     const next = e.path[0],
@@ -810,6 +851,10 @@ function machineAt(
     return false;
   }
   if (dist(e, point) > 0.04) {
+    if (j.railWork?.routeBlockage && s.elapsed < j.railWork.routeBlockage.retryAt) {
+      j.reason = `Rail-handling route blocked by ${j.railWork.routeBlockage.blocker}; waiting for a clear approach`;
+      return false;
+    }
     let reverse = !!e.reverse;
     let path = machineRoute(s, e, point, api.obstacles(s), 450, true);
     if (!path) {
@@ -839,17 +884,67 @@ function machineAt(
           path = machineRoute(preview, { ...e, reverse }, point, api.obstacles(preview), 450, true);
         }
       }
+      if (!path && !approachBlockers.length && e.kind === 'excavator') {
+        const alternate = alternateCraneApproach(s, j, e, preferred, target, api);
+        if (alternate) {
+          j.railWork!.approach = {
+            preferred: { ...preferred },
+            target: { ...target },
+            point: alternate.point,
+          };
+          point = alternate.point;
+          path = alternate.path;
+          reverse = alternate.reverse;
+          api.event(
+            s,
+            'Traffic',
+            j.id,
+            `${e.id} selects an alternate rail-handling approach at E${point.x.toFixed(1)}, S${point.z.toFixed(1)} around obstructing material; the load remains suspended.`,
+          );
+        }
+      }
       if (!path) {
+        const blocker =
+          equipmentMoveBlocked({ ...s, workers: [], equipment: [e], orders: [] }, e, {
+            ...point,
+            yaw: facing(point, target),
+          }) ||
+          approachBlockers[0] ||
+          'the rail-handling approach';
+        e.blockedBy = blocker;
+        const old = j.railWork!.routeBlockage;
+        const wait =
+          old?.blocker === blocker ? old : { blocker, since: s.elapsed, retryAt: 0, warned: false };
+        wait.retryAt = s.elapsed + 3;
+        j.railWork!.routeBlockage = wait;
+        if (!wait.warned && s.elapsed - wait.since >= 12) {
+          wait.warned = true;
+          const detail = `${e.id} cannot find a safe approach to ${j.id}; ${blocker} blocks access. Relocate obstructing staged material to storage or clear more working space. Automatic routing will retry.`;
+          s.notices.unshift({
+            id: api.id(s, 'notice'),
+            time: s.time,
+            title: 'Rail route blocked',
+            detail,
+            entity: j.id,
+            state: 'todo',
+            seen: false,
+          });
+          api.event(s, 'Traffic', j.id, detail);
+          s.events.at(-1)!.severity = 'warning';
+        }
         j.reason = approachBlockers.length
           ? `Waiting for ${approachBlockers.join(', ')} to clear the rail-handling approach`
-          : 'Machine route blocked during rail work; clear the approach';
+          : `Rail-handling route blocked by ${blocker}; no reachable lifting position. Clear the approach or relocate staged stock to storage`;
         return false;
       }
     }
+    clearRouteBlockage(s, j);
+    e.blockedBy = undefined;
     e.path = path;
     e.reverse = reverse;
     return false;
   }
+  clearRouteBlockage(s, j);
   e.velocity = 0;
   if (approachBlockers.length) {
     j.reason = `Waiting for ${approachBlockers.join(', ')} to clear the rail-handling approach`;
@@ -988,6 +1083,7 @@ function requestApproachClearance(
     ].includes(r.phase)
   )
     return [];
+  point = resolvedApproach(j, point, target);
   const yaw = facing(point, target);
   const probe = { ...e, reach: dist(point, target) };
   const envelope: TrafficBox[] = [];

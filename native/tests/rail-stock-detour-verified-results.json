@@ -1,0 +1,53 @@
+{
+  "version": "0.20.2",
+  "date": "2026-10-06",
+  "focused_regressions": {
+    "passed": 9,
+    "new_cases": 3,
+    "failed": 0,
+    "duration_ms": 444.025542,
+    "node_heap_limit_mb": 384
+  },
+  "private_replay": {
+    "isolated": true,
+    "completion_simulated_seconds": 43.7,
+    "reload_during_travel": true,
+    "stable_alternate_approach": true,
+    "stock_unchanged": true,
+    "rail_ids_unchanged": true,
+    "same_buffer_secured": true,
+    "imported_into_live_yard": false
+  },
+  "packaged_native": {
+    "name": "rail-stock-detour-packaged",
+    "elapsed_seconds": 14.29,
+    "peak_resident_bytes": 455294976,
+    "returncode": 0,
+    "stopped_reason": null
+  },
+  "regressions": {
+    "unique_cases_passed": 423,
+    "failed_after_targeted_reruns": 0,
+    "full_run_duration_ms": 296926.619708,
+    "full_run_passed": 411,
+    "sandbox_loopback_failures": 11,
+    "native_host_rerun_passed": 12,
+    "native_host_rerun_duration_ms": 9293.973625,
+    "focused_rerun_passed": 15,
+    "focused_rerun_duration_ms": 8060.43225,
+    "note": "Full suite initially had 11 sandbox EPERM loopback failures and one obsolete recovery-event expectation. All host tests pass with loopback permitted; the adjusted physical-recovery assertion and all staging/detour tests pass. No production code changed after the full run.",
+    "node_heap_limit_mb": 384,
+    "sequential_full_run": true
+  },
+  "actual_yard": {
+    "original_job_completed": true,
+    "same_buffer_secured": true,
+    "staged_panel_unchanged": true,
+    "equipment_and_rail_ids_retained": true,
+    "workers": 12,
+    "cost_ledger_unchanged": true,
+    "left_paused": true,
+    "speed": 1,
+    "saved": true
+  }
+}

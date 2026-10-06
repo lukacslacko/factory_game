@@ -763,6 +763,25 @@ export function validateState(value: any): asserts value is State {
     }
     if (j.railWork) {
       const r = j.railWork;
+      if (
+        r.approach !== undefined &&
+        (!r.approach ||
+          ![r.approach.preferred, r.approach.target, r.approach.point].every(point) ||
+          Math.hypot(
+            r.approach.point.x - r.approach.target.x,
+            r.approach.point.z - r.approach.target.z,
+          ) > 8)
+      )
+        fail('invalid alternate rail-handling approach');
+      if (
+        r.routeBlockage !== undefined &&
+        (!r.routeBlockage ||
+          typeof r.routeBlockage.blocker !== 'string' ||
+          !finite(r.routeBlockage.since) ||
+          !finite(r.routeBlockage.retryAt) ||
+          (r.routeBlockage.warned !== undefined && typeof r.routeBlockage.warned !== 'boolean'))
+      )
+        fail('invalid rail route blockage');
       if (r.stagingBatch !== undefined) {
         const b = r.stagingBatch,
           material = MATERIALS[(j.item || 'rail') as keyof typeof MATERIALS];

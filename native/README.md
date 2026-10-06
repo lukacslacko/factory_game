@@ -6,7 +6,7 @@ This is the first playable native migration. The original browser application an
 
 ## Download or open on this Mac
 
-[Download the Apple Silicon Mac app](https://github.com/lukacslacko/factory_game/releases/tag/v0.20.1), unzip it, and open **Plant 01.app**. This checkpoint targets macOS 14 or newer.
+[Download the Apple Silicon Mac app](https://github.com/lukacslacko/factory_game/releases/tag/v0.20.2), unzip it, and open **Plant 01.app**. This checkpoint targets macOS 14 or newer.
 
 Open the **Plant 01.app** built beside the repository in `outputs/`. It includes the Godot runner, Node runtime, simulation, terrain maps, and license notices. It is a local app for this Mac, not a notarized public release.
 
@@ -48,6 +48,8 @@ Construction ghosts use cyan for queued plans and amber for work underway; curso
 Use the dense registers for sorting and filtering, and click entity IDs to inspect linked equipment, workers, stock, jobs, and orders. Manual assignment and support-worker controls use the same simulation rules as the browser game. The simulation runs independently of drawing; foreground rendering is capped at 60 FPS and unfocused rendering at 15 FPS. Large Retina windows use spatial FSR1 upscaling with 4× MSAA while text and controls remain at full resolution. Full-resolution rendering also uses 4× MSAA. Temporal antialiasing is disabled so moving shadows do not trail across stationary ground. The game menu has **Full-resolution 3D (slower on Retina)** if you prefer maximum native detail; this preference is saved.
 
 Automatic equipment traffic recovery checks the full chassis, boom, forks and carried load. If stored material traps a pedestrian beside a machine, the machine backs straight into verified clear space, lets the worker walk out, then resumes its retained destination. Rail handling preserves the escape sequence. A blockage lasting 20 seconds adds one **Equipment movement blocked** notice to Inbox and a warning in Activity; click the linked blocker to inspect it. The notice resolves when the machine moves again. Physically enclosed routes still require clearing access; recovery never teleports workers, stock or cargo.
+
+Automatic excavators also check alternative reachable lifting positions when staged material blocks a rail-handling approach. The selected approach stays stable through travel, lowering, and saving, and the equipment inspector shows its actual destination. The crane routes around real stock without moving or deleting it. If no safe lifting position is reachable, one **Rail route blocked** warning names the blocker after 12 seconds; clear access or relocate the staged stock to storage. The warning resolves once routing succeeds. Existing requests for workers or idle equipment to clear a handling position still apply.
 
 Road vehicles issue a targeted clearance request to the blocking worker. Automatic ground workers can walk around stock rows and safely reroute a walking trip that is mutually blocked by that same vehicle. Their original destination is retained; once the carrier parks, they become available again instead of waiting for the whole delivery to finish. Manual/resting workers and unsafe physical operations are preserved. A persistent carrier obstruction produces one **Delivery vehicle blocked** notice after 20 seconds, with a linked blocker and recovery guidance. Sound, including request-triggered horns, remains tracked in GitHub issue #20.
 
@@ -105,7 +107,7 @@ For parallel unloading tracks or a future runaround, select **Turnout**, choose 
 A stop cannot remain across a completed rail joint. The crew preserves it as a real asset, moves it aside and carries surplus stops into storage. Switches still require a worker to throw their lever. Train drop-off, owned shunting and installing turnouts into an already continuous track remain separate tracked work. Paid scrapping is tracked in [issue #35](https://github.com/lukacslacko/factory_game/issues/35).
 
 
-### Receive multi-car trains — v0.20.1
+### Receive multi-car trains — v0.20.2
 
 Open **Railway → + Receiving point** to name an interval on the original `BOOTSTRAP-SIDING`. Its offset is measured from the siding's western start; length is centered there. An unloading or transfer point can receive supplier freight. The full locomotive and all cars must fit between the mainline switch and the siding's end; protected buffer stops can further restrict access. Five flatcars fit a sufficiently long interval; larger consists remain queued with their required length and receive no arrival invoice. Other factory-track designations await commissioned shunting.
 

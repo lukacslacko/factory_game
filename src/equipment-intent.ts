@@ -42,6 +42,7 @@ export function equipmentIntent(s: State, e: Equipment): EquipmentIntent {
       r = job.railWork;
     references.push(
       ...(r?.siteClearance?.blockers || []),
+      ...(r?.routeBlockage ? [r.routeBlockage.blocker] : []),
       ...[h?.sourceId, r?.source?.stackId, r?.panel.stackId].filter((v): v is string => !!v),
     );
     if (h) {
@@ -93,6 +94,12 @@ export function equipmentIntent(s: State, e: Equipment): EquipmentIntent {
         target = r.stageDock;
       else if (r.phase === 'cancel-panel-lift') target = copy(e);
       else target = r.railDock;
+      if (
+        r.approach &&
+        target &&
+        Math.hypot(target.x - r.approach.preferred.x, target.z - r.approach.preferred.z) < 0.02
+      )
+        target = r.approach.point;
     } else {
       const stock = !job.delivered && job.stack && s.stacks.find((t) => t.id === job.stack);
       target = job.shedAssembly?.dock || (stock ? middle(stock) : middle(job));

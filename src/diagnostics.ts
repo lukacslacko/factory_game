@@ -106,6 +106,8 @@ export class DiagnosticRecorder {
           trackRoute: j.track?.route,
           requestedTurnoutRoute: j.requestedRoute,
           panel: j.railWork?.panel.state,
+          railApproach: j.railWork?.approach,
+          railRouteBlockage: j.railWork?.routeBlockage,
           cargoState: j.handling?.state,
           equipmentReleased: j.handling?.equipmentReleased,
         },
