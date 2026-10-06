@@ -51,7 +51,7 @@ for (const mode of ['road', 'rail'] as const) {
     assert.equal(S.totals(s, 'diesel').stored, 1);
     assert.equal(s.equipment[0].cargo, undefined);
     assert.equal(s.orders.length, 1);
-    assert.equal(s.costs.filter((c) => c.entity === oid).length, 1);
+    assert.equal(s.costs.filter((c) => c.entity === oid && c.category === 'Purchases').length, 1);
     for (const item of ['slab', 'diesel'] as const) {
       const total = S.totals(s, item);
       assert.equal(total.delivered, total.stored + total.cargo + total.installed);

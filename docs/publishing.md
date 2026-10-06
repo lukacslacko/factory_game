@@ -165,3 +165,14 @@ Verified 491 complete sequential regressions, 208 focused handling tests, and 54
 Publish Apple Silicon build 212 and source. Typing railway location names or using other text editors/popups no longer pans or orbits the yard or activates game shortcuts. Camera controls resume after closing the dialog. Verify the new native focus regression plus existing camera/UI checks and packaged native integration. Keep private gameplay data outside the package and repository; preserve the live yard during replacement.
 
 Final verification passes 13 focus checks, 44 camera checks, the general UI smoke check, both builds, and packaged GPU/bridge integration (9.70 seconds, sampled 390.2 MB). The install preserves the real paused save.
+
+
+## Native owned shunting and empty returns — v0.21.0
+
+Publish Apple Silicon build 213 with the next railway operations checkpoint. Add a real seven-panel eastern reception exit, a separate factory access switch, owned diesel shunters and assigned operators, supplier locomotive handoff/departure, selected-car moves to named installed-track locations, chosen-stockyard unloading and separately requested empty-car collection. Keep stable freight identities, continuous bogie-following movement, driver boarding/manual lever visits, save/SQL records, fuel and waiting costs. Railway → Rail help explains the workflow in paragraphs.
+
+Keep the browser deployment at 0.18.0. Native movements are serialized; this checkpoint handles flatcars. Inherited track replacement, external service-crew coupling and locomotive fuel transfer remain schematic; general reconstruction, tanker operation, parallel reception, direct shunter driving and an engine shed remain tracked work. Preserve the creator’s paused private save and previous application, run bounded isolated native checks, and exclude private data and captures from source and release.
+
+Final verification: 530/530 sequential regressions; both builds; 107 new native UI/renderer/bridge checks; packaged GPU/bridge integration at 8.63 seconds and sampled 400.6 MB. Install and reopen the same tested build, preserving the paused private save byte for byte and retaining the previous application. Publish source and the self-contained Mac archive to v0.21.0; no browser deployment.
+
+The last driver availability/shift-end guard is verified by 26 focused regressions after the complete suite, both rebuilt TypeScript bundles, 47 authenticated native checks, and the final packaged GPU run (8.63 seconds, sampled 400.6 MB). The published build includes this guard.

@@ -9,6 +9,7 @@ import {
   railCells,
   railFootprint,
   trackOpenPorts,
+  sidingAccessSpans,
 } from './track';
 import type { TrackPiece } from './track';
 import {
@@ -88,6 +89,7 @@ import {
   personTouchesBox,
 } from './traffic';
 import { validateState } from './validate';
+import { tickRailOperations } from './rail-operations';
 import type {
   State,
   Item,
@@ -834,6 +836,8 @@ export function validRailLayout(
     Math.abs(origin.z) >= 10000
   )
     return 'Choose a grid-aligned track endpoint and direction.';
+  const sidingAccess = layout === 'turnout' && !flow && origin.z === 5 && heading === 0 && hand === 1 && origin.x >= 30 && origin.x <= 100;
+  const mainlineExit = layout === 'turnout' && flow === 'converging' && origin.x === 125 && origin.z === 0 && heading === 0 && hand === 1;
   const pieces = railLayoutPieces(layout, origin, heading, hand, flow),
     geometries = pieces.map(trackGeometry);
   // Legal connections are exact opposing rail ports, including both incoming
@@ -841,7 +845,10 @@ export function validRailLayout(
   const external = trackMacroPorts(pieces[0]);
   const ports = trackOpenPorts(s, !s.creative, false);
   const entries = external.filter((p) => p.end === 'entry');
-  if (!entries.every((entry) => ports.some((port) => portsConnect(port, entry, 0.02, 0.02))))
+  if (!entries.every((entry) =>
+    (mainlineExit && entry.x === 125 && entry.z === 0) ||
+    (sidingAccess && entry.x === origin.x && entry.z === 5) ||
+    ports.some((port) => portsConnect(port, entry, 0.02, 0.02))))
     return flow === 'converging'
       ? 'A converging switch requires two parallel open track endpoints, 5 m apart, facing the same direction.'
       : 'Connect to an open track endpoint facing the indicated direction. Use Rail end to start at the siding.';
@@ -853,7 +860,8 @@ export function validRailLayout(
   ];
   for (const p of cells) {
     const cell = { ...p, w: 1, d: 1 };
-    if (p.x < -12 || p.x + 1 > 220 || p.z < 4 || p.z + 1 > 110)
+    if ((p.x < -12 || p.x + 1 > 220 || p.z < 4 || p.z + 1 > 110) &&
+      !(mainlineExit && p.x >= 125 && p.x + 1 <= 145 && p.z >= -1 && p.z + 1 <= 6))
       return 'Track extends outside the buildable yard or into the protected transport corridor.';
     if (p.x < -3 && p.z < 25) return 'Keep the crossing and receiving access lane clear.';
     if (s.buildings.some((b) => overlap(b, cell))) return 'A structure occupies the track bed.';
@@ -973,6 +981,32 @@ export function planRailLayout(
   );
   s.revision++;
   return { jobs, group: railWorkGroup(s, jobs[0]) || group, error: '' };
+}
+/** Commission a factory branch without consuming the receiving siding's east exit. */
+export function planSidingAccess(s: State, x = 80): ReturnType<typeof planRailLayout> {
+  if (!Number.isInteger(x) || x % 5 || x < 30 || x > 100) return { jobs: [], error: 'Choose a five-meter station between E30 and E100 on the receiving siding.' };
+  if (sidingAccessSpans(s,true).some(a => x < a.end && x+20 > a.x)) return {jobs:[],error:'A siding access switch is already installed or planned in this span.'};
+  if ((s.railLocations||[]).some(l => l.trackId === 'BOOTSTRAP-SIDING' && 25+l.offset-l.length/2 < x+20 && 25+l.offset+l.length/2 > x))
+    return {jobs:[],error:'A named rail interval overlaps the replacement span. Shorten or move that location first.'};
+  if (s.orders.some(o => o.mode === 'rail' && !['ordered','done'].includes(o.status) &&
+    ((o.railFreight?.cars.some(c => !c.returned && (c.pose?.z ?? o.vehicle.z) === 5 && (c.pose?.x ?? o.vehicle.x)+c.length/2 > x && (c.pose?.x ?? o.vehicle.x)-c.length/2 < x+20)) ||
+      (!o.railFreight?.detached && o.vehicle.z === 5 && o.vehicle.x+5 > x && o.vehicle.x-5 < x+20))))
+    return {jobs:[],error:'Move the train clear of the siding replacement span before commissioning its switch.'};
+  if (s.shunters?.some(e => e.z === 5 && e.x+5>x && e.x-5<x+20 && e.phase !== 'ordered'))
+    return {jobs:[],error:'Move the shunter clear of the siding replacement span first.'};
+  const result=planRailLayout(s,'turnout',{x,z:5},0,1);
+  if(result.group) result.group.label='Install receiving-siding factory access switch';
+  return result;
+}
+/** Player-commissioned physical runaround exit; no track is added for free. */
+export function planMainlineExit(s: State): ReturnType<typeof planRailLayout> {
+  const existing = [...s.rails, ...s.jobs.filter(j => j.kind === 'rail' && !['done', 'canceled'].includes(j.status))].some(r =>
+    r.track?.layout === 'turnout' && r.track.origin.x === 145 && r.track.origin.z === 0 &&
+    r.track.heading === 2 && r.track.hand === -1 && r.track.flow === 'converging');
+  if (existing) return { jobs: [], error: 'The east main-line connection is already installed or planned.' };
+  const result = planRailLayout(s, 'turnout', { x: 125, z: 0 }, 0, 1, 'converging');
+  if (result.group) result.group.label = 'Connect receiving siding to main line · east exit';
+  return result;
 }
 export function resumeTrackWork(s: State, workId: string): string {
   const own = s.jobs.find((j) => j.id === workId);
@@ -2382,7 +2416,11 @@ function assign(s: State, j: Job) {
           (p) =>
             dist(p, entry) < 0.02 &&
             Math.abs(Math.abs(angleDelta(p.yaw, entry.yaw)) - Math.PI) < 0.02,
-        );
+        ) || (j.track.layout === 'turnout' && j.track.origin.x === 145 && j.track.origin.z === 0 &&
+          j.track.heading === 2 && j.track.hand === -1 && j.track.flow === 'converging' &&
+          entry.x === 125 && entry.z === 0 ? { assetId: 'BOOTSTRAP-MAINLINE' } : undefined) ||
+          (j.track.layout === 'turnout' && j.track.origin.z === 5 && j.track.heading === 0 && j.track.hand === 1 && !j.track.flow &&
+            j.track.origin.x >= 30 && j.track.origin.x <= 100 && entry.x === j.track.origin.x && entry.z === 5 ? {assetId:'BOOTSTRAP-SIDING'} : undefined);
       if (!predecessor) {
         j.reason = 'Waiting for the connecting track work order to finish at this endpoint';
         return;
@@ -3369,6 +3407,7 @@ export function tick(s: State, dt: number) {
   s.elapsed += dt;
   s.time += dt;
   s.wageClock += dt;
+  tickRailOperations(s, dt);
   for (const o of s.orders) advanceOrder(s, o, dt);
   tickWorkforce(s, dt, deliveryAPI);
   for (const w of s.workers) {
@@ -3389,6 +3428,7 @@ export function tick(s: State, dt: number) {
       }
     } else if (
       !w.job &&
+      !w.railAssignment &&
       !w.deliveryOrder &&
       !w.transportOrder &&
       !w.transition &&

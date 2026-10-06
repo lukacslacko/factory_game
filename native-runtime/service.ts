@@ -7,6 +7,7 @@ import crypto from 'node:crypto';
 import { performance } from 'node:perf_hooks';
 import * as Sim from '../src/sim';
 import { bufferAssets } from '../src/buffers';
+import { detachRailFreight, orderShunter, setShunterDriver, shuntRailCars, parkShunter, refuelShunter, requestEmptyReturn } from '../src/rail-operations';
 import {
   configureRailFreight,
   requestRailUnloading,
@@ -204,6 +205,8 @@ function reportingRows() {
     inventory: Object.keys(MATERIALS).map((item) => ({ item, ...Sim.totals(state, item as any) })),
     workers: state.workers,
     equipment: state.equipment,
+    shunters: state.shunters||[],
+    railReturns: state.railReturns||[],
     materials: state.stacks,
     deliveries: state.orders,
     activity: state.events.slice(-1000).reverse(),
@@ -227,8 +230,8 @@ function reportingRows() {
         id: o.railFreight!.locomotiveId,
         orderId: o.id,
         ownership: 'Supplier',
-        status: o.status,
-        ...o.vehicle,
+        status: o.railFreight!.locomotivePhase || o.status,
+        ...(o.railFreight!.locomotivePose||o.vehicle),
       })),
     locations: state.railLocations || [],
     movements: state.movements.slice(-1000).reverse(),
@@ -421,11 +424,27 @@ async function dispatch(action: string, a: any) {
       if (error) throw new Error(error);
       return {};
     }
+    case 'pause_rail_unloading': {
+      const order=state.orders.find(o=>o.id===a.orderId);
+      if(!order?.railFreight) throw new Error('Choose a rail freight delivery.');
+      order.railFreight.unloadRequested=false;order.note=order.unload?'Finishing current lift before pausing unloading':'Unloading paused; cars available for shunting';state.revision++;return {};
+    }
     case 'begin_rail_unloading': {
-      const error = requestRailUnloading(state, a.orderId);
+      const error = requestRailUnloading(state, a.orderId, a.carIds);
       if (error) throw new Error(error);
       return {};
     }
+    case 'rail_access_plan': {const plan=Sim.planSidingAccess(state,a.x??80);check(plan.error || undefined);return {workId:plan.group?.id,jobs:plan.jobs.map(j=>j.id)};}
+    case 'rail_exit_plan': {
+      const plan=Sim.planMainlineExit(state);check(plan.error || undefined);return {workId:plan.group?.id,jobs:plan.jobs.map(j=>j.id)};
+    }
+    case 'rail_detach':check(detachRailFreight(state,a.orderId));return {};
+    case 'shunter_order': {const result=orderShunter(state,a);check(result.error);return result;}
+    case 'shunter_driver':check(setShunterDriver(state,a.shunterId,a.workerId||undefined));return {};
+    case 'rail_shunt':check(shuntRailCars(state,a));return {};
+    case 'shunter_park':check(parkShunter(state,a.shunterId,a.railLocationId));return {};
+    case 'shunter_refuel':check(refuelShunter(state,a.shunterId));return {};
+    case 'rail_return': {const result=requestEmptyReturn(state,a);check(result.error);return result;}
     case 'purchase':
       return { orders: Sim.purchase(state, a.item, a.qty, a.mode) };
     case 'purchase_preview': {

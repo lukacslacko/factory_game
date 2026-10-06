@@ -1,6 +1,7 @@
 import type { Point, RailLocation, State } from './types';
 import {
   portsConnect,
+  sidingAccessSpans,
   trackGeometry,
   trackNetwork,
   type TrackPath,
@@ -11,6 +12,7 @@ import {
 export const RAIL_LOCATION_KINDS = ['loading', 'unloading', 'transfer', 'parking'] as const;
 const EPS = 1e-5;
 interface Edge {
+  base?: number;
   trackId: string;
   path: TrackPath;
 }
@@ -22,17 +24,30 @@ export interface RailLocationAnchor {
 }
 function edges(s: State): Edge[] {
   return [
-    {
-      trackId: 'BOOTSTRAP-SIDING',
-      path: {
-        route: 'straight' as const,
-        length: 100,
-        points: [
-          { x: 25, z: 5, yaw: 0 },
-          { x: 125, z: 5, yaw: 0 },
-        ],
-      },
-    },
+    ...(() => {
+      const spans = sidingAccessSpans(s)
+          .filter((a) => a.complete)
+          .sort((a, b) => a.x - b.x),
+        intervals: { from: number; to: number }[] = [];
+      let at = 25;
+      for (const span of spans) {
+        if (span.x > at) intervals.push({ from: at, to: span.x });
+        at = span.end;
+      }
+      if (at < 125) intervals.push({ from: at, to: 125 });
+      return intervals.map((v) => ({
+        trackId: 'BOOTSTRAP-SIDING',
+        base: v.from - 25,
+        path: {
+          route: 'straight' as const,
+          length: v.to - v.from,
+          points: [
+            { x: v.from, z: 5, yaw: 0 },
+            { x: v.to, z: 5, yaw: 0 },
+          ],
+        },
+      }));
+    })(),
     ...s.rails.flatMap((r) => trackGeometry(r).paths.map((path) => ({ trackId: r.id, path }))),
   ];
 }
@@ -70,13 +85,25 @@ function segment(path: TrackPath, from: number, to: number): TrackPoint[] {
   return [pose(path, from), ...(forward ? inner : inner.reverse()), pose(path, to)];
 }
 function edgeFor(s: State, l: Pick<RailLocation, 'trackId' | 'route'>) {
-  return edges(s).find((e) => e.trackId === l.trackId && e.path.route === l.route);
+  return edges(s).find(
+    (e) =>
+      e.trackId === l.trackId &&
+      e.path.route === l.route &&
+      (!('offset' in l) ||
+        typeof l.offset !== 'number' ||
+        (l.offset >= (e.base || 0) - EPS && l.offset <= (e.base || 0) + e.path.length + EPS)),
+  );
 }
 export function railLocationPose(s: State, l: RailLocation): TrackPoint | undefined {
   const edge = edgeFor(s, l);
-  if (!edge || !Number.isFinite(l.offset) || l.offset < 0 || l.offset > edge.path.length + EPS)
+  if (
+    !edge ||
+    !Number.isFinite(l.offset) ||
+    l.offset < (edge.base || 0) ||
+    l.offset > (edge.base || 0) + edge.path.length + EPS
+  )
     return;
-  return pose(edge.path, l.offset);
+  return pose(edge.path, l.offset - (edge.base || 0));
 }
 export function nearestRailLocationAnchor(
   s: State,
@@ -103,7 +130,7 @@ export function nearestRailLocationAnchor(
         gap = distance(p, point);
       if (gap >= closest) continue;
       closest = gap;
-      best = { trackId: e.trackId, route: e.path.route, offset, point };
+      best = { trackId: e.trackId, route: e.path.route, offset: offset + (e.base || 0), point };
     }
   }
   return best;
@@ -164,9 +191,9 @@ export function railLocationPath(s: State, l: RailLocation): TrackPoint[] | unde
   if (!railLocationPose(s, l) || !Number.isFinite(l.length) || l.length < 1 || l.length > 200)
     return;
   const all = edges(s),
-    edge = all.find((e) => e.trackId === l.trackId && e.path.route === l.route)!;
-  const before = walk(all, edge, l.offset, -1, l.length / 2);
-  const after = walk(all, edge, l.offset, 1, l.length / 2);
+    edge = edgeFor(s, l)!;
+  const before = walk(all, edge, l.offset - (edge.base || 0), -1, l.length / 2);
+  const after = walk(all, edge, l.offset - (edge.base || 0), 1, l.length / 2);
   if (!before || !after) return;
   return [...before.reverse(), ...after.slice(1)];
 }
@@ -200,9 +227,9 @@ export function railLocationStatus(
     connected,
     valid: true,
     reason: connected
-      ? l.trackId === 'BOOTSTRAP-SIDING' && ['unloading','transfer'].includes(l.kind)
+      ? l.trackId === 'BOOTSTRAP-SIDING' && ['unloading', 'transfer'].includes(l.kind)
         ? 'Supplier reception is available here when the complete train fits this interval.'
-        : 'Designated on connected rail. Owned shunting to this point is not commissioned yet.'
+        : 'Designated on connected rail. Shunt cars here when the complete consist fits the interval and its route is clear.'
       : 'Designated rail is disconnected from the starter siding. Complete its physical rail connections.',
   };
 }
@@ -250,8 +277,14 @@ export function saveRailLocation(
 ): string | undefined {
   const previous = input.id ? s.railLocations?.find((l) => l.id === input.id) : undefined;
   if (input.id && !previous) return 'Rail location no longer exists.';
-  if (previous && s.orders.some(o => o.railFreight?.receptionLocationId === previous.id &&
-      !['ordered','done'].includes(o.status)))
+  if (
+    previous &&
+    s.orders.some(
+      (o) =>
+        o.railFreight?.receptionLocationId === previous.id &&
+        !['ordered', 'done'].includes(o.status),
+    )
+  )
     return 'A train is using this receiving point. Wait until it leaves before editing the interval.';
   const candidate: RailLocation = {
     ...input,
@@ -288,7 +321,11 @@ export function saveRailLocation(
 export function removeRailLocation(s: State, id: string): string | undefined {
   const l = s.railLocations?.find((l) => l.id === id);
   if (!l) return 'Rail location no longer exists.';
-  if (s.orders.some(o => o.status !== 'done' && o.railFreight?.receptionLocationId === id))
+  if (s.shunters?.some((e) => e.locationId === id || e.destinationId === id))
+    return 'An owned shunter uses this point. Move or reassign it before removing the designation.';
+  if (s.orders.some((o) => o.railFreight?.cars.some((c) => !c.returned && c.locationId === id)))
+    return 'Freight cars occupy this point. Move or return them before removing the designation.';
+  if (s.orders.some((o) => o.status !== 'done' && o.railFreight?.receptionLocationId === id))
     return 'This point is assigned to an incoming or active freight train. Change its destination or wait until it leaves.';
   s.railLocations = s.railLocations!.filter((l) => l.id !== id);
   record(s, l, `Removed designation ${l.name}; the physical rail is retained.`);

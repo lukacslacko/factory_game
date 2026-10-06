@@ -54,6 +54,7 @@ export interface Worker extends Point, Move, Motion {
   status: string;
   job?: string;
   vehicle?: string;
+  railAssignment?: string;
   schedule?: { start: number; end: number };
   shiftPhase?:
     'working' | 'finishing' | 'parking' | 'walking-to-bus' | 'aboard' | 'home' | 'returning';
@@ -412,6 +413,69 @@ export interface RailFreightCar {
   mass: number;
   tareMass: number;
   deckLength: number;
+  anchor?: RailAnchor;
+  pose?: Point & { yaw: number };
+  bogies?: (Point & { yaw: number })[];
+  locationId?: string;
+  groupId?: string;
+  returned?: boolean;
+}
+export interface RailAnchor { trackId: string; route: 'straight' | 'branch'; offset: number }
+export interface RailMove {
+  points: (Point & { yaw: number })[];
+  length: number;
+  tracks: string[];
+  switches: { id: string; route: 'straight' | 'branch' }[];
+  segments: { trackId: string; route: 'straight' | 'branch'; from: number; to: number; start: number; length: number }[];
+  distance: number;
+  end: number;
+  velocity: number;
+  clock: number;
+  /** Engine station minus leading car station; negative means pushing. */
+  couplerOffset?: number;
+  blockedBy?: string;
+  blockedSince?: number;
+  warned?: boolean;
+}
+export interface RailShunter extends Point {
+  id: string;
+  name: string;
+  yaw: number;
+  fuel: number;
+  tank: number;
+  used: number;
+  driverId?: string;
+  status: string;
+  phase: 'ordered' | 'delivering' | 'parked' | 'boarding' | 'approaching' | 'coupling' | 'hauling' | 'uncoupling' | 'parking';
+  eta: number;
+  anchor?: RailAnchor;
+  bogies?: (Point & { yaw: number })[];
+  locationId?: string;
+  orderId?: string;
+  carIds?: string[];
+  destinationId?: string;
+  movement?: RailMove;
+  haul?: RailMove;
+  approachQueue?: RailMove[];
+  gearPause?: number;
+  direction?: 1 | -1;
+  clock?: number;
+  driverPhase?: 'walking' | 'boarding' | 'aboard' | 'switch';
+  switchId?: string;
+  driverClock?: number;
+}
+export interface RailReturn extends Point {
+  id: string;
+  locomotiveId: string;
+  orderIds: string[];
+  carIds: string[];
+  phase: 'collecting' | 'coupling' | 'returning' | 'done';
+  status: string;
+  yaw: number;
+  bogies?: (Point & { yaw: number })[];
+  movement: RailMove;
+  departure: RailMove;
+  clock: number;
 }
 export interface RailFreight {
   locomotiveId: string;
@@ -420,6 +484,16 @@ export interface RailFreight {
   storageZoneId?: string;
   stopDistance?: number;
   unloadRequested?: boolean;
+  unloadCarIds?: string[];
+  detached?: boolean;
+  locomotivePhase?: 'attached' | 'uncoupling' | 'leaving' | 'gone';
+  locomotivePose?: Point & { yaw: number };
+  locomotiveBogies?: (Point & { yaw: number })[];
+  movement?: RailMove;
+  incomingRailMove?: RailMove;
+  locomotiveClock?: number;
+  idleClock?: number;
+  returnId?: string;
 }
 export interface Order {
   /** Original parcel sizes: storage limits may increase without repacking an existing carrier. */
@@ -561,6 +635,8 @@ export interface State {
   buildings: Building[];
   rails: Rail[];
   railLocations?: RailLocation[];
+  shunters?: RailShunter[];
+  railReturns?: RailReturn[];
   buffers?: BufferStop[];
   paving: Record<string, string>;
   /** Compaction from accepted equipment travel, bounded to one value per meter cell. */
@@ -589,6 +665,8 @@ export type Selection = {
     | 'order'
     | 'zone'
     | 'railLocation'
+    | 'shunter'
+    | 'railReturn'
     | 'buffer';
   id: string;
 };

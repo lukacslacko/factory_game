@@ -209,8 +209,8 @@ static func carrier(parent:Node3D,kind:String)->Node3D:
 		G.beveled_box(root,Vector3(.89,1.24,-2.9),Vector3(.028,1.62,.86),m.steel)
 		for x in [-.8,.8]: G.beveled_box(root,Vector3(x,.68,-4.03),Vector3(.27,.15,.04),m.light)
 	else:
-		root=_locomotive(parent)
-	root.set_meta("forward","+X" if kind=="rail" else "-Z")
+		root=_locomotive(parent,kind=="railShunter")
+	root.set_meta("forward","+X" if kind in ["rail","railShunter"] else "-Z")
 	return root
 
 static func flatcar(parent:Node3D,length:float=16.0,identification:String="FLAT 014 · 40 t")->Node3D:
@@ -239,11 +239,11 @@ static func rail_bogie(parent:Node3D,locomotive:bool=false)->Node3D:
 	b.finish(root)
 	return root
 
-static func _locomotive(parent:Node3D)->Node3D:
+static func _locomotive(parent:Node3D,owned:bool=false)->Node3D:
 	var n:=Node3D.new(); parent.add_child(n); var m:=materials()
 	G.beveled_box(n,Vector3(0,1.05,0),Vector3(9.8,.45,2.55),m.steel)
-	G.beveled_box(n,Vector3(1.0,2.0,0),Vector3(6.7,1.65,1.93),G.mat("67795a",.54,.30))
-	G.beveled_box(n,Vector3(-3.1,2.72,0),Vector3(2.8,2.8,2.4),G.mat("728365",.48,.25))
+	G.beveled_box(n,Vector3(1.0,2.0,0),Vector3(6.7,1.65,1.93),G.mat("cba42d" if owned else "67795a",.40 if owned else .54,.30))
+	G.beveled_box(n,Vector3(-3.1,2.72,0),Vector3(2.8,2.8,2.4),G.mat("334d42" if owned else "728365",.48,.25))
 	for z in [-1.21,1.21]:
 		G.beveled_box(n,Vector3(-3.1,3.22,z),Vector3(2.22,.82,.023),m.glass_light)
 		for x in [-1.7,0,1.7,3.4]:
@@ -269,14 +269,14 @@ static func _locomotive(parent:Node3D)->Node3D:
 		for x in [-4.65,4.65]:
 			for y in [.56,.80,1.04]:b.box(Vector3(x,y,z),Vector3(.48,.045,.31),m.steel)
 		for x in [-.7,1.0,2.7]:
-			b.box(Vector3(x,2.02,float(side)*.983),Vector3(1.52,1.27,.018),G.mat("62735d",.47,.34))
+			b.box(Vector3(x,2.02,float(side)*.983),Vector3(1.52,1.27,.018),G.mat("c39d2b" if owned else "62735d",.47,.34))
 			for y in [1.60,1.80,2.0,2.20]:b.box(Vector3(x,y,float(side)*.999),Vector3(1.12,.038,.018),m.black)
 			for dx in [-.60,.60]:
 				for y in [1.46,2.57]:G.cylinder(n,Vector3(x+dx,y,float(side)*1.016),.018,.013,m.bright_steel,6).rotation.x=PI*.5
 		b.box(Vector3(-3.1,3.23,float(side)*1.229),Vector3(.056,.90,.023),m.cream)
 		b.box(Vector3(-3.82,2.52,float(side)*1.229),Vector3(.05,1.43,.025),m.steel)
 		G.rod(n,Vector3(-3.92,1.94,float(side)*1.24),Vector3(-3.92,2.51,float(side)*1.24),.021,m.bright_steel,8)
-		var badge:=G.label(n,"LINE 01",Vector3(1.1,2.62,float(side)*1.023),29,.006)
+		var badge:=G.label(n,"YARD SHUNTER" if owned else "LINE 01",Vector3(1.1,2.62,float(side)*1.023),29,.006)
 		badge.modulate=Color("e5e9e0");badge.rotation.y=PI if side<0 else 0.0
 	for x in [-4.515,-1.685]:
 		b.box(Vector3(x,3.23,0),Vector3(.022,.81,1.98),m.glass_light)
@@ -296,6 +296,11 @@ static func _locomotive(parent:Node3D)->Node3D:
 	G.cylinder(n,Vector3(2.6,2.89,0),.39,.075,m.black,24)
 	for side in [-1,1]:
 		b.box(Vector3(.55,.69,float(side)*.43),Vector3(2.18,.31,.39),m.steel)
+	if owned:
+		_seated_operator(n,Vector3(-3.25,2.3,0),m)
+		var operator:Node3D=n.get_node("Operator")
+		operator.rotation.y=-PI*.5
+		operator.visible=false
 	b.finish(n);n.scale.x=.90
 	return n
 

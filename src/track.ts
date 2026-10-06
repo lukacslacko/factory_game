@@ -450,10 +450,76 @@ export interface TrackNetwork {
   openPorts: TrackNetworkPort[];
 }
 
+/** Completed switches replacing a twenty-meter portion of the original siding.
+ * Until every panel is installed the original commissioned track remains visible. */
+export function sidingAccessSpans(
+  s: State,
+  includePlanned = false,
+): { x: number; end: number; complete: boolean }[] {
+  const assets = [
+    ...s.rails,
+    ...s.jobs.filter((j) => j.kind === 'rail' && j.status === 'done'),
+    ...(includePlanned
+      ? s.jobs.filter((j) => j.kind === 'rail' && !['done', 'canceled'].includes(j.status))
+      : []),
+  ];
+  const origins = [
+    ...new Set(
+      assets
+        .filter(
+          (r) =>
+            r.track?.layout === 'turnout' &&
+            r.track.origin.z === 5 &&
+            r.track.heading === 0 &&
+            r.track.hand === 1 &&
+            !r.track.flow &&
+            r.track.origin.x >= 30 &&
+            r.track.origin.x <= 100,
+        )
+        .map((r) => r.track!.origin.x),
+    ),
+  ];
+  return origins.map((x) => ({
+    x,
+    end: x + 20,
+    complete: trackSections('turnout', { x, z: 5 }, 0, 1).every((p) =>
+      [...s.rails, ...s.jobs.filter((j) => j.kind === 'rail' && j.status === 'done')].some(
+        (r) =>
+          r.track?.layout === 'turnout' &&
+          r.track.origin.x === x &&
+          r.track.origin.z === 5 &&
+          r.track.heading === 0 &&
+          r.track.hand === 1 &&
+          !r.track.flow &&
+          r.track.section === p.section &&
+          r.track.route === p.route,
+      ),
+    ),
+  }));
+}
+/** Commissioning removes the original main-line steel permanently. Recovery
+ * must leave a real gap, rather than resurrecting that protected track. */
+export function mainlineExitCommissioned(s: State): boolean {
+  const history = [...s.rails, ...s.jobs.filter((j) => j.kind === 'rail' && j.status === 'done')];
+  return trackSections('turnout', { x: 145, z: 0 }, 2, -1, undefined, 'converging').every((p) =>
+    history.some(
+      (r) =>
+        r.track?.layout === p.layout &&
+        r.track.origin.x === 145 &&
+        r.track.origin.z === 0 &&
+        r.track.heading === 2 &&
+        r.track.hand === -1 &&
+        r.track.flow === 'converging' &&
+        r.track.section === p.section &&
+        r.track.route === p.route,
+    ),
+  );
+}
 /** The starter siding is already connected to the protected main line. Its
  * only buildable connection is the exposed end at (125,5). Main-line ends
  * stand outside the yard and intentionally cannot become planning snaps. */
 export function trackNetwork(s: State, includePlanned = false): TrackNetwork {
+  const accesses = sidingAccessSpans(s, includePlanned);
   const starterPath: TrackPath = {
     route: 'straight',
     length: 100,
@@ -468,6 +534,18 @@ export function trackNetwork(s: State, includePlanned = false): TrackNetwork {
     paths: [starterPath],
     connected: true,
     ports: [
+      ...accesses.flatMap((a) =>
+        [a.x, a.end].map((x, i) => ({
+          x,
+          z: 5,
+          yaw: i ? Math.PI : 0,
+          route: 'straight' as const,
+          end: i ? ('entry' as const) : ('exit' as const),
+          assetId: 'BOOTSTRAP-SIDING',
+          portIndex: 1 + 2 * accesses.indexOf(a) + i,
+          connected: false,
+        })),
+      ),
       {
         x: 125,
         z: 5,
@@ -484,7 +562,39 @@ export function trackNetwork(s: State, includePlanned = false): TrackNetwork {
     id: 'BOOTSTRAP-MAINLINE',
     source: 'bootstrap',
     connected: true,
-    ports: [],
+    // The only authorized construction into the transport corridor is the
+    // commissioned east-end connection. These are internal main-line joints,
+    // never general placement snaps.
+    ports: [125, 145].flatMap((x) => {
+      const exists = [
+        ...s.rails,
+        ...(includePlanned
+          ? s.jobs.filter((j) => j.kind === 'rail' && !['done', 'canceled'].includes(j.status))
+          : []),
+      ].some(
+        (r) =>
+          r.track?.layout === 'turnout' &&
+          r.track.origin.x === 145 &&
+          r.track.origin.z === 0 &&
+          r.track.heading === 2 &&
+          r.track.hand === -1 &&
+          r.track.flow === 'converging',
+      );
+      return exists
+        ? [
+            {
+              x,
+              z: 0,
+              yaw: x === 125 ? 0 : Math.PI,
+              route: 'straight' as const,
+              end: x === 125 ? ('exit' as const) : ('entry' as const),
+              assetId: 'BOOTSTRAP-MAINLINE',
+              portIndex: x === 125 ? 0 : 1,
+              connected: false,
+            },
+          ]
+        : [];
+    }),
     paths: [
       {
         route: 'straight',
@@ -561,7 +671,9 @@ export function trackNetwork(s: State, includePlanned = false): TrackNetwork {
   return {
     panels,
     joints,
-    openPorts: panels.flatMap((p) => p.ports.filter((port) => !port.connected)),
+    openPorts: panels
+      .filter((p) => p.id !== 'BOOTSTRAP-MAINLINE')
+      .flatMap((p) => p.ports.filter((port) => !port.connected)),
   };
 }
 export function trackOpenPorts(

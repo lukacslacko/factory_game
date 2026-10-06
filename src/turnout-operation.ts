@@ -2,8 +2,9 @@ import type { Job, Point, Rail, Rect, State, Worker } from './types';
 import { trackGeometry, trackSections } from './track';
 import { dist } from './path';
 import { turn } from './motion';
-import { walkRoute, workerMoveBlocked } from './traffic';
+import { walkRoute, workerMoveBlocked, railRollingStockAxles, boxOverlap } from './traffic';
 import { workerAvailable } from './workforce';
+import { railRouteReserved } from './rail-operations';
 
 export const TURNOUT_THROW_SECONDS = 4;
 export interface TurnoutOperationAPI {
@@ -60,12 +61,43 @@ export const turnoutLeverPose = (rail: Rail) => leverPoint(rail, 0.9);
 /** The worker stands beyond the sleepers and reaches 65 cm to the handle. */
 export const turnoutWorkerPoint = (rail: Rail) => leverPoint(rail, 1.55);
 
+/** No lever is thrown while any wheel remains in the turnout's full
+ * twenty-meter crossing envelope, including either tail and both routes. */
+export function turnoutOccupant(s: State, rail: Rail): string | undefined {
+  const p = rail.track;
+  if (!p || p.layout !== 'turnout') return;
+  const stock = railRollingStockAxles(s);
+  for (const piece of trackSections('turnout', p.origin, p.heading, p.hand, undefined, p.flow))
+    for (const path of trackGeometry(piece).paths)
+      for (let i = 1; i < path.points.length; i++) {
+        const a = path.points[i - 1],
+          b = path.points[i];
+        const section = {
+          x: (a.x + b.x) / 2,
+          z: (a.z + b.z) / 2,
+          yaw: Math.atan2(b.z - a.z, b.x - a.x),
+          length: Math.hypot(b.x - a.x, b.z - a.z),
+          width: 2,
+        };
+        const actor = stock.find((q) => boxOverlap(section, q, 0.2));
+        if (actor) return actor.id;
+      }
+}
+function unsafeTurnout(s: State, rail: Rail): string | undefined {
+  const reserved = railRouteReserved(s, rail.id);
+  if (reserved) return `Turnout reserved by ${reserved}; wait until the train clears it.`;
+  const occupied = turnoutOccupant(s, rail);
+  if (occupied)
+    return `Turnout occupied by ${occupied}; move the rolling stock clear before throwing the lever.`;
+}
 export function queueTurnoutOperation(
   s: State,
   rail: Rail,
   route: 'straight' | 'branch',
   api: TurnoutOperationAPI,
 ): string {
+  const unsafe = unsafeTurnout(s, rail);
+  if (unsafe) return unsafe;
   if (
     s.jobs.some(
       (j) =>
@@ -121,6 +153,11 @@ export function assignTurnoutOperation(s: State, j: Job, api: TurnoutOperationAP
   const rail = s.rails.find((r) => r.id === j.target);
   if (!rail || !turnoutIsComplete(s, rail)) {
     j.reason = 'Waiting for a complete installed turnout';
+    return true;
+  }
+  const unsafe = unsafeTurnout(s, rail);
+  if (unsafe) {
+    j.reason = unsafe;
     return true;
   }
   const foot = turnoutWorkerPoint(rail);
@@ -187,6 +224,12 @@ export function tickTurnoutOperation(
     w = s.workers.find((w) => w.id === j.worker);
   if (!rail || !turnoutIsComplete(s, rail) || !w || w.job !== j.id) {
     j.reason = 'The manual turnout operation needs its installed points and assigned worker';
+    return true;
+  }
+  const unsafe = unsafeTurnout(s, rail);
+  if (unsafe) {
+    j.reason = unsafe;
+    w.status = 'Waiting for turnout clearance';
     return true;
   }
   const foot = turnoutWorkerPoint(rail),

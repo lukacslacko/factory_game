@@ -3,6 +3,7 @@ import { trackGeometry, railCells } from './track';
 import { MATERIALS } from './catalog';
 import { overlap } from './path';
 import { carrierRects } from './delivery';
+import { railRouteReserved } from './rail-operations';
 
 /** A pickup descriptor, not inventory: installed steel is counted only as rail. */
 export function recoverySource(s: State, j: Job): Stack | undefined {
@@ -26,6 +27,8 @@ export function recoverySource(s: State, j: Job): Stack | undefined {
 }
 /** Check again immediately before lifting: a train may have arrived since planning. */
 export function railRecoveryConflict(s: State, rail: Rail, ownJobId?: string): string {
+  const reserved=railRouteReserved(s,rail.id);
+  if(reserved) return `This rail is reserved by ${reserved}; wait until its movement ends.`;
   if (rail.id.startsWith('BOOTSTRAP-'))
     return 'The public mainline and original receiving siding are protected.';
   const location = s.railLocations?.find((l) => l.trackId === rail.id);

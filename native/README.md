@@ -2,11 +2,11 @@
 
 The existing factory simulation now runs in a local Node.js service, with Godot rendering the approved Concept C yard and providing native controls. The service owns simulation time and file persistence, so gameplay can continue while the window is unfocused. No web page, Chrome process, web server, or Internet connection is needed to play.
 
-This is the first playable native migration. The original browser application and static visual proof remain available for comparison. Existing portable JSON saves can be imported; importing preserves the current yard as a backup.
+Native v0.21.0 includes supplier locomotive handoff, owned shunting, selected-car unloading and empty return trains. The original browser application and static visual proof remain available for comparison. Existing portable JSON saves can be imported; importing preserves the current yard as a backup.
 
 ## Download or open on this Mac
 
-[Download the Apple Silicon Mac app](https://github.com/lukacslacko/factory_game/releases/tag/v0.20.9), unzip it, and open **Plant 01.app**. This checkpoint targets macOS 14 or newer.
+[Download the Apple Silicon Mac app](https://github.com/lukacslacko/factory_game/releases/tag/v0.21.0), unzip it, and open **Plant 01.app**. This checkpoint targets macOS 14 or newer.
 
 Open the **Plant 01.app** built beside the repository in `outputs/`. It includes the Godot runner, Node runtime, simulation, terrain maps, and license notices. It is a local app for this Mac, not a notarized public release.
 
@@ -104,22 +104,28 @@ Buy **Buffer stop** in Purchase / hire and deliver it like other material. The R
 
 Canceling an incomplete curve or turnout retains its installed panels. Once the assembly's remaining work is canceled and any handling finishes, its physically open ends become available for extension and buffer-stop installation. Straight/turnout placement still requires an exact grid-aligned endpoint and tangent; an unfinished curved segment does not create an artificial square-grid connection. Active construction joints remain protected until their assembly is completed or canceled.
 
-For parallel unloading tracks or a future runaround, select **Turnout**, choose **Converging**, and start from one of two parallel open ends. Both ends must face the same direction and be 5 m apart. Flip the side when the other track is on the opposite side. The preview explains a missing or misaligned connection. The same seven purchased panels are installed from the incoming tails toward the common points assembly. An existing outgoing endpoint can also be joined where the geometry matches exactly.
+For parallel unloading tracks or an engine runaround, select **Converging switch** and start from one of two parallel open ends. Both ends must face the same direction and be 5 m apart. Flip the side when the other track is on the opposite side. The preview explains a missing or misaligned connection. The same seven purchased panels are installed from the incoming tails toward the common points assembly. An existing outgoing endpoint can also be joined where the geometry matches exactly.
 
-A stop cannot remain across a completed rail joint. The crew preserves it as a real asset, moves it aside and carries surplus stops into storage. Switches still require a worker to throw their lever. Train drop-off, owned shunting and installing turnouts into an already continuous track remain separate tracked work. Paid scrapping is tracked in [issue #35](https://github.com/lukacslacko/factory_game/issues/35).
+A stop cannot remain across a completed rail joint. The crew preserves it as a real asset, moves it aside and carries surplus stops into storage. Switches still require a worker to throw their lever. Train drop-off and owned shunting are available in v0.21.0. The **+ Yard access switch** helper commissions an internal connection on the original siding; other existing-track changes use recovery and replacement. Paid scrapping is tracked in [issue #35](https://github.com/lukacslacko/factory_game/issues/35).
 
 
-### Receive multi-car trains — v0.20.7
+## Rail operations — v0.21.0
 
-Open **Railway → + Receiving point** to name an interval on the original `BOOTSTRAP-SIDING`. Its offset is measured from the siding's western start; length is centered there. An unloading or transfer point can receive supplier freight. The full locomotive and all cars must fit between the mainline switch and the siding's end; protected buffer stops can further restrict access. Five flatcars fit a sufficiently long interval; larger consists remain queued with their required length and receive no arrival invoice. Other factory-track designations await commissioned shunting.
+Use **Railway → + Yard access switch** to connect the factory network to the original siding, and **Build siding exit** to reconnect its eastern end to the main line. Each helper plans seven separately built panels in normal play; Creative installs them immediately. The default access switch replaces the E80–E100 section of the siding and opens a branch at E100, S10. Extend that branch with the rail tools and designate your loading, unloading and parking tracks. The baseline track replacement is schematic: the new panels are physically built, but the inherited siding steel is not salvaged.
 
-In **Purchase / hire**, choose rail transport, enter all material lines, and select the reception and stockyard. The preview shows car count, length and transport cost. Each 16-meter deck has a 48 metric-ton payload limit; a batch spanning several cars remains one purchase and one train arrival. Workers come by bus, and construction equipment by lowloader. Automatic reception selects a fitting stop on the original siding if no named point is chosen.
+Name a receiving interval on the clear original siding. The default **+ Receiving point** is centered at E55, offset 30 meters from its western start, with 40 meters of usable track. It avoids the default access switch at E80–E100 and fits a one-car train. Check the Purchase / hire preview and choose enough clear length for the whole incoming train. Suppliers still receive on `BOOTSTRAP-SIDING`; other connected named points are served by the owned shunter.
 
-Once stopped, open the train in **Deliveries**, apply its unloading stockyard, and click **Start unloading**. Owned equipment, an operator, and any needed rigger handle cargo from each real car into that yard. A full or blocked selected yard produces a waiting reason; cargo is not redirected. Destination changes apply between lifts and affect subsequent material. Railway's Freight cars register opens individual manifests and links back to the train; the supplier engine also has an ID. Saves retain every car, remaining quantity, supported load and crew assignment.
+Once a supplier train stops, open its delivery and click **Release supplier locomotive**. The cars stay secured at their physical positions while the engine uncouples and leaves through the east exit. Buy a locomotive with **Railway → + Shunter**, keep its delivery route clear, and assign an on-duty equipment operator in its inspector. The driver walks to the locomotive, boards, and operates the movement and turnout levers. Locomotive idling and collection charges are recorded with the other costs.
 
-**Railway → Rail help**, also available in the game menu, describes reception, unloading, switches, buffers and the next planned steps in paragraphs. The supplier locomotive remains coupled in this checkpoint and returns with the empty cars after unloading. The existing flat charter charge is unchanged; detached-car handoff, locomotive idle billing, owned shunters/drivers, car selection and splitting, return assembly and a separately requested pickup service are future checkpoints in #22, #23, #27, #3, #4 and #5. No invisible shunter or disconnected-car teleportation is introduced.
+In the delivery inspector, check a contiguous block of cars from an exposed end, select the shunter and a connected named destination, then click **Shunt selected cars**. The service chooses a clear coupling approach and a pulling or pushing movement. Tracks must provide enough length and a real connected path; build parallel connections or a runaround where the engine needs to reach the other end. Cars and bogies follow the rails and retain their manifests.
 
-For focused native verification, run `node --max-old-space-size=384 --import tsx native-runtime/create-freight-visual-fixtures.ts`, then the watchdog with `--headless --script res://tests/freight_renderer_smoke.gd` or `res://tests/freight_ui_smoke.gd`. The dedicated GPU capture is `res://tests/freight_visual_capture.gd`, with isolated saved fixtures and no running production simulation host.
+Select and apply a physical unloading stockyard, check the cars to unload, and click **Start unloading**. Site equipment and workers handle the cargo from those cars into the chosen yard. Click **Pause unloading after current lift** before moving the cars again: an active lift finishes safely, then no new material is picked up. A full or blocked stockyard produces a waiting reason, and destination changes apply between lifts.
+
+Move the empty cars together onto the original siding, using the same named return point to form a contiguous consist. Park the shunter clear of the pickup route. Click **Railway → Collect empty cars**, select the empty deliveries, and request a mainline locomotive. It arrives, couples and tests the brakes, then takes the assembled empty train away. Deliveries includes an Empty return trains register; car, driver, shunter and train IDs open their linked inspectors.
+
+Read the [rail operations walkthrough](../docs/rail-operations.md), or open **Railway → Rail management help** in game. This release permits one rail movement at a time and flatcar freight. It does not include direct shunter driving or an engine shed. Supplier coupling and brake work use timed service-crew steps. Shunter refueling currently transfers diesel immediately from a barrel within 8 meters of a parked locomotive with an assigned driver; a physical can-and-pump sequence is further work. The browser deployment remains the earlier v0.18.0 game.
+
+Focused checks are `res://tests/shunting_ui_smoke.gd`, `res://tests/shunting_renderer_smoke.gd`, and `res://tests/shunting_bridge_smoke.gd`. The bridge launches an authenticated service and uses an isolated temporary save directory without a GPU or the player's live save. Simulation regressions cover complete freight movements and save/reload; the native checks cover actual controls, rendering and service dispatch.
 
 ## Creative placement
 
@@ -134,7 +140,7 @@ To replace straight rails with a switch, recover the four 5-meter panels occupyi
 
 Cancellation before the lift secures the original track; cancellation after lifting still stores the suspended panel safely. Saves preserve these phases. In Creative, the whole selected recovery is immediate and requires finite stockyard slots for the panels and attached stops. If there is insufficient storage, nothing in the selected assembly changes.
 
-Physical rail loops are supported. Close them with exact, opposing endpoints and appropriate curves or turnouts. The network follows real connections around the loop; overlapping rails without a proper joint do not connect. Supplier freight still uses the original receiving siding, while owned shunting and broader train routing remain future operations checkpoints.
+Physical rail loops are supported. Close them with exact, opposing endpoints and appropriate curves or turnouts. The network follows real connections around the loop; overlapping rails without a proper joint do not connect. Supplier freight receives and is collected on the original siding; an owned shunter can move cars across the connected factory network.
 
 ## Information panels — v0.20.5
 

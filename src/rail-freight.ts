@@ -51,6 +51,7 @@ export function railFreightLength(o: Order): number {
 }
 export function railFreightCarPose(o: Order, index: number) {
   const car = o.railFreight?.cars[index];
+  if (car?.pose) return car.pose;
   return carPose(
     (o.drive?.distance ?? o.railFreight?.stopDistance ?? RAIL_STOP) -
       (car?.centerOffset ?? COUPLED_CENTERS),
@@ -58,6 +59,7 @@ export function railFreightCarPose(o: Order, index: number) {
   );
 }
 export function railFreightCarBogies(o: Order, index: number) {
+  if (o.railFreight?.cars[index]?.bogies) return o.railFreight.cars[index].bogies!;
   const car = o.railFreight?.cars[index],
     at =
       (o.drive?.distance ?? o.railFreight?.stopDistance ?? RAIL_STOP) -
@@ -141,13 +143,17 @@ export function configureRailFreight(
   if (o.status === 'ordered') o.railFreight.stopDistance = plan.distance;
   s.revision++;
 }
-export function requestRailUnloading(s: State, orderId: string): string | undefined {
+export function requestRailUnloading(s: State, orderId: string, carIds?: string[]): string | undefined {
   const o = s.orders.find((o) => o.id === orderId);
   if (!o?.railFreight) return 'Select a supplier freight train.';
   if (o.status !== 'unloading') return 'Wait until this train is stopped at its receiving point.';
   if (o.arrived >= o.qty) return 'This train has no remaining cargo to unload.';
   if (o.unloadPaused)
     return 'Return the unloading equipment to automatic work before resuming this train.';
+  if (s.shunters?.some(e => e.carIds?.some(id => o.railFreight!.cars.some(c => c.id === id)) && e.phase !== 'parked') || o.railFreight.returnId)
+    return 'Wait until shunting and uncoupling are complete before unloading these cars.';
+  if (carIds && (!carIds.length || new Set(carIds).size !== carIds.length || carIds.some(id => !o.railFreight!.cars.some(c => c.id === id && !c.returned))))
+    return 'Select one or more available cars from this train.';
   if (
     o.railFreight.storageZoneId
       ? !s.zones.some((z) => z.id === o.railFreight!.storageZoneId)
@@ -155,6 +161,7 @@ export function requestRailUnloading(s: State, orderId: string): string | undefi
   )
     return 'Choose an existing destination stockyard before starting unloading.';
   o.railFreight.unloadRequested = true;
+  o.railFreight.unloadCarIds = carIds;
   o.note = 'Unloading requested; awaiting site equipment and workers.';
   s.revision++;
 }

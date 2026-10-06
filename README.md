@@ -2,7 +2,7 @@
 
 ## Native game
 
-The playable Godot migration uses the approved Concept C art and a separate local simulation process. Open **Plant 01.app** in the surrounding `outputs/` folder, or double-click **Open Plant 01.command** for development. No browser is required. [Download the Mac app](https://github.com/lukacslacko/factory_game/releases/tag/v0.20.9). See [native game instructions](native/README.md) and [migration notes](docs/native-migration.md). The browser game and static visual proof remain available below.
+The playable Godot migration uses the approved Concept C art and a separate local simulation process. Open **Plant 01.app** in the surrounding `outputs/` folder, or double-click **Open Plant 01.command** for development. No browser is required. [Download the Mac app](https://github.com/lukacslacko/factory_game/releases/tag/v0.21.0). See [native game instructions](native/README.md) and [migration notes](docs/native-migration.md). The browser game and static visual proof remain available below.
 
 
 A playable first version of the fantasy chemistry plant game. Build and operate the construction yard before chemical production arrives: hire a crew, receive physical materials, move equipment, pave ground, extend track, and assemble a small base.
@@ -17,13 +17,15 @@ Select installed track in Yard or Railway, then **Recover this rail panel**. Cur
 
 To insert a switch, recover the straight panels across its 20-meter footprint and build a turnout from the exposed end. Its through exit can reconnect to surviving downstream track. In Creative, rail recovery places the reusable components directly into finite stockyard storage; missing capacity refuses the entire edit. Completed endpoints can close loops when their positions and opposing tangents match; crossing rails alone do not connect. **Railway → Rail help** explains these controls.
 
-## Rail reception checkpoint
+## Rail operations — native v0.21.0
 
-Native v0.20.9 receives a material batch as one supplier train with separately identified, capacity-limited freight cars. Choose a named point on the original receiving siding and an unloading stockyard, then open the delivery and click **Start unloading** when the train stops. Each car and locomotive is inspectable; SQL includes per-car manifests. **Railway → Rail help** explains the controls in simple paragraphs.
+Receive a multi-car supplier train, release its mainline locomotive through a second siding connection, and move selected loaded or empty cars between connected named locations with an owned diesel shunter and driver. Choose a physical stockyard for unloading, assemble empty cars on the original siding, and request a mainline locomotive to collect the return train. The cars retain their IDs and manifests throughout these operations. **Railway → Rail management help** explains the controls in game; the [rail operations walkthrough](docs/rail-operations.md) describes the complete setup and return sequence.
 
-All six rail material types stack up to eight pieces (2.85 m high) on deliveries and in stockyards, with finite footprints, separate item types and actual carrier/lift weight limits. Older deliveries retain their original deck arrangement.
+Before receiving freight, use **+ Yard access switch** to branch into the factory and **Build siding exit** to connect the eastern end back to the main line. Both are seven-panel construction orders in normal play and immediate placements in Creative. With the default access switch at E80, S5, build factory track from its branch at E100, S10. Put the receiving interval before that switch; the form defaults to E55 with 40 meters of usable track for a one-car train.
 
-This first operations checkpoint keeps the supplier locomotive attached. Through reception infrastructure, physical uncoupling, owned shunting, splitting cars between destinations, return-train assembly and requesting a pickup locomotive remain on the [rail operations roadmap](https://github.com/lukacslacko/factory_game/issues/22).
+All six rail material types stack up to eight pieces (2.85 m high) on deliveries and in stockyards, with finite footprints, separate item types and actual carrier/lift weight limits. Larger orders can share one multi-car train when its complete length fits the receiving interval.
+
+This release handles flatcars and one rail movement at a time. Supplier reception and empty collection use the original siding; owned shunting serves the connected factory network. Direct shunter driving, an engine shed, tanker cars and chemical transfer equipment remain further work under the [rail operations roadmap](https://github.com/lukacslacko/factory_game/issues/22).
 
 ![Three-car reception](native/screenshots/freight-received.png)
 
@@ -31,9 +33,9 @@ This first operations checkpoint keeps the supplier locomotive attached. Through
 
 An independent [Godot visual study](native-proof/README.md) recreates the concept C yard composition in true perspective, with polished rails, rounded machinery, layered vegetation, brighter daylight, dusk lighting, and smooth Retina rendering. Double-click `native-proof/Open visual proof.command` on the creator's Mac, or import `native-proof/project.godot` into Godot 4.7.2. It is an interactive rendering checkpoint; it does not yet run the factory simulation or import browser saves. Actual screenshots, controls, asset credits and measured native validation are included.
 
-## Play
+## Browser legacy game
 
-The private game Site is **https://plant-01-starter-yard.lukacslacko.chatgpt.site**. The browser deployment remains **0.18.0**; the native checkpoint is **0.20.9**. Browser deployment status is recorded in `docs/publishing.md`. Sign in with the account that owns the Site. Local and hosted browser saves are separate; use Export save / Import save to transfer a yard.
+The private game Site is **https://plant-01-starter-yard.lukacslacko.chatgpt.site**. The browser deployment remains **0.18.0**; the native release is **0.21.0**. Browser deployment status is recorded in `docs/publishing.md`. Sign in with the account that owns the Site. Local and hosted browser saves are separate; use Export save / Import save to transfer a yard.
 
 On this Mac, double-click **Start Plant 01.command**. It starts the included local server and opens the game at **http://127.0.0.1:4173/**. Keep its Terminal window open while playing; Control-C stops the server.
 
@@ -90,7 +92,7 @@ Choose **Rail location** in the yard or **Railway → + Named location**, then c
 
 Click a label or linked **RLOC** ID to edit its name, purpose, length or distance along its anchor panel. **Reposition in yard** changes its track anchor while preserving its ID. Deleting the designation retains the track. If its anchor or neighboring rail is recovered, the saved record remains available with a repair reason. The Railway register supports the existing search, header sorting and column filters; SQL exposes `rail_locations`, including position, interval validity, connectivity and status.
 
-These locations prepare destinations for later railway operation. Supplier trains still use the original berth; designating a location does not create goods, a physical sign or an operational route/traffic reservation. The reception loop, multiple cars, coupling, owned shunting and parallel reception are broken down under [parent issue #22](https://github.com/lukacslacko/factory_game/issues/22). This release completes only the named-location checkpoint; test it before authorizing the next chunk.
+These designations became receiving and shunting destinations in native v0.21.0. Supplier reception still uses the original siding, while an owned shunter can move selected cars to connected factory points. A designation does not build track or supply route clearance. The browser deployment retains the earlier named-location checkpoint; see the [current native walkthrough](docs/rail-operations.md) for working rail operations.
 
 The [actual location interface capture](railway-locations-preview.png) shows a designation created, edited and repositioned through the game controls.
 
@@ -100,7 +102,7 @@ Choose **Rail end**, then **Straight**, **Curve**, or **Turnout** above the buil
 
 A 20 m radius quarter-turn uses six separately handled 15° curved panels. A 20 m turnout uses a points assembly plus three through panels and three diverging panels: seven real lifts at four stations. Neither appears as one complete kit. The excavator and builder rig, stage, lay and fasten each piece; the existing buffer moves through its physical sequence and faces the new endpoint tangent. Left-hand turnout kits are reconfigured by the worker while supported, using schematic component animation. A completed turnout's inspector offers **Set straight route** / **Set branch route**. Each request queues a real worker to walk to the lever and throw it; the selected route changes after that operation. The **Railway** register shows installed panel IDs, connected endpoints and buffer protection; SQL adds `track_ports` and geometry fields in `rails`.
 
-This is the first bounded chemical-plant checkpoint. **Test it before the next chunk starts.** Supplier trains still use the original route. The extra branch is uncapped; an owned shunter, driver, engine shed and additional physical buffers are next todos, requiring your approval. Tanks, tanker pumps, pipes, gauges and valves are subsequent todos. New track assembly recovery is deferred; canceling work retains real installed/staged parts, and **Resume canceled panels** safely continues the same work order after its bed is clear. Legacy straight-panel recovery remains available.
+This section records the earlier browser construction checkpoint. Native v0.21.0 adds buffer installation, assembly recovery, an owned shunter and driver, supplier locomotive release, and empty-return collection. Engine sheds, tanks, tanker pumps, pipes, gauges and valves remain further work. Canceling construction retains installed or staged parts, and **Resume canceled panels** continues the same work order after its bed is clear.
 
 The actual completed browser-playtest yard is shown in [railway-construction-preview.png](railway-construction-preview.png). The separate curve/turnout preview images are rendering fixtures used for geometry checks.
 
@@ -201,7 +203,7 @@ The game does not advance while closed. Clearing browser data removes browser sa
 
 ## Deliberate first-version boundaries
 
-This is a construction sandbox, with **no chemical production yet**. The buildable structure area is 232 × 98 m; the surrounding landscape and public transport lines are visual context. Buildable rail includes straight panels, R20 quarter-turns and modular turnouts. Owned train driving, shunting and dispatch remain gated todos. Supplier trains use their fixed starter route. Extra terminal buffers and recovery of the new track assemblies arrive with the next approved railway checkpoint.
+This is a construction sandbox, with **no chemical production yet**. The buildable structure area is 232 × 98 m; the surrounding landscape and public transport lines are visual context. Buildable rail includes straight panels, R20 quarter-turns and modular turnouts. Native v0.21.0 supports named freight destinations through owned shunting, supplier locomotive release and empty-return dispatch. Supplier trains still receive and collect on the original siding. Direct locomotive driving and an engine shed are not implemented. The hosted browser retains its earlier rail controls; the native walkthrough describes current operation.
 
 Workers default to Always on. Assign daily or overnight shifts to use recurring charter buses: workers finish their current work, park equipment in assigned bays, leave the cab, walk to the bus, and return for their next shift. Labor is recorded while workers are on site; each charter is recorded separately. Food and welfare simulation are future work. Office and shed interiors are not simulated. Weather, seasons, tire wear, component failures, and repairs are not implemented.
 

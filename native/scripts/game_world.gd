@@ -27,6 +27,10 @@ var wear_key:String=""
 var wear_node:MultiMeshInstance3D
 var initialized:bool=false
 var vegetation_cleared:Dictionary={}
+var public_siding:Node3D
+var siding_access_key:String=""
+var public_mainline:Node3D
+var mainline_exit_present:bool=false
 
 func setup()->void:
 	if initialized:return
@@ -69,6 +73,17 @@ func sync_snapshot(message:Dictionary)->void:
 		live[id]=true
 		var model:Node3D=_ensure_dynamic(id,kind,data)
 		model.visible=bool(data.get("visible",true))
+		_new_pose(id,data)
+	# Owned engines are independent of supplier deliveries and retained cars.
+	for data in render.get("railShunters",[]):
+		var id:=str(data.get("id",""))
+		if id.is_empty():continue
+		live[id]=true
+		var shunter:Node3D=_ensure_dynamic(id,"railShunter",data,true)
+		shunter.visible=bool(data.get("visible",true))
+		shunter.set_meta("inspect_id",id)
+		var driver:Node3D=shunter.get_node_or_null("Operator")
+		if driver:driver.visible=not str(data.get("driverId","")).is_empty()
 		_new_pose(id,data)
 	for data in render.get("carriers",[]):
 		var id:=str(data.id)
@@ -151,6 +166,8 @@ func sync_snapshot(message:Dictionary)->void:
 	for id in models.keys():
 		if not live.has(id):
 			var model:Node3D=models[id]; remove_child(model); model.queue_free(); models.erase(id); records.erase(id)
+	_sync_mainline_rail()
+	_sync_siding_rail()
 	_sync_statics()
 	_sync_paving()
 	_sync_wear()
@@ -420,7 +437,7 @@ func entity_position(id:String)->Vector3:
 				if not points.is_empty():var point:Dictionary=points[int(points.size()/2)];return Vector3(float(point.x),0,float(point.z))
 	for entry in render.get("railLocations",[]):
 		if str(entry.id)==id:return Vector3(float(entry.pose.x),0,float(entry.pose.z))
-	for table in ["workers","equipment","stacks","buildings","jobs","zones","orders","jobGroups"]:
+	for table in ["workers","equipment","shunters","railReturns","stacks","buildings","jobs","zones","orders","jobGroups"]:
 		var entity:=_entity(id,table)
 		if not entity.is_empty():return Vector3(float(entity.get("x",entity.get("vehicle",{}).get("x",28)))+float(entity.get("w",0))*.5,0,float(entity.get("z",entity.get("vehicle",{}).get("z",25)))+float(entity.get("d",0))*.5)
 	if statics.has(id):return (statics[id] as Node3D).position
@@ -511,12 +528,51 @@ func _corridor()->void:
 	G.box(group,Vector3(-8,.018,1.5),Vector3(8.4,.035,29),asphalt)
 	for z in range(-8,14,6):G.box(group,Vector3(-8,.042,z),Vector3(.11,.005,2.5),paint)
 	var paths:Array=[]
-	paths.append({"points":[{"x":-150,"z":0},{"x":300,"z":0}]})
+	public_mainline=Node3D.new();public_mainline.name="PublicMainlineRunningRails";group.add_child(public_mainline)
+	var main_ballast:=R.Batch.new()
+	main_ballast.ballast(Vector3(85,-.01,0),690.,R._ballast_material())
+	main_ballast.finish(group)
+	_track_paths(public_mainline,[{"points":[{"x":-260,"z":0},{"x":430,"z":0}]}],false)
 	var branch:Array=[]
 	for i in range(101):
 		var x:float=i*.25;var t:=x/25.0;branch.append({"x":x,"z":5*(3*t*t-2*t*t*t)})
-	paths.append({"points":branch});paths.append({"points":[{"x":25,"z":5},{"x":125,"z":5}]})
+	paths.append({"points":branch})
 	_track_paths(group,paths,true)
+	public_siding=Node3D.new();public_siding.name="OriginalReceivingSiding";group.add_child(public_siding)
+	_track_paths(public_siding,[{"points":[{"x":25,"z":5},{"x":125,"z":5}]}],true)
+
+# A commissioned return turnout replaces its main-line running rails. Leaving
+# coincident geometry underneath it produces flickering highlights and sleepers.
+func _sync_mainline_rail()->void:
+	var exit_parts:int=0
+	for asset in state.get("rails",[]):
+		var track:Dictionary=asset.get("track",{})
+		var origin:Dictionary=track.get("origin",{})
+		if str(track.get("layout",""))=="turnout" and int(track.get("heading",0))==2 and int(track.get("hand",1))==-1 and str(track.get("flow",""))=="converging" and absf(float(origin.get("x",0))-145)<.01 and absf(float(origin.get("z",99)))<.01:
+			exit_parts+=1
+	var has_exit:bool=bool(render.get("mainlineExitCut",exit_parts>=7))
+	if has_exit==mainline_exit_present:return
+	mainline_exit_present=has_exit
+	_clear_children(public_mainline)
+	var paths:Array=[{"points":[{"x":-260,"z":0},{"x":125 if has_exit else 430,"z":0}]}]
+	if has_exit:paths.append({"points":[{"x":145,"z":0},{"x":430,"z":0}]})
+	_track_paths(public_mainline,paths,false)
+
+func _sync_siding_rail()->void:
+	var starts:Array=[]
+	for span in render.get("sidingCuts",[]):starts.append(int(span.x))
+	starts.sort()
+	var signature:String=JSON.stringify(starts)
+	if signature==siding_access_key:return
+	siding_access_key=signature
+	_clear_children(public_siding)
+	var paths:Array=[]
+	var from:float=25
+	for x in starts:
+		if float(x)>from:paths.append({"points":[{"x":from,"z":5},{"x":x,"z":5}]})
+		from=float(x)+20
+	if from<125:paths.append({"points":[{"x":from,"z":5},{"x":125,"z":5}]})
+	_track_paths(public_siding,paths,true)
 
 # Retained roadside asset builder; the playable corridor has no overhead
 # powerline while underground electrical construction is tracked in issue #13.
@@ -580,6 +636,7 @@ func _mask_vegetation()->void:
 	# A first pass clears plants; snapshots never reroll or move remaining foliage.
 	for actor in render.get("actors",[]):
 		if str(actor.get("kind",""))!="worker" and bool(actor.get("visible",true)):_clear_vehicle_plants(actor,4.5,2.9)
+	for shunter in render.get("railShunters",[]):_clear_vehicle_plants(shunter,10.0,3.0)
 	for carrier in render.get("carriers",[]):
 		_clear_vehicle_plants(carrier,10.0 if str(carrier.kind)=="rail" else 8.8,3.0)
 		if str(carrier.kind)=="rail":
@@ -627,7 +684,7 @@ func pick_screen(camera:Camera3D,screen:Vector2)->String:
 		if kind=="worker":bounds=AABB(Vector3(-.39,0,-.38),Vector3(.78,1.95,.78))
 		elif kind=="excavator":bounds=AABB(Vector3(-1.35,0,-maxf(3.5,float(records.get(id,{}).get("current",{}).get("reach",3)))),Vector3(2.70,3.55,5.0))
 		elif kind=="bus":bounds=AABB(Vector3(-1.22,0,-4.15),Vector3(2.44,2.60,8.3))
-		elif kind=="rail":bounds=AABB(Vector3(-5.3,.35,-1.35),Vector3(10.6,4.0,2.7))
+		elif kind in ["rail","railShunter"]:bounds=AABB(Vector3(-5.3,.35,-1.35),Vector3(10.6,4.0,2.7))
 		elif kind=="wagon":bounds=AABB(Vector3(-8.4,.35,-1.45),Vector3(16.8,1.05,2.90))
 		elif node.has_meta("cargo_item") or "/" in str(id):bounds=_local_model_bounds(node,Transform3D.IDENTITY)
 		var owner_id:=str(records.get(id,{}).get("to",{}).get("parentEquipmentId",""))

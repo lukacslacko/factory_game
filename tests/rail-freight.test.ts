@@ -172,7 +172,7 @@ test('multi-car unloading conserves every line through source pickup, storage, s
   assert.equal(o.arrived, 9);
   assert.ok(o.railFreight!.cars.every((c) => c.manifest.every((l) => l.arrived === l.qty)));
   assert.equal(S.totals(s, 'bufferStop').stored, 9);
-  assert.equal(s.costs.filter((c) => c.entity === o.id).length, 1);
+  assert.equal(s.costs.filter((c) => c.entity === o.id && c.category === 'Purchases').length, 1);
 });
 
 test('freight save validation rejects duplicate assets, overfilled wagons, and mismatched quantities', () => {

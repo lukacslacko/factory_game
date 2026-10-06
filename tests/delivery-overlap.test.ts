@@ -65,7 +65,7 @@ for (const mode of ['road', 'rail'] as const) {
     assert.equal(o.unload, undefined);
     assert.equal(s.equipment.find((e) => e.id === eid)!.deliveryOrder, undefined);
     assert.equal(S.totals(s, 'slab').stored, 8);
-    assert.equal(s.costs.filter((c) => c.entity === oid).length, 1);
+    assert.equal(s.costs.filter((c) => c.entity === oid && c.category === 'Purchases').length, 1);
     assert.equal(
       s.movements.filter((m) => m.from === oid && m.to === eid).reduce((n, m) => n + m.qty, 0),
       8,

@@ -149,7 +149,11 @@ test('a trainload of eight curved rail panels tops up physical stacks after save
   );
   assert.equal(e.cargo, undefined);
   assert.equal(e.deliveryOrder, undefined);
-  assert.equal(s.costs.filter((c) => c.entity === o.id).length, 1, 'One supplier invoice');
+  assert.equal(
+    s.costs.filter((c) => c.entity === o.id && c.category === 'Purchases').length,
+    1,
+    'One supplier invoice',
+  );
   assert.equal(
     s.movements.filter((m) => m.from === o.id && m.to === e.id).reduce((n, m) => n + m.qty, 0),
     8,

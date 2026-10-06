@@ -1,5 +1,5 @@
 import { bufferAssets } from './buffers';
-import { railFreightCarPose } from './rail-freight';
+import { railFreightCarPose, railFreightCarBogies } from './rail-freight';
 import type { State, Point, Equipment, Order, Worker, Rect } from './types';
 import { MATERIALS } from './catalog';
 import { forkTip } from './fork-geometry';
@@ -219,20 +219,43 @@ export function carrierBoxes(o: Order, pose?: Point & { yaw: number }): TrafficB
       // the cars rigidly sideways across the turnout.
       let station = distance;
       if (pose) {
-        let lo = distance - 40, hi = distance + 40;
+        let lo = distance - 40,
+          hi = distance + 40;
         for (let n = 0; n < 24; n++) {
-          const a = lo + (hi - lo) / 3, b = hi - (hi - lo) / 3;
-          const pa = carPose(a, 5), pb = carPose(b, 5);
-          if (Math.hypot(pa.x-pose.x,pa.z-pose.z) < Math.hypot(pb.x-pose.x,pb.z-pose.z)) hi=b;
-          else lo=a;
+          const a = lo + (hi - lo) / 3,
+            b = hi - (hi - lo) / 3;
+          const pa = carPose(a, 5),
+            pb = carPose(b, 5);
+          if (Math.hypot(pa.x - pose.x, pa.z - pose.z) < Math.hypot(pb.x - pose.x, pb.z - pose.z))
+            hi = b;
+          else lo = a;
         }
-        station=(lo+hi)/2;
+        station = (lo + hi) / 2;
+      }
+      if (o.railFreight.detached) {
+        const f = o.railFreight;
+        return [
+          ...(f.locomotivePhase !== 'gone' && f.locomotivePose
+            ? [{ ...f.locomotivePose, length: 8.6, width: 2.65, id: o.id }]
+            : []),
+          ...f.cars
+            .filter((c) => !c.returned)
+            .map((c) => ({
+              ...railFreightCarPose(o, f.cars.indexOf(c)),
+              length: c.length,
+              width: c.width,
+              id: c.id,
+            })),
+        ];
       }
       const future = { ...o, drive: { ...o.drive!, distance: station } };
       return [
         { ...front, length: 8.6, width: 2.65, id: o.id },
-        ...o.railFreight.cars.map((car,index) => ({
-          ...railFreightCarPose(future,index), length: car.length, width: car.width, id:o.id,
+        ...o.railFreight.cars.map((car, index) => ({
+          ...railFreightCarPose(future, index),
+          length: car.length,
+          width: car.width,
+          id: o.id,
         })),
       ];
     }
@@ -244,6 +267,66 @@ export function carrierBoxes(o: Order, pose?: Point & { yaw: number }): TrafficB
   const at = pose ?? { ...o.vehicle, yaw };
   const center = k === 'lowloader' ? localPoint(at, 0.2, 0) : at;
   return [{ ...center, yaw, length: k === 'lowloader' ? 11.8 : 9.4, width: 2.8, id: o.id }];
+}
+/** Owned and collecting locomotives participate in every traffic check even
+ * when parked; they are not supplier Order carriers. */
+export function ownedRailActorBoxes(s: State): TrafficBox[] {
+  return [
+    ...(s.shunters || [])
+      .filter((e) => e.phase !== 'ordered')
+      .map((e) => ({ x: e.x, z: e.z, yaw: e.yaw, length: 8.6, width: 2.65, id: e.id })),
+    ...(s.railReturns || [])
+      .filter((r) => r.phase !== 'done')
+      .map((r) => ({ x: r.x, z: r.z, yaw: r.yaw, length: 8.6, width: 2.65, id: r.id })),
+  ];
+}
+/** Includes standing detached cars after the supplier locomotive has left. */
+export function railRollingStockBoxes(s: State): TrafficBox[] {
+  return [
+    ...ownedRailActorBoxes(s),
+    ...s.orders
+      .filter((o) => o.mode === 'rail' && !['ordered', 'done'].includes(o.status))
+      .flatMap((o) => carrierBoxes(o)),
+  ];
+}
+/** Axle contact envelopes for pointwork interlocking. Nose overhang does not
+ * prohibit a throw when every wheel is still before the points; chassis
+ * collision checks elsewhere continue to use the full vehicle body. */
+export function railRollingStockAxles(s: State): TrafficBox[] {
+  const out: TrafficBox[] = [];
+  const add = (
+    pose: Point & { yaw: number },
+    wheelbase: number,
+    id: string,
+    bogies?: (Point & { yaw: number })[],
+  ) => {
+    for (const p of bogies || [
+      localPoint(pose, -wheelbase / 2, 0),
+      localPoint(pose, wheelbase / 2, 0),
+    ])
+      out.push({ ...p, yaw: pose.yaw, length: 0.1, width: 1.65, id });
+  };
+  for (const e of s.shunters || []) if (e.phase !== 'ordered') add(e, 5.58, e.id, e.bogies);
+  for (const e of s.railReturns || []) if (e.phase !== 'done') add(e, 5.58, e.id, e.bogies);
+  for (const o of s.orders) {
+    if (o.mode !== 'rail' || ['ordered', 'done'].includes(o.status)) continue;
+    const f = o.railFreight;
+    if (!f) {
+      out.push(...carrierBoxes(o));
+      continue;
+    }
+    const bodies = carrierBoxes(o);
+    if (!f.detached || f.locomotivePhase !== 'gone') {
+      const pose = f.locomotivePose || bodies[0];
+      if (pose) add(pose, 5.58, o.id, f.locomotiveBogies);
+    }
+    for (const [i, c] of f.cars.entries())
+      if (!c.returned) {
+        const pose = railFreightCarPose(o, i);
+        add(pose, c.wheelbase, c.id, c.bogies || (c.pose ? undefined : railFreightCarBogies(o, i)));
+      }
+  }
+  return out;
 }
 export function boxRect(b: TrafficBox, pad = 0): Rect {
   const c = Math.abs(Math.cos(b.yaw)),
@@ -331,6 +414,8 @@ export function roadMoveBlocked(s: State, o: Order, pose: Point & { yaw: number 
       continue;
     if (next.some((a) => carrierBoxes(other).some((b) => boxOverlap(a, b, 0.15)))) return other.id;
   }
+  for (const actor of ownedRailActorBoxes(s))
+    if (next.some((b) => boxOverlap(b, actor, 0.15))) return actor.id!;
   for (const e of s.equipment) {
     if (e.transportOrder === o.id) continue;
     if (next.some((a) => equipmentBoxes(e).some((b) => boxOverlap(a, b, 0.15)))) return e.id;
@@ -376,6 +461,8 @@ export function equipmentMoveBlocked(
     if (other.id === e.id || other.transportOrder) continue;
     if (boxes.some((a, i) => equipmentBoxes(other).some((b) => blocks(a, b, i)))) return other.id;
   }
+  for (const actor of ownedRailActorBoxes(s))
+    if (equipmentBoxes(e, pose, false).some((b) => blocks(b, actor, 0))) return actor.id!;
   for (const o of s.orders) {
     if (
       o.status === 'ordered' ||
@@ -420,6 +507,7 @@ export function workerMoveBlocked(s: State, w: Point & { id?: string }, pose: Po
     if (e.transportOrder) continue;
     if (equipmentBoxes(e).some(blocks)) return e.id;
   }
+  for (const actor of ownedRailActorBoxes(s)) if (blocks(actor)) return actor.id!;
   for (const o of s.orders) {
     if (o.status === 'ordered' || o.status === 'done' || o.carrierDeparted) continue;
     if (carrierBoxes(o).some(blocks)) return o.id;
@@ -431,6 +519,8 @@ export function navigationActors(s: State, ignore: string): Rect[] {
   for (const e of s.equipment)
     if (e.id !== ignore && !e.transportOrder)
       out.push(...equipmentBoxes(e).map((b) => boxRect(b, 0.1)));
+  for (const actor of ownedRailActorBoxes(s))
+    if (actor.id !== ignore) out.push(boxRect(actor, 0.1));
   for (const p of people(s))
     if (p.id !== ignore) out.push({ x: p.x - 0.4, z: p.z - 0.4, w: 0.8, d: 0.8 });
   return out;
@@ -478,6 +568,7 @@ export function machineRoute(
         q.id !== e.transportOrder,
     )
     .flatMap((q) => carrierBoxes(q));
+  carriers.push(...ownedRailActorBoxes(s));
   const pedestrians = people(s).filter(
     (p) =>
       p.worker?.transition?.equipmentId !== e.id &&

@@ -3,7 +3,13 @@
 import type { State, ShedPartKind } from '../src/types';
 import { MATERIALS } from '../src/catalog';
 import { equipmentIntent } from '../src/equipment-intent';
-import { trackGeometry, trackNetwork, trackOpenPorts } from '../src/track';
+import {
+  trackGeometry,
+  trackNetwork,
+  trackOpenPorts,
+  sidingAccessSpans,
+  mainlineExitCommissioned,
+} from '../src/track';
 import { bufferAssets } from '../src/buffers';
 import { freightPose, shipmentLots, stackHeight } from '../src/delivery';
 import { railFreightCarPose, railFreightCarBogies } from '../src/rail-freight';
@@ -277,7 +283,12 @@ export function renderState(s: State) {
     }),
   ];
   const carriers = s.orders
-    .filter((o) => !['ordered', 'done'].includes(o.status) && !o.carrierDeparted)
+    .filter(
+      (o) =>
+        !['ordered', 'done'].includes(o.status) &&
+        (!o.carrierDeparted ||
+          (o.mode === 'rail' && o.railFreight?.cars.some((car) => !car.returned))),
+    )
     .map((o) => {
       const freight = freightPose(o);
       const rail = o.mode === 'rail';
@@ -289,11 +300,18 @@ export function renderState(s: State) {
         ? { ...freight, y: 1.3, pitch: 0 }
         : deckPose({ ...freight, y: o.drive?.y ?? surface, pitch: o.drive?.pitch ?? 0 });
       const cargo = shipmentLots(o)
-        .filter((l) => l.qty > 0)
+        .filter((l) => l.qty > 0 && !o.railFreight?.cars[l.carIndex || 0]?.returned)
         .map((l) => ({
           ...l,
           ...(rail
-            ? { ...localPoint(o.railFreight ? railFreightCarPose(o, l.carIndex || 0) : freight, l.x, l.z), y: 1.3 }
+            ? {
+                ...localPoint(
+                  o.railFreight ? railFreightCarPose(o, l.carIndex || 0) : freight,
+                  l.x,
+                  l.z,
+                ),
+                y: 1.3,
+              }
             : deckPose(
                 { ...freight, y: o.drive?.y ?? surface, pitch: o.drive?.pitch ?? 0 },
                 l.x,
@@ -320,19 +338,85 @@ export function renderState(s: State) {
         deployment: o.deployment,
         equipment,
         unloading: o.unload,
-        ...(rail && o.railFreight ? {
-          locomotive: {
-            id: o.railFreight.locomotiveId,
-            ...pose, y: 0,
-            bogies: [-2.79, 2.79].map(offset => ({ ...trackPose((o.drive?.distance ?? RAIL_STOP) + offset), y: 0 })),
-          },
-          cars: o.railFreight.cars.map((car, index) => ({
-            ...car, ...railFreightCarPose(o, index), y: 0,
-            bogies: railFreightCarBogies(o, index).map(p => ({...p,y:0})),
-          })),
-        } : {}),
+        ...(rail && o.railFreight
+          ? {
+              locomotive:
+                o.railFreight.locomotivePhase === 'gone'
+                  ? null
+                  : {
+                      id: o.railFreight.locomotiveId,
+                      ...(o.railFreight.locomotivePose || pose),
+                      y: 0,
+                      bogies:
+                        o.railFreight.locomotiveBogies ||
+                        [-2.79, 2.79].map((offset) => ({
+                          ...(o.railFreight!.locomotivePose
+                            ? {
+                                ...localPoint(o.railFreight!.locomotivePose, offset, 0),
+                                yaw: o.railFreight!.locomotivePose.yaw,
+                              }
+                            : trackPose((o.drive?.distance ?? RAIL_STOP) + offset)),
+                          y: 0,
+                        })),
+                    },
+              cars: o.railFreight.cars
+                .map((car, index) => ({
+                  ...car,
+                  ...railFreightCarPose(o, index),
+                  y: 0,
+                  bogies: railFreightCarBogies(o, index).map((p) => ({ ...p, y: 0 })),
+                }))
+                .filter((car) => !car.returned),
+            }
+          : {}),
       };
     });
+  const railShunters = (s.shunters || [])
+    .filter((shunter) => shunter.phase !== 'ordered')
+    .map((shunter) => ({
+      ...shunter,
+      kind: 'railShunter',
+      y: 0,
+      visible: true,
+      bogies:
+        shunter.bogies ||
+        [-2.79, 2.79].map((offset) => ({
+          ...localPoint(shunter, offset, 0),
+          yaw: shunter.yaw || 0,
+          y: 0,
+        })),
+    }));
+  // The pickup locomotive is a distinct physical supplier asset. Its assigned
+  // cars remain keyed to their original orders so collection never duplicates them.
+  for (const pickup of (s.railReturns || []).filter((p) => p.phase !== 'done')) {
+    carriers.push({
+      id: pickup.id,
+      kind: 'rail',
+      mode: 'rail',
+      status: pickup.phase,
+      x: pickup.x,
+      z: pickup.z,
+      y: 0,
+      yaw: pickup.yaw,
+      cargo: [],
+      cars: [],
+      locomotive: {
+        id: pickup.locomotiveId,
+        inspectId: pickup.id,
+        x: pickup.x,
+        z: pickup.z,
+        yaw: pickup.yaw,
+        y: 0,
+        bogies:
+          pickup.bogies ||
+          [-2.79, 2.79].map((offset) => ({
+            ...localPoint(pickup, offset, 0),
+            yaw: pickup.yaw || 0,
+            y: 0,
+          })),
+      },
+    } as any);
+  }
   const railGeometry = [
     ...s.rails.map((r) => ({
       id: r.id,
@@ -400,11 +484,16 @@ export function renderState(s: State) {
   const equipmentIntents = s.equipment.map((e) => ({ id: e.id, ...equipmentIntent(s, e) }));
   return {
     actors,
+    railShunters,
     loads,
     carriers,
-    railCars: carriers.flatMap(c => (c as any).cars || []),
-    railLocomotives: carriers.flatMap(c => (c as any).locomotive ? [(c as any).locomotive] : []),
+    railCars: carriers.flatMap((c) => (c as any).cars || []),
+    railLocomotives: carriers.flatMap((c) =>
+      (c as any).locomotive ? [(c as any).locomotive] : [],
+    ),
     railGeometry,
+    sidingCuts: sidingAccessSpans(s).filter((a) => a.complete),
+    mainlineExitCut: mainlineExitCommissioned(s),
     buffers: bufferAssets(s),
     railNetwork: trackNetwork(s),
     railOpenEndpoints: trackOpenPorts(s, false, false).map((p) => ({

@@ -1,6 +1,7 @@
 import { validTrackPiece, trackGeometry } from './track';
 import { validRailLocation } from './rail-locations';
 import { freightValidationProblem } from './freight-validation';
+import { railOperationsValidationProblem } from './rail-operations-validation';
 import {
   FREIGHT_CAPACITY,
   FREIGHT_DECK_LENGTH,
@@ -1068,7 +1069,7 @@ export function validateState(value: any): asserts value is State {
       // Loading order is physical: completed earlier lines, at most one partial line.
       let unfinished = false;
       for (const l of lines) {
-        if (unfinished && l.arrived > 0) fail('out-of-order manifest transfer');
+        if (!o.railFreight && unfinished && l.arrived > 0) fail('out-of-order manifest transfer');
         if (l.arrived < l.qty) unfinished = true;
       }
     }
@@ -1256,9 +1257,11 @@ export function validateState(value: any): asserts value is State {
         fail('unloading destination stack is missing');
     }
   }
+  const railOperationsProblem = railOperationsValidationProblem(s, ids);
+  if (railOperationsProblem) fail(railOperationsProblem);
   if (s.version >= 3) {
     for (const w of s.workers) {
-      if (w.vehicle && !s.equipment.some((e: any) => e.id === w.vehicle))
+      if (w.vehicle && !s.equipment.some((e: any) => e.id === w.vehicle) && !s.shunters?.some((e: any) => e.id === w.vehicle && e.driverId === w.id))
         fail('worker vehicle is missing');
       if (
         w.transition &&
