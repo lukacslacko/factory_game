@@ -6,7 +6,7 @@ This is the first playable native migration. The original browser application an
 
 ## Download or open on this Mac
 
-[Download the Apple Silicon Mac app](https://github.com/lukacslacko/factory_game/releases/tag/v0.19.2), unzip it, and open **Plant 01.app**. This checkpoint targets macOS 14 or newer.
+[Download the Apple Silicon Mac app](https://github.com/lukacslacko/factory_game/releases/tag/v0.19.3), unzip it, and open **Plant 01.app**. This checkpoint targets macOS 14 or newer.
 
 Open the **Plant 01.app** built beside the repository in `outputs/`. It includes the Godot runner, Node runtime, simulation, terrain maps, and license notices. It is a local app for this Mac, not a notarized public release.
 
@@ -43,7 +43,7 @@ Saves use a temporary file and atomic rename, retaining the previous valid save 
 | Escape | Cancel placement and selection |
 | F12 | Capture the native viewport |
 
-Construction ghosts use cyan for queued plans and amber for work underway; cursor previews use green for valid placement and red for invalid placement. Rails show the actual planned paths and sleepers, while buildings show their footprint and a wireframe. Ghosts remain readable in daylight, dusk, and vegetation, and disappear when work is completed or canceled.
+Construction ghosts use cyan for queued plans and amber for work underway; cursor previews use green for valid placement and red for invalid placement. Rails show the actual planned paths and sleepers, while buildings show their footprint and a wireframe. Ghosts stay bright in daylight and dusk, follow the ground or installed paving, and are naturally occluded by workers, equipment, stock, and vegetation. Solid outlines use normal depth and temporal antialiasing; completed or canceled work removes its ghost.
 
 Use the dense registers for sorting and filtering, and click entity IDs to inspect linked equipment, workers, stock, jobs, and orders. Manual assignment and support-worker controls use the same simulation rules as the browser game. The simulation runs independently of drawing; foreground rendering is capped at 60 FPS and unfocused rendering at 15 FPS. Large Retina windows use temporal reconstruction for smoother 3D motion while text and controls remain at full resolution. The game menu has **Full-resolution 3D (slower on Retina)** if you prefer maximum native detail; this preference is saved.
 
@@ -70,6 +70,8 @@ python3 native/tests/run_native_check.py --timeout 45 --name native-integration 
 python3 native/tests/run_native_check.py --timeout 55 --name native-capture -- --resolution 1920x1080 -- --native-capture --data-dir=/tmp/plant01-native-capture
 python3 native/tests/run_native_check.py --name native-ui -- --headless --script res://tests/ui_smoke.gd
 python3 native/tests/run_native_check.py --name native-ghosts -- --headless --script res://tests/ghost_smoke.gd
+python3 native/tests/run_native_check.py --timeout 40 --name ghost-raster -- --resolution 1280x720 --script res://tests/ghost_render_check.gd
+python3 native/tests/analyze_ghost_raster.py # optional GPU image analysis: Pillow + NumPy
 python3 native/tests/run_native_check.py --name native-camera -- --headless --script res://tests/camera_smoke.gd
 python3 native/tests/run_native_check.py --name native-models -- --headless --script res://tests/renderer_smoke.gd
 python3 scripts/package-native-macos.py

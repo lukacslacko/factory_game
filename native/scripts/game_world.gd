@@ -259,7 +259,7 @@ func _sync_statics()->void:
 		if str(job.get("status","")) in ["done","canceled"]:continue
 		var id:=str(job.id)+"/plan"; live[id]=true
 		var geometry:Dictionary=planned_tracks.get(str(job.id),{})
-		var key:=JSON.stringify([job.x,job.z,job.w,job.d,job.status,job.kind,geometry])
+		var key:=JSON.stringify([job.x,job.z,job.w,job.d,job.status,job.kind,geometry,_ghost_surface_height(geometry.get("rect",job))])
 		if static_keys.get(id,"")!=key:
 			_drop_static(id); var group:=Node3D.new(); add_child(group)
 			group.name="PlannedConstruction";group.set_meta("ghost",true)
@@ -611,14 +611,23 @@ func _ghost_material(color:Color,alpha:float=1.0,priority:int=2)->StandardMateri
 	var material:=StandardMaterial3D.new()
 	material.albedo_color=Color(color,alpha)
 	material.shading_mode=BaseMaterial3D.SHADING_MODE_UNSHADED
-	# Planning annotations remain visible through grass and stock rather than
-	# resembling already built objects or casting physical shadows.
-	material.no_depth_test=true
-	# Explicit transparent draw priorities put fill below dark edging below
-	# the bright core, even with depth testing disabled.
-	material.transparency=BaseMaterial3D.TRANSPARENCY_ALPHA
-	material.render_priority=priority
+	# Solid strokes participate in depth, motion vectors and temporal AA.
+	# Late transparent strokes bypass temporal reconstruction and visibly
+	# follow its subpixel jitter; disabling depth also paints over workers.
+	material.no_depth_test=false
+	material.transparency=BaseMaterial3D.TRANSPARENCY_DISABLED if alpha>=1.0 else BaseMaterial3D.TRANSPARENCY_ALPHA
+	material.render_priority=priority if alpha<1.0 else 0
 	return material
+
+func _ghost_surface_height(rect:Dictionary)->float:
+	# Foundations lift a plan only when installed paving overlaps it. Cache
+	# keys include this height so an existing plan follows new foundations.
+	var cells:Dictionary=state.get("paving",{})
+	var x:float=float(rect.get("x",0));var z:float=float(rect.get("z",0))
+	for cz in range(floori(z),ceili(z+float(rect.get("d",1)))):
+		for cx in range(floori(x),ceili(x+float(rect.get("w",1)))):
+			if cells.has(str(cx)+","+str(cz)):return .105
+	return 0.0
 
 func _finish_ghost(batch:RefCounted,parent:Node3D)->void:
 	var first:int=parent.get_child_count()
@@ -640,21 +649,22 @@ func _rail_ghost(parent:Node3D,geometry:Dictionary,color:Color)->void:
 	var ink:=_ghost_material(Color("123c4a"),1.0,1)
 	var bright:=_ghost_material(color)
 	var wash:=_ghost_material(color,.12,0)
+	var surface:float=_ghost_surface_height(geometry.get("rect",{}))
 	for path in geometry.get("paths",[]):
 		var points:Array=path.get("points",[])
 		var traveled:float=0.0;var next_tie:float=.28
 		for index in range(points.size()-1):
-			var a:=Vector3(float(points[index].x),.20,float(points[index].z))
-			var b:=Vector3(float(points[index+1].x),.20,float(points[index+1].z))
+			var a:=Vector3(float(points[index].x),surface+.030,float(points[index].z))
+			var b:=Vector3(float(points[index+1].x),surface+.030,float(points[index+1].z))
 			var length:float=a.distance_to(b)
 			if length<.001:continue
 			var normal:=Vector3(-(b.z-a.z),0,b.x-a.x).normalized()
 			var yaw:float=-atan2(b.z-a.z,b.x-a.x)
-			batch.box((a+b)*.5-Vector3(0,.065,0),Vector3(length,.006,2.0),wash,yaw)
+			batch.box((a+b)*.5-Vector3(0,.018,0),Vector3(length,.006,2.0),wash,yaw)
 			for side in [-1,1]:
 				_ghost_edge(batch,a+normal*R.RAIL_OFFSET*side,b+normal*R.RAIL_OFFSET*side,ink,bright,.12)
 			while next_tie<traveled+length:
-				var center:=a.lerp(b,(next_tie-traveled)/length)-Vector3(0,.035,0)
+				var center:=a.lerp(b,(next_tie-traveled)/length)-Vector3(0,.008,0)
 				_ghost_edge(batch,center-normal*.96,center+normal*.96,ink,bright,.07)
 				next_tie+=.625
 			traveled+=length
@@ -664,16 +674,16 @@ func _construction_ghost(parent:Node3D,rect:Dictionary,color:Color)->void:
 	var x:float=float(rect.get("x",0));var z:float=float(rect.get("z",0))
 	var w:float=float(rect.get("w",1));var d:float=float(rect.get("d",1))
 	var batch:=R.Batch.new();var ink:=_ghost_material(Color("123c4a"),1.0,1);var bright:=_ghost_material(color)
-	batch.box(Vector3(x+w*.5,.15,z+d*.5),Vector3(w,.006,d),_ghost_material(color,.12,0))
-	var corners:Array[Vector3]=[Vector3(x,.18,z),Vector3(x+w,.18,z),Vector3(x+w,.18,z+d),Vector3(x,.18,z+d)]
+	var surface:float=_ghost_surface_height(rect)
+	batch.box(Vector3(x+w*.5,surface+.012,z+d*.5),Vector3(w,.006,d),_ghost_material(color,.12,0))
+	var corners:Array[Vector3]=[Vector3(x,surface+.030,z),Vector3(x+w,surface+.030,z),Vector3(x+w,surface+.030,z+d),Vector3(x,surface+.030,z+d)]
 	for index in range(4):_ghost_edge(batch,corners[index],corners[(index+1)%4],ink,bright)
 	var kind:String=str(rect.get("kind",""))
 	var height:float=3.0 if kind in ["office","sanitary"] else 4.3 if kind in ["shed","store"] else 0.0
 	if height>0:
 		for index in range(4):
 			var at:Vector3=corners[index]+Vector3(0,height*.5,0)
-			batch.box(at,Vector3(.15,height,.15),ink)
-			batch.box(at+Vector3(.005,0,.005),Vector3(.075,height,.075),bright)
+			batch.box(at,Vector3(.11,height,.11),bright)
 			_ghost_edge(batch,corners[index]+Vector3(0,height,0),corners[(index+1)%4]+Vector3(0,height,0),ink,bright)
 	_finish_ghost(batch,parent)
 

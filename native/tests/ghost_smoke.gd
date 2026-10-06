@@ -36,13 +36,51 @@ func _ghost_properties(node: Node, label: String) -> void:
 	var shadows_off: bool = true
 	var unshaded: bool = true
 	var all_ghosts: bool = true
+	var normal_depth: bool = true
+	var opaque_strokes: bool = true
+	var has_strokes: bool = false
+	var alpha_footprints: bool = true
+	var has_footprints: bool = false
 	for mesh: MeshInstance3D in meshes:
 		shadows_off = shadows_off and mesh.cast_shadow==GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		all_ghosts = all_ghosts and bool(mesh.get_meta("ghost",false))
 		var material: StandardMaterial3D = mesh.material_override as StandardMaterial3D
 		unshaded = unshaded and material!=null and material.shading_mode==BaseMaterial3D.SHADING_MODE_UNSHADED
+		if not material:
+			normal_depth=false
+			continue
+		normal_depth=normal_depth and not material.no_depth_test
+		if material.albedo_color.a>=.99:
+			has_strokes=true
+			opaque_strokes=opaque_strokes and material.transparency==BaseMaterial3D.TRANSPARENCY_DISABLED and material.depth_draw_mode==BaseMaterial3D.DEPTH_DRAW_OPAQUE_ONLY
+		else:
+			has_footprints=true
+			alpha_footprints=alpha_footprints and material.transparency==BaseMaterial3D.TRANSPARENCY_ALPHA
 	_check(shadows_off,label+" meshes never cast shadows")
 	_check(unshaded and all_ghosts,label+" uses ghost presentation instead of built-track materials")
+	_check(normal_depth,label+" permits workers, equipment, and stock to occlude plans through normal depth testing")
+	_check(has_strokes and opaque_strokes,label+" uses opaque depth-writing strokes eligible for temporal antialiasing")
+	_check(has_footprints and alpha_footprints,label+" keeps footprint washes translucent without bypassing scene depth")
+
+func _surface_properties(node: Node, surface: float, label: String, floor_only: bool = true) -> void:
+	var wash_min: float = INF
+	var wash_max: float = -INF
+	var stroke_min: float = INF
+	var stroke_max: float = -INF
+	for mesh: MeshInstance3D in _meshes(node):
+		var material: StandardMaterial3D = mesh.material_override as StandardMaterial3D
+		if not material:continue
+		for index in range(mesh.mesh.get_surface_count()):
+			var vertices: PackedVector3Array = mesh.mesh.surface_get_arrays(index)[Mesh.ARRAY_VERTEX]
+			for vertex in vertices:
+				var y: float = (mesh.global_transform*vertex).y
+				if material.albedo_color.a<.99:
+					wash_min=minf(wash_min,y);wash_max=maxf(wash_max,y)
+				else:
+					stroke_min=minf(stroke_min,y);stroke_max=maxf(stroke_max,y)
+	_check(wash_min>surface+.005 and wash_max<surface+.05,label+" footprint sits just above its installed ground surface")
+	_check(stroke_min>surface+.005,label+" strokes remain above the ground instead of z-fighting with it")
+	if floor_only:_check(stroke_max<surface+.075,label+" ground strokes stay near the floor rather than floating through equipment")
 
 func _follows_paths(node: Node, geometry: Dictionary, label: String) -> void:
 	var vertices := _bright_vertices(node)
@@ -100,6 +138,7 @@ func _run() -> void:
 		_check(not world.statics.has(str(sample.id)),"Queued rail does not create an invented installed-track asset")
 		_check(_has_color(group,false),"Queued construction is conspicuously cyan")
 		_ghost_properties(group,str(sample.track.layout))
+		_surface_properties(group,0.0,"Soil "+str(sample.track.layout))
 		_follows_paths(group,sample.geometry,str(sample.track.layout))
 	_check(world.models.is_empty() and fixture.state.rails.is_empty(),"Rail planning creates no workers, equipment, cargo, or built tracks")
 	_check(JSON.stringify(fixture.state)==original_state,"Ghost rendering never mutates authoritative simulation state")
@@ -112,6 +151,19 @@ func _run() -> void:
 	var doing: Node3D = world.statics.get(str(samples[1].id)+"/plan")
 	_check(doing!=null and _has_color(doing,true),"Active construction changes its ghost to amber")
 	if doing:_ghost_properties(doing,"Active curved work")
+
+	# A real installed tile lifts an existing plan, without adding fictional
+	# paving or lifting unrelated plans. The max overlapping surface protects
+	# the whole footprint when only part of it has been paved.
+	fixture.state.paving["175,27"]={"id":"PAV-GHOST-1"}
+	world.sync_snapshot(fixture)
+	if world.statics.has(str(samples[1].id)+"/plan"):
+		_surface_properties(world.statics[str(samples[1].id)+"/plan"],.105,"Queued curve after paving")
+	if world.statics.has(str(samples[0].id)+"/plan"):
+		_surface_properties(world.statics[str(samples[0].id)+"/plan"],0.0,"Unrelated soil straight")
+	world.preview_track([samples[1].geometry],true)
+	_surface_properties(world.preview_node,.105,"Paved curve cursor preview")
+	world.preview({},true)
 
 	# Keep the planned render entries deliberately: lifecycle follows live job
 	# status, so even a stale geometry descriptor must not resurrect a ghost.
@@ -146,11 +198,23 @@ func _run() -> void:
 	if world.statics.has(building_key):
 		var ghost: Node3D = world.statics[building_key]
 		_ghost_properties(ghost,"Building wireframe")
+		_surface_properties(ghost,0.0,"Soil building wireframe",false)
 		var highest: float = 0.0
 		for mesh: MeshInstance3D in _meshes(ghost):
 			var box: AABB = mesh.global_transform*mesh.mesh.get_aabb()
 			highest=maxf(highest,box.end.y)
 		_check(highest>2.9,"Queued office shows a 3D wireframe, not only a faint ground rectangle")
+	fixture.state.paving["19,45"]={"id":"PAV-GHOST-ADJACENT"}
+	world.sync_snapshot(fixture)
+	if world.statics.has(building_key):_surface_properties(world.statics[building_key],0.0,"Building beside paved tile",false)
+	fixture.state.paving["20,45"]={"id":"PAV-GHOST-BUILDING"}
+	world.sync_snapshot(fixture)
+	if world.statics.has(building_key):_surface_properties(world.statics[building_key],.105,"Building partly over paving",false)
+	world.preview({"x":20,"z":45,"w":6,"d":3,"kind":"office"},true)
+	_ghost_properties(world.preview_node,"Paved building preview")
+	_surface_properties(world.preview_node,.105,"Paved building preview",false)
+	world.preview({},true)
+	_check(world.preview_node.get_child_count()==0,"Clearing a paved building preview removes strokes and wash")
 	building.status="done"
 	world.sync_snapshot(fixture)
 	_check(not world.statics.has(building_key),"Completed building removes its wireframe")

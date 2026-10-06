@@ -1,0 +1,70 @@
+{
+  "version": "0.19.3",
+  "date": "2026-10-06",
+  "passed": true,
+  "ghostChecks": 115,
+  "rasterAnalysis": {
+    "taa": {
+      "before": {
+        "meanFrameDifference8bit": 0.7752,
+        "meanCyanBoundaryChanges": 68.09,
+        "cyanPixelsOnOccluder": 204,
+        "occluderInteriorPixels": 877,
+        "ghostPixels": 1542
+      },
+      "after": {
+        "meanFrameDifference8bit": 0.6384,
+        "meanCyanBoundaryChanges": 32.27,
+        "cyanPixelsOnOccluder": 0,
+        "occluderInteriorPixels": 877,
+        "ghostPixels": 1060
+      }
+    },
+    "fsr2": {
+      "before": {
+        "meanFrameDifference8bit": 9.0971,
+        "meanCyanBoundaryChanges": 467.55,
+        "cyanPixelsOnOccluder": 207,
+        "occluderInteriorPixels": 866,
+        "ghostPixels": 1549
+      },
+      "after": {
+        "meanFrameDifference8bit": 0.8511,
+        "meanCyanBoundaryChanges": 22.64,
+        "cyanPixelsOnOccluder": 0,
+        "occluderInteriorPixels": 875,
+        "ghostPixels": 849
+      }
+    }
+  },
+  "runs": {
+    "ghost-smoke": {
+      "name": "ghost-smoke",
+      "elapsed_seconds": 1.52,
+      "peak_resident_bytes": 269238272,
+      "returncode": 0,
+      "stopped_reason": null
+    },
+    "ghost-depth-raster-final": {
+      "name": "ghost-depth-raster-final",
+      "elapsed_seconds": 19.74,
+      "peak_resident_bytes": 506675200,
+      "returncode": 0,
+      "stopped_reason": null
+    },
+    "ghost-grounded-visual": {
+      "name": "ghost-grounded-visual",
+      "elapsed_seconds": 8.62,
+      "peak_resident_bytes": 584925184,
+      "returncode": 0,
+      "stopped_reason": null
+    },
+    "ghost-grounded-packaged": {
+      "name": "ghost-grounded-packaged",
+      "elapsed_seconds": 6.62,
+      "peak_resident_bytes": 287457280,
+      "returncode": 0,
+      "stopped_reason": null
+    }
+  }
+}
