@@ -345,7 +345,7 @@ func _placement_preview(point: Vector3) -> void:
 		return
 	var rect := _rect(click_point if placing else point,point)
 	if tool not in ["slab", "zone"]:
-		var sizes := {"office":Vector2i(6,3),"sanitary":Vector2i(3,2),"shed":Vector2i(8,6),"engineShed":Vector2i(6,14),"store":Vector2i(6,4),"lamp":Vector2i(1,1),"fence":Vector2i(3,1),"power":Vector2i(1,1),"water":Vector2i(1,1),"railStraight":Vector2i(5,2),"railCurve":Vector2i(20,20),"railTurnout":Vector2i(20,7),"railConverging":Vector2i(20,7),"parking":Vector2i(3,5),"relocate":Vector2i(5,2)}
+		var sizes := {"office":Vector2i(6,3),"sanitary":Vector2i(3,2),"shed":Vector2i(8,6),"engineShed":Vector2i(6,14),"store":Vector2i(6,4),"processTank":Vector2i(4,4),"transferPump":Vector2i(2,2),"lamp":Vector2i(1,1),"fence":Vector2i(3,1),"power":Vector2i(1,1),"water":Vector2i(1,1),"railStraight":Vector2i(5,2),"railCurve":Vector2i(20,20),"railTurnout":Vector2i(20,7),"railConverging":Vector2i(20,7),"parking":Vector2i(3,5),"relocate":Vector2i(5,2)}
 		var size: Vector2i = sizes.get(tool,Vector2i(1,1))
 		if tool == "relocate":
 			for stack: Dictionary in state.get("stacks",[]):
@@ -353,6 +353,12 @@ func _placement_preview(point: Vector3) -> void:
 		if placement_rotation % 2 and tool != "relocate":
 			size = Vector2i(size.y,size.x)
 		rect = {"x":floori(point.x),"z":floori(point.z),"w":size.x,"d":size.y}
+	if tool == "processPipe" and placing:
+		var dx: int = floori(point.x)-floori(click_point.x)
+		var dz: int = floori(point.z)-floori(click_point.z)
+		var vertical: bool = placement_rotation%2==1 if dx==0 and dz==0 else absi(dz)>absi(dx)
+		rect = {"x":floori(click_point.x) if vertical else mini(floori(click_point.x),floori(point.x)),"z":mini(floori(click_point.z),floori(point.z)) if vertical else floori(click_point.z),"w":1 if vertical else absi(floori(point.x)-floori(click_point.x))+1,"d":absi(floori(point.z)-floori(click_point.z))+1 if vertical else 1}
+	rect["rotation"] = placement_rotation
 	rect["kind"] = tool
 	world.preview(rect,true)
 
@@ -365,6 +371,7 @@ func _rail_placement_args(point: Vector3) -> Dictionary:
 func _place(a: Vector3, b: Vector3) -> void:
 	var rect := _rect(a,b)
 	match tool:
+		"processPipe": client.send("process_pipe_plan", {"from":{"x":floori(a.x),"z":floori(a.z)},"to":{"x":floori(b.x),"z":floori(b.z)},"rotation":placement_rotation})
 		"slab": client.send("pave", {"rect":rect})
 		"zone": client.send("zone", {"rect":rect,"name":"Stockyard %d" % (state.get("zones",[]).size()+1)})
 		"railStraight", "railCurve", "railTurnout", "railConverging":
@@ -383,7 +390,7 @@ func _place(a: Vector3, b: Vector3) -> void:
 		"parking": client.send("parking", {"id":selected_id,"x":floori(b.x)+0.5,"z":floori(b.z)+0.5,"rotation":placement_rotation})
 		"relocate": client.send("move_stock", {"id":selected_id,"x":floori(b.x),"z":floori(b.z),"rotation":placement_rotation})
 		_:
-			client.send("plan", {"kind":tool,"x":floori(a.x),"z":floori(a.z),"rotation":placement_rotation%2,"foundations":true})
+			client.send("plan", {"kind":tool,"x":floori(a.x),"z":floori(a.z),"rotation":placement_rotation if tool in ["processTank","transferPump","pipeElbow","pipeTee","processValve","processGauge"] else placement_rotation%2,"foundations":true})
 
 func _unhandled_input(event: InputEvent) -> void:
 	if closing or (event is InputEventKey and _keyboard_controls_blocked()):

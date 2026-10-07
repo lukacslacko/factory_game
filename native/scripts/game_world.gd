@@ -4,6 +4,7 @@ const Ground=preload("res://scripts/ground.gd")
 const R=preload("res://scripts/rail_yard.gd")
 const Models=preload("res://scripts/game_models.gd")
 const TankerModels=preload("res://scripts/tanker_models.gd")
+const ProcessModels=preload("res://scripts/process_models.gd")
 var state:Dictionary={}
 var render:Dictionary={}
 var models:Dictionary={}
@@ -167,6 +168,40 @@ func sync_snapshot(message:Dictionary)->void:
 			(models[id] as Node3D).set_meta("cargo_width",w*.28 if str(part.kind) in ["beam","roof","wall"] else .16)
 			(models[id] as Node3D).set_meta("cargo_height",(2.75 if str(assembly.get("kind",""))=="engineShed" else 2.15) if str(part.kind)=="post" else (2.55 if int(part.index)<4 else .35) if str(part.kind)=="wall" and str(assembly.get("kind",""))=="engineShed" else 1.90 if str(part.kind)=="wall" else 1.95 if str(part.kind)=="brace" else .4)
 			_new_pose(id,_attachment_pose(part.get("pose",{}),str(job.get("equipment","")),bool(part.get("carried",false))))
+	for assembly in render.get("processAssemblies",[]):
+		var process_kind:String=str(assembly.get("kind","processPipe"))
+		var job:Dictionary=_entity(str(assembly.get("jobId","")),"jobs")
+		var moving:Dictionary=assembly.get("part",{})
+		var remaining:Array=[]
+		for component:Dictionary in assembly.get("components",[]):
+			if not bool(component.get("installed",false)):
+				if str(component.kind)!=str(moving.get("kind","")):remaining.append(str(component.kind))
+				continue
+			# A recovered/lifted piece is represented once at its actual moving pose.
+			if bool(assembly.get("recovering",false)) and str(component.kind)==str(moving.get("kind","")):continue
+			var id:String=str(component.id);live[id]=true
+			if not models.has(id):models[id]=ProcessModels.part(self,process_kind,str(component.kind))
+			(models[id] as Node3D).set_meta("inspect_id",str(assembly.get("assetId",assembly.jobId)))
+			_new_pose(id,component.get("pose",{}))
+		if not moving.is_empty():
+			var id:String=str(assembly.get("componentIds",{}).get(str(moving.kind),str(assembly.get("assetId",assembly.jobId))+"/"+str(moving.kind)));live[id]=true
+			if not models.has(id):models[id]=ProcessModels.part(self,process_kind,str(moving.kind))
+			(models[id] as Node3D).set_meta("inspect_id",str(assembly.jobId))
+			_new_pose(id,_attachment_pose(moving.get("pose",{}),str(assembly.get("equipmentId",job.get("equipment",""))),str(assembly.get("phase","")) in ["lift","lower","recover"]))
+		var kit:Dictionary=assembly.get("kitPose",{})
+		if not kit.is_empty() and not remaining.is_empty():
+			var id:String=str(assembly.jobId)+"/process-kit";live[id]=true;var key:String=JSON.stringify(remaining)
+			if not models.has(id) or str((models[id] as Node3D).get_meta("kit_key",""))!=key:
+				if models.has(id):var old:Node3D=models[id];remove_child(old);old.queue_free()
+				models[id]=ProcessModels.kit(self,process_kind,remaining);(models[id] as Node3D).set_meta("kit_key",key)
+			_new_pose(id,kit)
+	for hose:Dictionary in render.get("processHoses",[]):
+		var id:String=str(hose.get("id",str(hose.get("pumpId",""))+"/hose"))
+		if id.is_empty():continue
+		live[id]=true
+		if not models.has(id):models[id]=ProcessModels.hose(self)
+		(models[id] as Node3D).set_meta("inspect_id",str(hose.get("pumpId",id)))
+		ProcessModels.update_hose(models[id],hose.get("points",[]))
 	for id in models.keys():
 		if not live.has(id):
 			var model:Node3D=models[id]; remove_child(model); model.queue_free(); models.erase(id); records.erase(id)
@@ -275,13 +310,21 @@ func _apply_pose(model:Node3D,p:Dictionary)->void:
 func _sync_statics()->void:
 	var live:Dictionary={}
 	var planned_tracks:Dictionary={}
+	var process_rows:Dictionary={}
+	for row:Dictionary in render.get("processRows",[]):process_rows[str(row.get("id",""))]=row
 	for data in state.get("buildings",[]):
 		var id:=str(data.id); live[id]=true
-		var key:=JSON.stringify(data)
+		var process:bool=ProcessModels.handles(str(data.get("kind","")))
+		var key:String=JSON.stringify([data.kind,data.x,data.z,data.w,data.d,data.get("rotation",0)]) if process else JSON.stringify(data)
 		if static_keys.get(id,"")!=key:
 			_drop_static(id); var model:=Models.building(self,data); statics[id]=model; static_keys[id]=key
-			model.position=Vector3(float(data.x)+float(data.w)*.5,_surface_height(data)+.0,float(data.z)+float(data.d)*.5)
-			model.rotation.y=-float(int(data.get("rotation",0))%2)*PI*.5
+			# Process component and hydraulic ports use the common site datum.
+			# Foundations integrate through paving rather than lifting ports on completion.
+			model.position=Vector3(float(data.x)+float(data.w)*.5,0.0 if process else _surface_height(data),float(data.z)+float(data.d)*.5)
+			model.rotation.y=0.0 if str(data.kind)=="processTank" else -float(int(data.get("rotation",0))%(4 if process else 2))*PI*.5
+		if process:
+			(statics[id] as Node3D).set_meta("inspect_id",id)
+			ProcessModels.update(statics[id],process_rows.get(id,data))
 	for data in state.get("stacks",[]):
 		var id:=str(data.id); live[id]=true
 		var hidden:bool=int(data.get("qty",0))<=0 and str(data.get("item",""))!="diesel"
@@ -808,6 +851,39 @@ func _construction_ghost(parent:Node3D,rect:Dictionary,color:Color)->void:
 	var corners:Array[Vector3]=[Vector3(x,surface+.030,z),Vector3(x+w,surface+.030,z),Vector3(x+w,surface+.030,z+d),Vector3(x,surface+.030,z+d)]
 	for index in range(4):_ghost_edge(batch,corners[index],corners[(index+1)%4],ink,bright)
 	var kind:String=str(rect.get("kind",""))
+	if ProcessModels.handles(kind):
+		var center:Vector3=Vector3(x+w*.5,surface+.035,z+d*.5)
+		var rotation:Basis=Basis(Vector3.UP,-float(rect.get("rotation",0))*PI*.5)
+		var ports:Array[Vector3]=[]
+		if kind=="processTank":
+			for i in range(48):
+				var a:float=i*TAU/48.;var b:float=(i+1)*TAU/48.
+				_ghost_edge(batch,center+Vector3(cos(a)*1.7,0,sin(a)*1.7),center+Vector3(cos(b)*1.7,0,sin(b)*1.7),ink,bright,.07)
+			ports=[Vector3(-2,0,.5),Vector3(2,0,.5),Vector3(.5,0,-2),Vector3(.5,0,2)]
+			# Four fixed tank ports do not rotate with the circular vessel.
+			rotation=Basis.IDENTITY
+			for port:Vector3 in ports:_ghost_edge(batch,center+port*.80,center+port,ink,bright,.08)
+		elif kind=="transferPump":
+			ports=[Vector3(-1,0,-.5),Vector3(1,0,-.5)]
+			_ghost_edge(batch,center+rotation*Vector3(-.85,0,-.5),center+rotation*Vector3(.85,0,-.5),ink,bright,.09)
+			for zoff in [-.22,.22]:_ghost_edge(batch,center+rotation*Vector3(.38,0,-.5+zoff),center+rotation*Vector3(.72,0,-.5),ink,bright,.08)
+		else:
+			var lines:Array=[[Vector3(-.5,0,0),Vector3(.5,0,0)]]
+			ports=[Vector3(-.5,0,0),Vector3(.5,0,0)]
+			if kind=="processPipe" and (w>1 or d>1):
+				# A dragged run previews the entire requested length, including both ends.
+				rotation=Basis.IDENTITY
+				ports=[Vector3(-w*.5,0,0),Vector3(w*.5,0,0)] if w>1 else [Vector3(0,0,-d*.5),Vector3(0,0,d*.5)]
+				lines=[[ports[0],ports[1]]]
+			elif kind=="pipeElbow":
+				lines=[[Vector3(-.5,0,0),Vector3.ZERO],[Vector3.ZERO,Vector3(0,0,-.5)]]
+				ports=[Vector3(-.5,0,0),Vector3(0,0,-.5)]
+			elif kind=="pipeTee":
+				lines.append([Vector3.ZERO,Vector3(0,0,-.5)]);ports.append(Vector3(0,0,-.5))
+			for ends:Array in lines:_ghost_edge(batch,center+rotation*ends[0],center+rotation*ends[1],ink,bright,.08)
+		for port:Vector3 in ports:
+			var at:Vector3=center+rotation*port
+			batch.box(at,Vector3(.20,.016,.20),ink);batch.box(at+Vector3(0,.011,0),Vector3(.12,.012,.12),bright)
 	var height:float=3.0 if kind in ["office","sanitary"] else 4.3 if kind in ["shed","store","engineShed"] else 0.0
 	if height>0:
 		for index in range(4):

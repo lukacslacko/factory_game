@@ -7,6 +7,7 @@ import initSqlJs from 'sql.js';
 import wasmUrl from 'sql.js/dist/sql-wasm.wasm?url';
 import type { State } from './types';
 import { totals } from './sim';
+import { processRows } from './process-fluids';
 import { equipmentAssistant } from './work-crews';
 import { MATERIALS } from './catalog';
 import { orderLines, orderMass, itemMass } from './procurement';
@@ -14,6 +15,9 @@ import { parkingStatus } from './workforce';
 import { equipmentAssignment, jobRows, automaticEquipmentForWork } from './jobs';
 import { equipmentRole, equipmentActivities, equipmentWorkSummary } from './equipment-roles';
 export const SQL_EXAMPLES = [
+  {name: 'Fluid inventory', sql: 'SELECT id, product, liters, capacity FROM process_tanks UNION ALL SELECT id, product, liters, capacity FROM process_lines;'},
+  {name: 'Transfer interlocks', sql: 'SELECT id, carId, tankId, hose, flow, transferred, status FROM process_pumps;'},
+  {name: 'Fluid movement ledger', sql: 'SELECT time, product, liters, "from", "to" FROM fluid_movements ORDER BY updated DESC;'},
   {
     name: 'Material balance',
     sql: 'SELECT item, delivered, stored, reserved, cargo, inConstruction, installed, incoming FROM inventory ORDER BY item;',
@@ -63,7 +67,15 @@ export async function query(s: State, sql: string) {
   const SQL = await runtime;
   const db = new SQL.Database();
   const railNetwork = trackNetwork(s);
+  const process = processRows(s);
   const tables: Record<string, Record<string, unknown>[]> = {
+    process_tanks: process.tanks.map(r=>({...r})),
+    process_pumps: process.pumps.map(r=>({...r})),
+    process_lines: process.lines.map(r=>({...r})),
+    process_valves: process.valves.map(r=>({...r})),
+    process_gauges: process.gauges.map(r=>({...r})),
+    process_operations: process.operations.map(r=>({...r})),
+    fluid_movements: (s.process?.ledger||[]).map(r=>({...r})),
     inventory: Object.keys(MATERIALS).map((item) => ({
       item,
       ...totals(s, item as keyof typeof MATERIALS),
@@ -321,7 +333,14 @@ export async function query(s: State, sql: string) {
       'staging_batch_leader',
       'staging_batch_qty',
     ],
-    orders: ['id', 'item', 'qty', 'arrived', 'status', 'total', 'eta', 'automaticEquipment'],
+    process_tanks: ['id','product','liters','capacity','x','z','status'],
+    process_pumps: ['id','carId','tankId','hose','enabled','rate','flow','transferred','status'],
+    process_lines: ['id','kind','product','liters','capacity','flow','x','z','status'],
+    process_valves: ['id','open','operation','status'],
+    process_gauges: ['id','product','level','capacity','lineCapacity','flow','direction','calibrated','tankId','status'],
+    process_operations: ['id','buildingId','workerId','carId','kind','phase','clock','status'],
+    fluid_movements: ['id','runId','time','updated','product','liters','from','to'],
+    orders: ['id', 'item' , 'qty', 'arrived', 'status', 'total', 'eta', 'automaticEquipment'],
     rail_shunters: ['id','name','driver','location','phase','status','fuel','tank','used','manualControl','parkingLocationId','shedId','x','z','yaw'],
     rail_return_trains: ['id','locomotiveId','orderIds','carIds','phase','status','waitingSeconds','waitingCost','x','z','yaw'],
     rail_reservations: ['id','owner','phase','tracks','distance','end','blockedBy','carIds'],

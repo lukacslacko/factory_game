@@ -1,5 +1,7 @@
 import { validTrackPiece, trackGeometry } from './track';
 import { validRailLocation } from './rail-locations';
+import { processValidationProblem } from './process-validation';
+import { processConstructionProblem } from './process-construction';
 import { freightValidationProblem } from './freight-validation';
 import { railOperationsValidationProblem } from './rail-operations-validation';
 import {
@@ -1048,7 +1050,7 @@ export function validateState(value: any): asserts value is State {
             typeof l.item !== 'string' ||
             !Number.isInteger(l.qty) ||
             l.qty < 1 ||
-            !Number.isInteger(l.arrived) ||
+            (isRailCommodity(l.item) ? !finite(l.arrived) : !Number.isInteger(l.arrived)) ||
             l.arrived < 0 ||
             l.arrived > l.qty,
         ) ||
@@ -1142,7 +1144,7 @@ export function validateState(value: any): asserts value is State {
       !(o.item in MATERIALS || o.item in ROLES || o.item in EQUIPMENT || o.item in SERVICES || (isRailCommodity(o.item) && o.railFreight)) ||
       !Number.isInteger(o.qty) ||
       o.qty < 1 ||
-      !Number.isInteger(o.arrived) ||
+      (isRailCommodity(o.item) && o.railFreight ? !finite(o.arrived) : !Number.isInteger(o.arrived)) ||
       o.arrived < 0 ||
       o.arrived > o.qty ||
       !finite(o.eta) ||
@@ -1263,6 +1265,9 @@ export function validateState(value: any): asserts value is State {
         fail('unloading destination stack is missing');
     }
   }
+  const processError=processValidationProblem(s);if(processError)fail(processError);
+  const processConstructionError = processConstructionProblem(s);
+  if (processConstructionError) fail(processConstructionError);
   const railOperationsProblem = railOperationsValidationProblem(s, ids);
   if (railOperationsProblem) fail(railOperationsProblem);
   if (s.version >= 3) {

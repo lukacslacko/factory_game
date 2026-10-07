@@ -49,6 +49,8 @@ import { tickRailWork, railStagingStackOwned } from './railwork';
 import { staticRailPickupFaces } from './rail-pickup';
 import { engineShedPlacementError, engineShedRailCell, engineShedParkingLocation, engineShedComponentIds } from './engine-shed';
 import { tickShedConstruction } from './shed-construction';
+import { tickProcessFluids, reconcileProcessAssets, processRecoveryConflict } from './process-fluids';
+import { isProcessKind, processComponentIds, tickProcessConstruction } from './process-construction';
 import {
   constructionSourceBusy,
   syncConstructionLoad,
@@ -738,6 +740,7 @@ function completeCreativePlacement(s: State, jobs: Job[]) {
           j.kind === 'lamp' ? s.utilities.power : j.kind === 'sanitary' ? s.utilities.water : true,
       });
     }
+    if(isProcessKind(j.kind)) { const b=s.buildings.at(-1)!;b.componentIds=processComponentIds(b.kind,b.id); reconcileProcessAssets(s); }
     if(j.kind==='engineShed') { const b=s.buildings.at(-1)!; b.componentIds=engineShedComponentIds(b.id); engineShedParkingLocation(s,b.id); }
     complete(s, j);
   }
@@ -1250,7 +1253,7 @@ function pedestrianObstacles(s: State) {
 function stepAside(s: State, w: Worker, e: Equipment, knownBlocker = false) {
   if (
     (w.y || 0) > 0.15 ||
-    s.jobs.some((j) => j.worker === w.id && j.status === 'doing' && j.shedAssembly?.ladder)
+    s.jobs.some((j) => j.worker === w.id && j.status === 'doing' && (j.shedAssembly?.ladder || j.processAssembly?.ladder))
   )
     return;
   const crewCrossing =
@@ -1797,6 +1800,7 @@ function restoreYieldingWorkers(s: State) {
 export function moveWorker(s: State, wid: string, p: Point): string {
   const w = s.workers.find((w) => w.id === wid);
   if (!w) return 'Worker not found.';
+  if(w.processAssignment)return 'Finish the physical process operation before taking control.';
   const recoveringDelivery = isPausedDeliveryOperator(s, w);
   if (!workerAvailable(s, w) && !recoveringDelivery)
     return 'This worker is off shift, commuting, or returning equipment to parking.';
@@ -1844,6 +1848,7 @@ export function enterVehicle(s: State, wid: string, eid: string): string {
   const w = s.workers.find((w) => w.id === wid),
     e = s.equipment.find((e) => e.id === eid);
   if (!w || !e) return 'Choose a worker and equipment.';
+  if(w.processAssignment)return 'Finish the physical process operation before boarding equipment.';
   if (!workerAvailable(s, w))
     return 'This worker is off shift, commuting, or returning equipment to parking.';
   if (w.vehicle === eid) return '';
@@ -1878,6 +1883,7 @@ export function exitVehicle(s: State, wid: string) {
 export function releaseWorker(s: State, wid: string): string {
   const w = s.workers.find((w) => w.id === wid);
   if (!w) return 'Worker not found.';
+  if(w.processAssignment)return 'Finish the physical process operation before changing this worker control mode.';
   if (w.vehicle && s.orders.some((o) => o.id === w.deliveryOrder && o.unloadPaused)) {
     const error = resumeDeliveryHandling(s, w.vehicle);
     if (error) return error;
@@ -2280,6 +2286,7 @@ export function removeBuilding(s: State, bid: string) {
   const b = recoveryTarget(s, bid);
   if (!b) return 'Structure or paving not found.';
   if (s.rails.some((r) => r.id === bid)) return removeRailInfrastructure(s, bid);
+  if(isProcessKind(b.kind)) {const error=processRecoveryConflict(s,bid);if(error)return error;}
   if (!(b.kind in MATERIALS))
     return 'Utility service connections cannot be removed in this version.';
   if (
@@ -2548,6 +2555,7 @@ function assign(s: State, j: Job) {
       j.reason = 'Structure no longer exists';
       return;
     }
+    if(isProcessKind(b.kind)){const error=processRecoveryConflict(s,b.id);if(error){j.reason=error;return;}}
     j.item = b.kind as Item;
     if (!(j.item in MATERIALS)) {
       j.reason = 'Utility connections cannot be removed in this version';
@@ -3334,6 +3342,9 @@ function tickJob(s: State, j: Job, dt: number) {
   )
     return;
   if (
+    tickProcessConstruction(s,j,dt,{id,obstacles,movement,event,complete,release:finishRelease})
+  ) return;
+  if (
     tickShedConstruction(s, j, dt, {
       id,
       obstacles,
@@ -3452,6 +3463,7 @@ function tickJob(s: State, j: Job, dt: number) {
         }
         const { spot, merge, path, withdrawal } = destination;
         const b = recoveryTarget(s, j.target)!;
+        if(isProcessKind(b.kind)){const error=processRecoveryConflict(s,b.id);if(error){j.reason=error;return;}}
         if (b.kind === 'slab') delete s.paving[key(b.x, b.z)];
         else if (b.kind === 'rail') {
           s.rails = s.rails.filter((t) => t.id !== b.id);
@@ -3469,7 +3481,7 @@ function tickJob(s: State, j: Job, dt: number) {
               'Recovered the last extension panel and secured the buffer at the shortened siding end.',
             );
           }
-        } else s.buildings = s.buildings.filter((t) => t.id !== b.id);
+        } else { s.buildings = s.buildings.filter((t) => t.id !== b.id); if(isProcessKind(b.kind))reconcileProcessAssets(s); }
         movement(
           s,
           j.item!,
@@ -3624,6 +3636,7 @@ export function tick(s: State, dt: number) {
   s.time += dt;
   s.wageClock += dt;
   tickRailOperations(s, dt);
+  tickProcessFluids(s, dt);
   for (const o of s.orders) advanceOrder(s, o, dt);
   tickWorkforce(s, dt, deliveryAPI);
   for (const w of s.workers) {
@@ -3645,6 +3658,7 @@ export function tick(s: State, dt: number) {
     } else if (
       !w.job &&
       !w.railAssignment &&
+      !w.processAssignment &&
       !w.deliveryOrder &&
       !w.transportOrder &&
       !w.transition &&
@@ -3774,7 +3788,7 @@ export function tick(s: State, dt: number) {
 export function totals(s: State, item: Item) {
   return {
     inConstruction: s.jobs.filter(
-      (j) => j.status === 'doing' && j.kind === item && j.delivered && j.shedAssembly,
+      (j) => j.status === 'doing' && j.kind === item && j.delivered && (j.shedAssembly || j.processAssembly),
     ).length,
     stored: s.stacks.filter((t) => t.item === item).reduce((n, t) => n + t.qty, 0),
     reserved: s.stacks.filter((t) => t.item === item).reduce((n, t) => n + t.reserved, 0),

@@ -14,6 +14,7 @@ export function equipmentAssistant(s: State, equipmentId: string): Worker | unde
 function busy(w: Worker): boolean {
   return !!(
     w.job ||
+    w.processAssignment ||
     w.deliveryOrder ||
     w.transportOrder ||
     w.transition ||
@@ -74,6 +75,7 @@ export function setEquipmentAssistant(s: State, equipmentId: string, workerId?: 
   if (next?.assistingEquipment && next.assistingEquipment !== equipmentId)
     return `This worker already supports ${next.assistingEquipment}. Release that crew assignment first.`;
   const previous = equipmentAssistant(s, equipmentId);
+  if(next?.processAssignment || previous?.processAssignment)return 'Finish the physical process operation before changing this support crew.';
   if (previous === next) return '';
   // Never cancel a lift, carried load, commute, or player command when changing crews.
   for (const w of [previous, next]) {

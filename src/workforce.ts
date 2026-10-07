@@ -28,6 +28,7 @@ export function workerAvailable(s: State, w: Worker) {
   return (
     shiftIsActive(s, w) &&
     !w.railAssignment &&
+    !w.processAssignment &&
     !w.commuteOrder &&
     !w.parkingEquipment &&
     !w.yieldingTo &&
@@ -286,7 +287,7 @@ function charter(
 }
 export function tickWorkforce(s: State, dt: number, api: WorkforceAPI) {
   for (const w of s.workers) {
-    if (w.railAssignment) continue;
+    if (w.railAssignment || w.processAssignment) continue;
     if (w.commuteOrder) {
       const o = s.orders.find((o) => o.id === w.commuteOrder);
       if (o?.status === 'done') {

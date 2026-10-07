@@ -374,6 +374,19 @@ export function staticObstacleRects(s: State): (Rect & { id: string })[] {
       out.push({ ...boxRect({ ...p, length: width, width: 0.08 }), id: j.id + '-wall-' + index });
     }
   }
+  for (const j of s.jobs) {
+    const h=j.processAssembly;
+    if(!h||j.status!=='doing'||!j.delivered)continue;
+    const m=MATERIALS[j.item!],rotated=Math.abs(Math.sin(h.kitPose.yaw))>.5;
+    const w=rotated?m.d:m.w,d=rotated?m.w:m.d;
+    out.push({x:h.kitPose.x-w/2,z:h.kitPose.z-d/2,w,d,id:j.id+'-process-kit'});
+    if(h.completed>0)out.push({x:j.x,z:j.z,w:j.w,d:j.d,id:j.id+'-process'});
+    if(h.part && ['lift','lower'].includes(h.phase)) {
+      const p=h.part.pose,span=j.kind==='processTank'?3.7:j.kind==='transferPump'?1.8:1;
+      const side=span*(Math.abs(Math.cos(p.yaw))+Math.abs(Math.sin(p.yaw)));
+      out.push({x:p.x-side/2,z:p.z-side/2,w:side,d:side,id:j.id+'-process-load'});
+    }
+  }
   for (const b of s.buildings) {
     const c = { x: b.x + b.w / 2, z: b.z + b.d / 2 },
       yaw = ((b.rotation % 2) * Math.PI) / 2;

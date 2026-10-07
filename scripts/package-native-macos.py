@@ -60,13 +60,15 @@ launcher.chmod(0o755)
 (target / 'runtime/node').chmod(0o755)
 shutil.copy2(ROOT / 'LICENSE', resources / 'LICENSE')
 shutil.copy2(ROOT / 'native/README.md', resources / 'README.md')
+(resources / 'examples').mkdir()
+shutil.copy2(ROOT / 'examples/first-fluid-transfer.json', resources / 'examples/first-fluid-transfer.json')
 icon = ROOT / 'native/assets/plant01-icon.icns'
 if icon.exists():
     shutil.copy2(icon, resources / 'Plant01.icns')
 info = {'CFBundleName': 'Plant 01', 'CFBundleDisplayName': 'Plant 01',
         'CFBundleIdentifier': 'com.lukacslacko.factory-game', 'CFBundleExecutable': 'Plant01',
-        'CFBundlePackageType': 'APPL', 'CFBundleShortVersionString': '0.22.0',
-        'CFBundleVersion': '215', 'CFBundleIconFile': 'Plant01.icns',
+        'CFBundlePackageType': 'APPL', 'CFBundleShortVersionString': '0.23.0',
+        'CFBundleVersion': '216', 'CFBundleIconFile': 'Plant01.icns',
         'NSHighResolutionCapable': True, 'LSMinimumSystemVersion': '14.0',
         'NSHumanReadableCopyright': 'Plant 01 contributors · MIT; runtime notices in Resources/native/licenses'}
 (app / 'Contents/Info.plist').write_bytes(plistlib.dumps(info))

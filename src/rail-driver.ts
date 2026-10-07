@@ -11,7 +11,7 @@ export function verifyRailQualification(s: State, workerId: string): string | un
   const w = s.workers.find(w => w.id === workerId);
   if (!w || !['operator', 'railDriver'].includes(w.role)) return 'Choose a railway driver or equipment operator with a railway license.';
   if (isRailQualified(w)) return 'This worker already has a recorded railway qualification.';
-  if (w.job || w.vehicle || w.deliveryOrder || w.railAssignment || w.transportOrder) return 'Finish the current assignment before verifying a railway license.';
+  if (w.processAssignment || w.job || w.vehicle || w.deliveryOrder || w.railAssignment || w.transportOrder) return 'Finish the current assignment before verifying a railway license.';
   w.railQualified = true;
   s.costs.push({id: next(s, 'COST'), time: s.time, category: 'Railway', entity: w.id, description: 'Railway license verification and site authorization', amount: 180});
   record(s,w.id,'Railway license verified; authorized to drive owned shunters.');
@@ -31,7 +31,7 @@ export function beginShunterRefueling(s: State, shunterId: string): string | und
   if(!e || e.phase!=='parked' || e.carIds?.length) return 'Stop and uncouple the shunter before refueling.';
   if(e.refueling)return 'Refueling is already in progress.';
   if(!isRailQualified(w))return 'Assign a qualified railway driver before refueling.';
-  if(!shiftIsActive(s,w!) || w!.duty==='rest' || w!.job || w!.deliveryOrder || w!.transportOrder || w!.commuteOrder || w!.parkingEquipment || w!.yieldingTo ||
+  if(!shiftIsActive(s,w!) || w!.duty==='rest' || w!.processAssignment || w!.job || w!.deliveryOrder || w!.transportOrder || w!.commuteOrder || w!.parkingEquipment || w!.yieldingTo ||
     (w!.shiftPhase && w!.shiftPhase!=='working') || (w!.railAssignment && w!.railAssignment!==e.id) ||
     (w!.vehicle && w!.vehicle!==e.id))return 'The assigned driver must be available and on duty.';
   if(e.fuel>=e.tank-0.01)return 'The fuel tank is already full.';

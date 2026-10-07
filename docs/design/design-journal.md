@@ -788,3 +788,8 @@ An owned engine shed is a delivered 5.2-ton kit, physically assembled over strai
 Water and diesel tanker trains provide the railway-side acceptance of #5. Quotes include actual density, liters, payload/tare, number of cars, train length and charges. Each independently rendered tanker has persistent contained liquid, bogies, couplers, brakes and its own ID. Liquid cannot be unloaded by lifting equipment or returned as an empty car. Actual pumps, tanks, pipes, gauges and valves remain the separate chemical-plant issues #8–#12.
 
 All regression fixtures and native checks use generated or isolated temporary yards. Keep the private current save and previous app recoverable before installation; do not publish the creator's yard, diagnostics or screenshots. Tests run sequentially with a 384 MB Node heap and bounded native watchdogs; avoid extra browsers and simultaneous graphics processes after the creator's earlier memory-pressure reboot.
+
+
+## 2026-10-07 — First fluid construction and operation
+
+The creator requested tanks (#8), rail transfer pumps (#9), and piping (#10) next, with discretion to include gauges (#11) and valves (#12). The implementation includes basic factory-calibrated level/flow readouts and physical manual valves so the first water/diesel receiving system is usable as one connected whole. It preserves the original principle: real delivered components, finite dimensions/capacities, workers approaching actual work points, visible assembly, conserved material, stable database identities, costs, and interruption-safe saves. Chemical reactions and detailed pressure hydraulics remain later work. Underground electrical installation remains separately tracked by #13.

@@ -746,3 +746,27 @@ test('native railway program dispatch preserves manual steel recovery, qualifica
   s=JSON.parse((await c.ok('export')).json);assert.equal(s.buildings[0].kind,'engineShed');assert.equal(s.rails.length,shed.rails.length);assert.equal(s.railLocations[0].id,s.buildings[0].parkingLocationId);
   await c.ok('save');assert.equal(Sim.load(await fs.readFile(path.join(host.dir,'yard.json'),'utf8')).buildings[0].kind,'engineShed');
 });
+
+test('native fluid commands use actual assets, worker operations, conserved quantities, reports and atomic saves',async(t)=>{
+  const {createProcessYard}=await import('./support/process');
+  const f=createProcessYard({connect:true});f.s.paused=true;
+  const host=await launch();t.after(()=>host.close());const c=host.client;
+  await c.ok('import',{json:Sim.save(f.s)});
+  await c.ok('process_configure',{id:f.pump.id,tankId:f.tank.id,rate:2.5});
+  await c.ok('process_run',{id:f.pump.id,running:true});
+  await c.ok('speed',{value:10});await sleep(1300);await c.ok('pause',{paused:true});
+  let s=Sim.load((await c.ok('export')).json);assert.ok(s.process!.pumps[0].transferred>15);assert.ok(s.process!.pumps[0].transferred<50);
+  const transferred=s.process!.pumps[0].transferred;
+  assert.ok(Math.abs(s.orders[0].railFreight!.cars[0].tank!.liters+transferred-1000)<1e-6);
+  const rows=await c.ok('tables',{table:'process'});assert.equal(rows.pumps[0].tankId,f.tank.id);assert.ok(Math.abs(rows.balance[0].difference)<1e-6);
+  for(const sql of ['SELECT * FROM process_tanks;','SELECT * FROM process_lines;','SELECT * FROM process_pumps;','SELECT * FROM process_gauges;','SELECT * FROM process_operations;','SELECT * FROM fluid_movements;'])assert.ok((await c.ok('sql',{sql}))[0].columns.length>0);
+  assert.equal((await c.request('remove_building',{id:f.pump.id})).ok,false,'A connected pump cannot be recovered');
+  await c.ok('process_run',{id:f.pump.id,running:false});await c.ok('save');
+  const saved=Sim.load(await fs.readFile(path.join(host.dir,'yard.json'),'utf8'));assert.equal(saved.process!.pumps[0].transferred,transferred);
+  await c.ok('process_disconnect',{id:f.pump.id,workerId:f.worker.id});
+  s=Sim.load((await c.ok('export')).json);const op=s.process!.operations.find(o=>!o.finished)!;
+  assert.equal((await c.ok('inspect',{id:op.id})).type,'processOperation');
+  assert.equal((await c.request('worker_duty',{id:f.worker.id,duty:'rest'})).ok,false);
+  assert.equal((await c.request('control',{id:f.worker.id})).ok,false);
+  assert.equal(s.process!.pumps[0].hose,'disconnecting');assert.equal(s.process!.pumps[0].transferred,transferred);
+});

@@ -2,6 +2,7 @@ extends RefCounted
 const G=preload("res://scripts/geometry.gd")
 const M=preload("res://scripts/machines.gd")
 const R=preload("res://scripts/rail_yard.gd")
+const Process=preload("res://scripts/process_models.gd")
 static var palette:Dictionary={}
 
 static func materials()->Dictionary:
@@ -140,6 +141,11 @@ static func animate_actor(model:Node3D,p:Dictionary,delta:float)->void:
 			arm.rotation.x=-sin(phase)*amount*.8*side if not work else -.85+sin(float(p.get("workClock",0))*4)*.12*side
 
 static func stock(parent:Node3D,item:String,qty:int,hand:int=1)->Node3D:
+	if Process.handles(item):
+		var kits:=Node3D.new();parent.add_child(kits)
+		for index in range(mini(qty,8)):
+			var kit:=Process.kit(kits,item);kit.position.y=index*(1.3 if item=="processTank" else .8)
+		return kits
 	var root:=Node3D.new(); parent.add_child(root)
 	var b:=R.Batch.new(); var m:=materials()
 	var rail: Array=[G.mat("dbddd5",.18,.88),G.mat("955532",.82,.26),m.steel]
@@ -305,6 +311,7 @@ static func _locomotive(parent:Node3D,owned:bool=false)->Node3D:
 	return n
 
 static func building(parent:Node3D,data:Dictionary)->Node3D:
+	if Process.handles(str(data.get("kind",""))):return Process.building(parent,data)
 	var kind:=str(data.get("kind","")); var root:=Node3D.new(); parent.add_child(root)
 	var b:=R.Batch.new(); var m:=materials()
 	if kind in ["office","sanitary"]:

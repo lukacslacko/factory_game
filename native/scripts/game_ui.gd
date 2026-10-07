@@ -10,7 +10,8 @@ signal lighting_requested(value: bool)
 signal file_requested(action: String)
 
 const Table = preload("res://scripts/ui_table.gd")
-const TABS: Array[String] = ["Yard","Railway","Materials","Workers","Equipment","Deliveries","Work","Activity","Costs","SQL","Inbox"]
+const ProcessUI = preload("res://scripts/process_ui.gd")
+const TABS: Array[String] = ["Yard","Railway","Process","Materials","Workers","Equipment","Deliveries","Work","Activity","Costs","SQL","Inbox"]
 const ACTIVITIES: Array[String] = ["receiving","paving","construction","rail","recovery"]
 const CATALOG: Dictionary = {
 	"builder":{"name":"Construction worker","price":90,"wage":28},"operator":{"name":"Equipment operator","price":120,"wage":36},"engineer":{"name":"Site engineer","price":150,"wage":42},
@@ -628,6 +629,7 @@ func _build_register() -> void:
 		severity_filter=_option(filters,["All events","Warnings only","Info only"])
 		severity_filter.item_selected.connect(func(_index: int) -> void: _refresh_register())
 	match active_tab:
+		"Process": ProcessUI.build_register(self)
 		"Railway":
 			_note(register_body,"Receive a train, release its supplier engine through the siding exit, and use an owned shunter to move selected cars to named tracks. Rail management help walks through unloading and empty returns.")
 			var rail_actions: HBoxContainer = HBoxContainer.new()
@@ -699,6 +701,7 @@ func _refresh_register() -> void:
 		audit_label.text="Latest %d of %d costs · %d of %d events · %d of %d movements. Full histories remain in SQL, save files, and exports."%[_records("costs").size(),int(counts.get("costCount",_records("costs").size())),_records("events").size(),int(counts.get("eventCount",_records("events").size())),_records("movements").size(),int(counts.get("movementCount",_records("movements").size()))]
 	var rows: Array[Dictionary] = []
 	match active_tab:
+		"Process": ProcessUI.refresh_register(self)
 		"Railway":
 			for e: Dictionary in _records("railLocations"):
 				rows.append(_row(str(e.id),[e.id,e.get("name",""),e.get("kind",""),e.get("trackId",""),e.get("offset",0),e.get("length",0),"Designated"]))
@@ -845,6 +848,8 @@ func _entity(id: String) -> Dictionary:
 		if str(buffer.id)==id:return {"type":"buffer","entity":buffer}
 	for endpoint: Dictionary in metadata.get("render",{}).get("railOpenEndpoints",[]):
 		if str(endpoint.get("id",""))==id:return {"type":"railEndpoint","entity":endpoint}
+	for operation: Dictionary in ProcessUI.records(self,"operations"):
+		if str(operation.get("id",""))==id:return {"type":"processOperation","entity":operation}
 	return {}
 
 func _detail(label_text: String,value: Variant) -> void:
@@ -932,7 +937,9 @@ func _render_inspector() -> void:
 	name.size_flags_horizontal=Control.SIZE_EXPAND_FILL
 	_button(heading,"Locate",func() -> void: _switch_tab("Yard"); focus_entity.emit(selected_id))
 	_button(heading,"×",func() -> void: selected_id=""; entity_selected.emit(""); _render_inspector())
-	_note(inspector_body,str(entity.get("name",entity.get("label",_name(str(entity.get("kind",entity.get("item",kind))))))))
+	var display_name: String = str(entity.get("name",entity.get("label",_name(str(entity.get("kind",entity.get("item",kind)))))))
+	if kind=="buildings" and str(entity.get("kind","")) in ProcessUI.KINDS:display_name=display_name.trim_suffix(" kit")
+	_note(inspector_body,display_name)
 	if entity.has("x"): _detail("Position",_position(entity))
 	match kind:
 		"workers": _worker_inspector(entity)
@@ -941,6 +948,8 @@ func _render_inspector() -> void:
 		"orders": _order_inspector(entity)
 		"freightCars": _freight_car_inspector(entity)
 		"shunters": _shunter_inspector(entity)
+		"processOperation":
+			for pair: Array in [["Kind","kind"],["Asset","assetId"],["Car","carId"],["Worker","workerId"],["Phase","phase"],["Status","status"]]:_detail(pair[0],entity.get(pair[1],""))
 		"railGroundTask":
 			_coupling_details(entity)
 			_detail("Operation owner",entity.get("ownerId",""))
@@ -992,6 +1001,10 @@ func _render_inspector() -> void:
 				_button(inspector_body,"Relocate one exposed rail panel",func() -> void: _select_tool("relocate"))
 				_note(inspector_body,"Click clear space in a stockyard. An owned machine and crew physically move an unreserved panel.")
 		"buildings":
+			if str(entity.get("kind","")) in ProcessUI.KINDS:
+				ProcessUI.inspector(self,entity)
+				_button(inspector_body,"Recover / remove building",func() -> void: _send("remove_building",{"id":selected_id}))
+				return
 			_detail("Footprint","%s × %s m"%[entity.get("w",1),entity.get("d",1)])
 			_detail("Utilities","Connected" if entity.get("connected",false) else "Connection required")
 			_detail("Source",entity.get("source",""))
@@ -1092,6 +1105,7 @@ func _worker_inspector(worker: Dictionary) -> void:
 	_detail("Hourly wage",_money(worker.get("wage",0)))
 	_detail("Railway qualification","Qualified" if worker.get("role")=="railDriver" or worker.get("railQualified",false) else "Not recorded")
 	_detail("Rail assignment",worker.get("railAssignment",""))
+	_detail("Process operation",worker.get("processAssignment",""))
 	if worker.get("role")=="operator" and not worker.get("railQualified",false):
 		_button(inspector_body,"Verify railway license · $180",func() -> void:_send("rail_qualification",{"workerId":id}))
 	var schedule: Dictionary = worker.get("schedule",{})
@@ -1466,7 +1480,10 @@ func _freight_car_inspector(car: Dictionary) -> void:
 	if car.has("tank"):
 		_detail("Contained liquid",_name(str(car.tank.get("product",""))))
 		_detail("Tank contents","%s / %s L"%[car.tank.get("liters",0),car.tank.get("capacity",0)])
-		_note(inspector_body,"Tanker liquid stays inside the car during reception and shunting. Pumps and fluid transfer are separate chemical-plant work; a forklift cannot unload liquid.")
+		for pump: Dictionary in ProcessUI.records(self,"pumps"):
+			if str(pump.get("carId",""))==str(car.id):_detail("Transfer pump",pump.id)
+		_button(inspector_body,"Open Process register",func() -> void:_switch_tab("Process"))
+		_note(inspector_body,"Tanker liquid stays inside the car during reception and shunting. Select a transfer pump in the Process tab to connect and unload this tanker. A forklift cannot unload liquid.")
 	_detail("Ordered mass",_mass(float(car.get("mass",0))))
 	_detail("Remaining mass",_mass(_car_remaining_mass(car)))
 	for line: Dictionary in car.get("manifest",[]):
@@ -1676,7 +1693,7 @@ func _rail_help_paragraphs() -> Array[String]:
 		"Drive the locomotive directly. Forward 5 m and Reverse 5 m in its inspector move an uncoupled shunter in its cab-facing direction along installed rails. The same driver, fuel, buffer, collision and reservation rules apply. MANUAL stays visible after stopping. Click Release manual control before sending a delegated parking or shunting job.",
 		"Refuel without teleporting fuel. Park within 8 m of a diesel barrel and select Refuel stopped shunter. Its qualified driver alights, walks to the barrel, fills a 20 L can, carries it to the filler and pours it before fetching another can. Barrel, carried fuel and locomotive fuel remain separately accounted. Clear the walking route if a blocked-refueling warning appears. Finish refueling before dispatch.",
 		"Build an engine shed. Purchase its delivered kit and use Engine shed in Yard over at least 14 m of straight internal track, aligned with the doors. Normal work prepares foundations beside the track, installs anchors, columns, frames, walls, roof sections and roller doors with equipment and crew. Creative completes it instantly. Select the finished shed, choose the locomotive and Assign shed and park locomotive; its saved bay becomes the home location. Return to assigned engine shed uses a real clear rail movement.",
-		"Receive and shunt tankers. + Tanker train orders process water or bulk diesel, 1–30,000 L per car, in a multi-car train. The form shows payload, tare, train length and cost. Select a connected receiving interval, release the supplier locomotive and shunt the cars to a named transfer point as usual. The rounded tank, valves and car ID are physical assets. Contents remain in each tanker. Pumps, piping and fluid transfer are the next separate chemical-plant systems; a forklift cannot unload a tanker and a loaded tanker cannot be returned as empty.",
+		"Receive and shunt tankers. + Tanker train orders process water or bulk diesel, 1–30,000 L per car, in a multi-car train. The form shows payload, tare, train length and cost. Select a connected receiving interval, release the supplier locomotive and shunt the cars to a named transfer point as usual. The rounded tank, valves and car ID are physical assets. Contents remain in each tanker. Build a tank, transfer pump, and connected pipe route from the Process tab; select the pump to connect a stopped tanker and transfer liquid. A forklift cannot unload a tanker and a loaded tanker cannot be returned as empty.",
 		"Unload flatcars. Choose and apply an Unloading stockyard in the delivery inspector, select cars and Start unloading. Owned equipment, an operator and helper physically handle the cargo. Pause unloading after current lift before moving cars. A full or inaccessible stockyard produces a linked waiting reason. Track occupancy remains real while cars are unloaded.",
 		"Send empty cars away. Use the shunter to assemble empty supplier cars at a connected named return point near the main line, park clear, then Collect empty cars in Railway. The supplier pickup engine approaches, its service crew connects the cars, tests hoses and releases brakes, then hauls the empty train onto the main line. Pickup service and waiting time appear in Costs and the return-train inspector. Loaded or reserved cars cannot be collected. Orders, car IDs and manifests remain available as history.",
 		"Review linked records. Cars show their delivery, current location, cargo or liquid contents, couplings, hoses and handbrakes. Engines show driver, mode, fuel, home shed, current ground crew and route blocker. Coupling steps identify their assigned worker and cars. Click these IDs to inspect them; Activity filters warnings from ordinary information. Saves preserve operations, reservations, queues and completed physical steps.",
@@ -2097,7 +2114,7 @@ func _mainline_exit_form() -> void:
 func _tanker_order_form() -> void:
 	var dialog: Dictionary = _rail_dialog("Order loaded tanker cars",Vector2i(610,490))
 	var body: VBoxContainer = dialog.body
-	_note(body,"Leased tankers arrive in one supplier train, each with its own ID, brakes, contents and mass. Liquid stays inside while cars are shunted. Pumping will arrive with the chemical-plant transfer equipment.")
+	_note(body,"Leased tankers arrive in one supplier train, each with its own ID, brakes, contents and mass. Liquid stays inside while cars are shunted. Use a constructed transfer pump and pipe route from the Process tab to unload liquid.")
 	var product: OptionButton = _option(body,["Process water","Bulk diesel"])
 	var liters: SpinBox = _number(body,"Liters per car · capacity 30,000 L",20000,1,30000,1)
 	var cars: SpinBox = _number(body,"Tankers in this train",1,1,10,1)

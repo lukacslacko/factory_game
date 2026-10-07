@@ -352,6 +352,7 @@ export function reconcileEquipmentAssignments(s: State): void {
       railUnloaded &&
       constructionUnloaded &&
       !j.shedAssembly &&
+      !j.processAssembly &&
       !j.recoveryStack;
     if (!safe) {
       j.reason = `Manual ${desired} will take over after ${e.id} safely finishes this physical pass`;

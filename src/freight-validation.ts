@@ -40,7 +40,7 @@ export function freightValidationProblem(s: State, o: Order, ids: Set<string>): 
       const n = line.orderLineIndex;
       if (!Number.isInteger(n) || !lines[n] || seen.has(n) || lines[n].item !== line.item ||
           !(car.kind === 'tanker' ? isRailCommodity(line.item) : Object.hasOwn(MATERIALS, line.item)) || !Number.isInteger(line.qty) || line.qty < 1 ||
-          !Number.isInteger(line.arrived) || line.arrived < 0 || line.arrived > line.qty)
+          !(car.kind === 'tanker' ? Number.isFinite(line.arrived) : Number.isInteger(line.arrived)) || line.arrived < 0 || line.arrived > line.qty)
         return 'invalid freight car manifest';
       seen.add(n);
       totals[n].qty += line.qty;
@@ -49,7 +49,7 @@ export function freightValidationProblem(s: State, o: Order, ids: Set<string>): 
     }
     if (car.kind === 'tanker') {
       const t=car.tank, line=car.manifest[0];
-      if(car.manifest.length!==1 || !t || !isRailCommodity(t.product) || t.product!==line.item || t.capacity!==30000 || t.density!==RAIL_COMMODITIES[t.product].density || !Number.isFinite(t.liters) || t.liters<0 || t.liters>t.capacity || t.liters!==line.qty-line.arrived || line.qty>t.capacity || car.deckLength!==0 || o.unload || f.unloadRequested)
+      if(car.manifest.length!==1 || !t || !isRailCommodity(t.product) || t.product!==line.item || t.capacity!==30000 || t.density!==RAIL_COMMODITIES[t.product].density || !Number.isFinite(t.liters) || t.liters<0 || t.liters>t.capacity || Math.abs(t.liters-(line.qty-line.arrived))>1e-6 || line.qty>t.capacity || car.deckLength!==0 || o.unload || f.unloadRequested)
         return 'invalid tanker contents, capacity or handling';
     } else if(car.tank!==undefined) return 'flatcar cannot contain a liquid tank';
     if (mass > 48000 || car.mass !== mass || (car.kind==='flatcar' && car.deckLength !== orderDeckLength(car.manifest, freightStackLimits(o))) || car.deckLength > 16)

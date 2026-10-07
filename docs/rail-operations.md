@@ -71,3 +71,8 @@ Creative uses the same review but offers **Install instantly** or **Recover inst
 ### Buffer-stop representation decision (#40)
 
 A stop is mounted rail infrastructure with its own stable identity and a shared placement/inspection/recovery workflow. It does not contribute extra track length. We evaluated treating it as a five-meter straight panel with a stop in its middle. That would add or replace steel, shift the stopping plane by half a panel, change usable dock lengths, and complicate recovery of existing track and active connected construction. Keeping the mount and supporting steel as separate accounted assets preserves those physical meanings. Panel recovery includes its attached stops, and the common editing review presents both together. This resolves the lifecycle inconsistency without silently changing track geometry or allowing trains through secured stops.
+
+
+## Transfer tanker liquids — v0.23.0
+
+Use the **Process** tab to build the tank, pump and completed pipe route, then attach a stopped tanker through a physical worker-operated hose. Open the route valves and start its powered pump. Stop and disconnect the hose before dispatching the car; rail movement and empty-return requests reject connected tankers. The [fluid operations walkthrough](fluid-operations.md) gives the complete construction and transfer sequence.

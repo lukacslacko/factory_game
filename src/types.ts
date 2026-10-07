@@ -1,4 +1,5 @@
 import type { TrackPiece } from './track';
+import type { ProcessState } from './process-types';
 export type Point = { x: number; z: number };
 export type Rect = Point & { w: number; d: number };
 export type Item =
@@ -14,6 +15,13 @@ export type Item =
   | 'sanitary'
   | 'shed'
   | 'engineShed'
+  | 'processTank'
+  | 'transferPump'
+  | 'processPipe'
+  | 'pipeElbow'
+  | 'pipeTee'
+  | 'processValve'
+  | 'processGauge'
   | 'store'
   | 'lamp'
   | 'diesel'
@@ -58,6 +66,8 @@ export interface Worker extends Point, Move, Motion {
   job?: string;
   vehicle?: string;
   railAssignment?: string;
+  /** Reserved for a physical hose or valve operation. */
+  processAssignment?: string;
   schedule?: { start: number; end: number };
   shiftPhase?:
     'working' | 'finishing' | 'parking' | 'walking-to-bus' | 'aboard' | 'home' | 'returning';
@@ -342,6 +352,18 @@ export interface ShedAssembly {
     carried?: boolean;
   };
 }
+export interface ProcessAssembly {
+  phase: 'unpack' | 'rig' | 'lift' | 'lower' | 'fasten' | 'inspect' | 'recover' | 'repack';
+  clock: number;
+  completed: number;
+  recovering: boolean;
+  kitPose: RailWorkPose;
+  componentIds: Record<string, string>;
+  ladder?: Point & { height: number };
+  dock?: Point;
+  workerPoint?: Point;
+  part?: { index: number; kind: string; pose: RailWorkPose; from: RailWorkPose; to: RailWorkPose };
+}
 export interface Job extends Rect {
   /** Created directly in creative mode, without consuming delivered stock. */
   creative?: boolean;
@@ -401,6 +423,7 @@ export interface Job extends Rect {
   railWork?: RailWork;
   handling?: ConstructionHandling;
   shedAssembly?: ShedAssembly;
+  processAssembly?: ProcessAssembly;
 }
 export interface OrderLine {
   item: string;
@@ -722,6 +745,7 @@ export interface State {
   shunters?: RailShunter[];
   railReturns?: RailReturn[];
   railServiceCrew?: RailServiceCrew[];
+  process?: ProcessState;
   buffers?: BufferStop[];
   paving: Record<string, string>;
   /** Compaction from accepted equipment travel, bounded to one value per meter cell. */

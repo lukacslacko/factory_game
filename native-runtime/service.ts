@@ -7,6 +7,8 @@ import crypto from 'node:crypto';
 import { performance } from 'node:perf_hooks';
 import * as Sim from '../src/sim';
 import { bufferAssets } from '../src/buffers';
+import { configureProcessPump, requestPumpHose, disconnectPumpHose, setProcessPumpRunning, requestProcessValve, processRows } from '../src/process-fluids';
+import { planProcessPipeRun } from '../src/process-planning';
 import { detachRailFreight, orderShunter, setShunterDriver, shuntRailCars, parkShunter, refuelShunter, requestEmptyReturn, driveShunter, releaseShunterControl, railReservationRows } from '../src/rail-operations';
 import { verifyRailQualification } from '../src/rail-driver';
 import { orderTankers, tankerOrderPreview } from '../src/rail-tankers';
@@ -207,6 +209,7 @@ function storage() {
 }
 function reportingRows() {
   return {
+    process: processRows(state),
     work: jobRows(state),
     inventory: Object.keys(MATERIALS).map((item) => ({ item, ...Sim.totals(state, item as any) })),
     workers: state.workers,
@@ -254,8 +257,10 @@ function snapshot() {
   }
   const render = renderState(state),
     tables = reportingRows();
+  const recentOperations = tables.process.operations.filter(o=>o.finished===undefined).concat(tables.process.operations.filter(o=>o.finished!==undefined).slice(-200));
   const limited = {
     ...state,
+    process: state.process ? {...state.process, ledger:state.process.ledger.slice(-200),operations:recentOperations} : undefined,
     events: state.events.slice(-1000),
     movements: state.movements.slice(-1000),
     costs: state.costs.slice(-2000),
@@ -270,6 +275,7 @@ function snapshot() {
     workRows: tables.work,
     railReservations: tables.railReservations,
     inventory: tables.inventory,
+    process: {...tables.process,ledger:tables.process.ledger.slice(-200),operations:recentOperations},
     summaries: {
       totalCosts: state.costs.reduce((n, c) => n + c.amount, 0),
       costCount: state.costs.length,
@@ -519,6 +525,28 @@ async function dispatch(action: string, a: any) {
       check(result.error);
       return result;
     }
+    case 'process_pipe_plan': {
+      const result = planProcessPipeRun(state, point(a.from), point(a.to), a.rotation ?? 0);
+      check(result.error);
+      return result;
+    }
+    case 'process_configure':
+      check(configureProcessPump(state, entityId(a), { tankId: a.tankId, rate: a.rate }));
+      return {};
+    case 'process_connect':
+      check(requestPumpHose(state, entityId(a), a.carId, a.workerId));
+      return {};
+    case 'process_disconnect':
+      check(disconnectPumpHose(state, entityId(a), a.workerId));
+      return {};
+    case 'process_run':
+      if (typeof a.running !== 'boolean') throw new Error('Choose start or stop.');
+      check(setProcessPumpRunning(state, entityId(a), a.running));
+      return {};
+    case 'process_valve':
+      if (typeof a.open !== 'boolean') throw new Error('Choose open or closed.');
+      check(requestProcessValve(state, entityId(a), a.open, a.workerId));
+      return {};
     case 'pave':
       return { count: Sim.pave(state, rect(a.rect)) };
     case 'zone':
@@ -570,7 +598,7 @@ async function dispatch(action: string, a: any) {
     }
     case 'worker_duty': {
       const w = worker(entityId(a));
-      if (w.job || w.deliveryOrder || w.transportOrder || w.transition)
+      if (w.job || w.deliveryOrder || w.transportOrder || w.transition || w.processAssignment)
         throw new Error('Worker has active work or transportation.');
       if (!['auto', 'rest'].includes(a.duty)) throw new Error('Choose auto or rest.');
       if (w.vehicle) Sim.exitVehicle(state, w.id);
@@ -704,6 +732,7 @@ async function dispatch(action: string, a: any) {
       const id = entityId(a),
         tables = reportingRows();
       for (const [type, rows] of Object.entries(tables)) {
+        if (!Array.isArray(rows)) continue;
         const entity = rows.find((r: any) => r.id === id);
         if (entity)
           return {
@@ -712,6 +741,8 @@ async function dispatch(action: string, a: any) {
             intent: renderState(state).equipmentIntents.find((e) => e.id === id),
           };
       }
+      const operation = tables.process.operations.find(o=>o.id===id);
+      if (operation) return {type:'processOperation',entity:operation};
       throw new Error('Entity not found.');
     }
     case 'tables': {

@@ -89,3 +89,7 @@ Issues #31–#33 are completed in published v0.17.0, verified by 329 frozen regr
 [#34 — Recover rail pickup blocked by surrounding stock and preserve storage access](https://github.com/lukacslacko/factory_game/issues/34) tracks the screenshot-reported stockyard deadlock, safe exposed-edge rigging, accessible-source selection, physical outer-panel relocation, and prevention of sealed pickup faces. It is a separate fix from broad traffic deadlocks #17 and deferred railway recovery #7.
 
 Issue #34 is implemented in published v0.18.0, validated by 350 regressions and browser/production checks. Remaining general traffic cases in #17 are not claimed complete.
+
+## First fluid system — v0.23.0 (#8–#12)
+
+Complete the five connected issues as one usable native checkpoint: physical tank construction (#8), railway tanker transfer pumps (#9), supported piping/elbows/tees (#10), actual flow and uniquely connected tank-level gauges (#11), and worker-operated manual valves (#12). The creator authorized #8–#10 and allowed #11/#12 in the same chunk. Procurement, visible staged assembly, component identities, costs, real hose operations, conserved finite contents, operational interlocks, connected ID inspection, SQL, portable saves, and in-game help are included. Reactions, pressure hydraulics, drainage/disposal, and tank-to-tank transfer remain future work; underground cable construction remains #13. See [Fluid operations](../fluid-operations.md).

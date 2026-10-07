@@ -11,6 +11,8 @@ import {
   mainlineExitCommissioned,
 } from '../src/track';
 import { bufferAssets } from '../src/buffers';
+import { processRows, processHosePaths } from '../src/process-fluids';
+import { processAssemblyRender } from '../src/process-construction';
 import { freightPose, shipmentLots, stackHeight } from '../src/delivery';
 import { railFreightCarPose, railFreightCarBogies } from '../src/rail-freight';
 import {
@@ -85,10 +87,13 @@ export function renderState(s: State) {
     ...(s.railReturns || []).map(r => r.coupling),
     ...(s.railServiceCrew || []).map(c => c.task),
   ].filter(t => t && t.phase !== 'done');
+  const process = processRows(s);
+  const processOperations = process.operations || [];
   const actors = [
     ...s.workers.map((w) => {
       const job = s.jobs.find((j) => j.status === 'doing' && j.worker === w.id);
       const groundTask = groundTasks.find(t => t!.workerId === w.id);
+      const processTask = processOperations.find(t => t.workerId === w.id && !t.finished);
       const pose = { x: w.x, z: w.z, y: w.y || surface(w), yaw: w.yaw ?? 0 };
       return {
         ...w,
@@ -97,9 +102,9 @@ export function renderState(s: State) {
         visible: !w.vehicle && !['home', 'returning', 'aboard'].includes(w.shiftPhase || 'working'),
         walking: !!w.path?.length || Math.abs(w.velocity || 0) > 0.01,
         workPhase:
-          (groundTask?.phase === 'working' ? 'rail-fastening' : undefined) || job?.railWork?.phase || job?.shedAssembly?.phase || job?.handling?.phase || job?.phase,
+          (processTask ? 'rail-fastening' : undefined) || (groundTask?.phase === 'working' ? 'rail-fastening' : undefined) || job?.railWork?.phase || job?.processAssembly?.phase || job?.shedAssembly?.phase || job?.handling?.phase || job?.phase,
         workClock:
-          groundTask?.clock || job?.railWork?.clock ||
+          processTask?.clock || groundTask?.clock || job?.railWork?.clock || job?.processAssembly?.clock ||
           job?.shedAssembly?.clock ||
           job?.handling?.clock ||
           job?.elapsed ||
@@ -505,6 +510,9 @@ export function renderState(s: State) {
   const equipmentIntents = s.equipment.map((e) => ({ id: e.id, ...equipmentIntent(s, e) }));
   return {
     actors,
+    processAssemblies: s.jobs.filter(j => j.status === 'doing' && j.processAssembly).map(j => ({...processAssemblyRender(j), equipmentId:j.equipment})),
+    processRows: [...process.tanks,...process.pumps,...process.lines,...process.valves,...process.gauges],
+    processHoses: processHosePaths(s),
     railShunters,
     loads,
     carriers,

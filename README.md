@@ -2,7 +2,7 @@
 
 ## Native game
 
-The playable Godot migration uses the approved Concept C art and a separate local simulation process. Open **Plant 01.app** in the surrounding `outputs/` folder, or double-click **Open Plant 01.command** for development. No browser is required. [Download the Mac app](https://github.com/lukacslacko/factory_game/releases/tag/v0.22.0). See [native game instructions](native/README.md) and [migration notes](docs/native-migration.md). The browser game and static visual proof remain available below.
+The playable Godot migration uses the approved Concept C art and a separate local simulation process. Open **Plant 01.app** in the surrounding `outputs/` folder, or double-click **Open Plant 01.command** for development. No browser is required. [Download the Mac app](https://github.com/lukacslacko/factory_game/releases/tag/v0.23.0). See [native game instructions](native/README.md) and [migration notes](docs/native-migration.md). The browser game and static visual proof remain available below.
 
 
 A playable first version of the fantasy chemistry plant game. Build and operate the construction yard before chemical production arrives: hire a crew, receive physical materials, move equipment, pave ground, extend track, and assemble a small base.
@@ -20,6 +20,10 @@ To insert a switch, recover the straight panels across its 20-meter footprint an
 ## Rail editing — native v0.21.1
 
 Select installed track in **Railway** to review recovery of one panel or its whole curve/turnout assembly. The review lists material identities, storage destinations and constraints before submission. **Buffer stops / editing** brings purchasing, endpoint installation, recovery, stock and outstanding work into the same workflow. Normal mode uses real equipment and crew; Creative recovery is immediate and preserves material in finite stockyard storage. Connecting turnouts recover redundant stops, and secured stops continue to block trains. See the [rail walkthrough](docs/rail-operations.md).
+
+## First fluid system — native v0.23.0
+
+Open **Process** to build 30,000 L tanks, rail transfer pumps, DN100 pipes/elbows/tees, manual valves, and gauges. Delivered kits are physically assembled by equipment and workers. Connect a stopped tanker with a worker-operated hose, choose a tank, open the valves, and start the powered pump. Fluid fills pipe hold-up before the tank; capacity, compatibility, power and rail-motion interlocks protect the transfer. [Fluid operations walkthrough](docs/fluid-operations.md) and the in-game Process help explain placement and operation.
 
 ## Rail operations — native v0.22.0
 
@@ -41,7 +45,7 @@ An independent [Godot visual study](native-proof/README.md) recreates the concep
 
 ## Browser legacy game
 
-The private game Site is **https://plant-01-starter-yard.lukacslacko.chatgpt.site**. The browser deployment remains **0.18.0**; the native release is **0.22.0**. Browser deployment status is recorded in `docs/publishing.md`. Sign in with the account that owns the Site. Local and hosted browser saves are separate; use Export save / Import save to transfer a yard.
+The private game Site is **https://plant-01-starter-yard.lukacslacko.chatgpt.site**. The browser deployment remains **0.18.0**; the native release is **0.23.0**. Browser deployment status is recorded in `docs/publishing.md`. Sign in with the account that owns the Site. Local and hosted browser saves are separate; use Export save / Import save to transfer a yard.
 
 On this Mac, double-click **Start Plant 01.command**. It starts the included local server and opens the game at **http://127.0.0.1:4173/**. Keep its Terminal window open while playing; Control-C stops the server.
 
@@ -209,7 +213,7 @@ The game does not advance while closed. Clearing browser data removes browser sa
 
 ## Deliberate first-version boundaries
 
-This is a construction sandbox, with **no chemical production yet**. The buildable structure area is 232 × 98 m; the surrounding landscape and public transport lines are visual context. Buildable rail includes straight panels, R20 quarter-turns and modular turnouts. Native v0.22.0 supports connected named reception and collection, parallel route reservations, physical supplier handoff, owned shunting, qualified drivers, manual locomotive controls and engine sheds. Tanker liquid remains contained; pumps and chemical production are future work. The hosted browser retains its earlier rail controls; the native walkthrough describes current operation.
+This is a construction sandbox, with **no chemical production yet**. The buildable structure area is 232 × 98 m; the surrounding landscape and public transport lines are visual context. Buildable rail includes straight panels, R20 quarter-turns and modular turnouts. Native v0.22.0 supports connected named reception and collection, parallel route reservations, physical supplier handoff, owned shunting, qualified drivers, manual locomotive controls and engine sheds. Native v0.23.0 adds constructed storage tanks, railway pumps, supported piping, manual valves, gauges and conserved water/diesel transfer. Chemical reactions remain future work. The hosted browser retains its earlier rail controls; the native walkthrough describes current operation.
 
 Workers default to Always on. Assign daily or overnight shifts to use recurring charter buses: workers finish their current work, park equipment in assigned bays, leave the cab, walk to the bus, and return for their next shift. Labor is recorded while workers are on site; each charter is recorded separately. Food and welfare simulation are future work. Office and shed interiors are not simulated. Weather, seasons, tire wear, component failures, and repairs are not implemented.
 

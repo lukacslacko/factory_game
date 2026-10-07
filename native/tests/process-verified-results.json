@@ -1,0 +1,116 @@
+{
+  "version": "0.23.0",
+  "build": 216,
+  "date": "2026-10-07",
+  "issues": [
+    8,
+    9,
+    10,
+    11,
+    12
+  ],
+  "fullSuite": {
+    "tests": 621,
+    "passed": 621,
+    "durationSeconds": 348.905307291,
+    "heapLimitMB": 384,
+    "concurrency": 1
+  },
+  "afterFullSuite": {
+    "change": "Read-only connection and installed/open-route reporting, linked native inspectors, public example notification cleanup, and installed asset display label polish",
+    "focusedSimulationTests": 31,
+    "authenticatedHostTests": 1,
+    "bothBuildsPassed": true
+  },
+  "nativeCountedAssertions": 290,
+  "generalUI": {
+    "tabs": 12,
+    "inspectorTypes": 10
+  },
+  "nativeChecks": [
+    {
+      "name": "v0230-process-model-footprint",
+      "elapsed_seconds": 1.52,
+      "peak_resident_bytes": 297631744,
+      "returncode": 0,
+      "stopped_reason": null
+    },
+    {
+      "name": "v0230-process-ui-final",
+      "elapsed_seconds": 1.01,
+      "peak_resident_bytes": 170835968,
+      "returncode": 0,
+      "stopped_reason": null
+    },
+    {
+      "name": "v0230-process-bridge-final",
+      "elapsed_seconds": 5.1,
+      "peak_resident_bytes": 384073728,
+      "returncode": 0,
+      "stopped_reason": null
+    },
+    {
+      "name": "v0230-ui_smoke",
+      "elapsed_seconds": 1.02,
+      "peak_resident_bytes": 278151168,
+      "returncode": 0,
+      "stopped_reason": null
+    },
+    {
+      "name": "v0230-camera_smoke",
+      "elapsed_seconds": 1.02,
+      "peak_resident_bytes": 201719808,
+      "returncode": 0,
+      "stopped_reason": null
+    },
+    {
+      "name": "v0230-ghost_smoke",
+      "elapsed_seconds": 1.52,
+      "peak_resident_bytes": 282869760,
+      "returncode": 0,
+      "stopped_reason": null
+    },
+    {
+      "name": "v0230-shunting_renderer_smoke",
+      "elapsed_seconds": 1.52,
+      "peak_resident_bytes": 334233600,
+      "returncode": 0,
+      "stopped_reason": null
+    },
+    {
+      "name": "v0230-tanker_renderer_smoke",
+      "elapsed_seconds": 1.52,
+      "peak_resident_bytes": 294125568,
+      "returncode": 0,
+      "stopped_reason": null
+    },
+    {
+      "name": "v0230-packaged-gpu",
+      "elapsed_seconds": 8.72,
+      "peak_resident_bytes": 446103552,
+      "returncode": 0,
+      "stopped_reason": null
+    }
+  ],
+  "packagedBackgroundSeconds": 2.15,
+  "visualReview": "Actual GPU capture of connected tanker, hose, pump, supported line, worker, filled tank, and linked inspector; no generated concept image used",
+  "privateData": {
+    "isolatedTests": true,
+    "saveUnchanged": true,
+    "previousAppAndSaveBackedUp": true,
+    "leftClosed": true,
+    "excludedFromRelease": true
+  },
+  "scopeLimits": [
+    "No chemical reactions or pressure hydraulics",
+    "No draining/disposal or tank-to-tank transfer",
+    "Filled components must remain installed",
+    "Underground cable construction stays in issue 13"
+  ],
+  "installedSourceHashes": {
+    "native/runtime/service.cjs": "53e36b86eebef79eda4b933052bd629935f4af274184d7b99807936beb5aab74",
+    "native/scripts/game_ui.gd": "b928a8ec03f0df9d7dcd873dace86bf4c5fa34c7aa8631f17e38c97902f90984",
+    "native/scripts/process_ui.gd": "7b8e9d23ba17c1b68213b64e8fc3454f48d0ed73ee6f50c1dd63a47c9f7a5b05",
+    "native/scripts/process_models.gd": "a6b6fcfa984071543ad04367a653d51bfce37f6b3a096ec2ab5c85c685504308"
+  }
+}

@@ -2,11 +2,11 @@
 
 The existing factory simulation now runs in a local Node.js service, with Godot rendering the approved Concept C yard and providing native controls. The service owns simulation time and file persistence, so gameplay can continue while the window is unfocused. No web page, Chrome process, web server, or Internet connection is needed to play.
 
-Native v0.21.1 includes unified rail editing and buffer-stop recovery, supplier locomotive handoff, owned shunting, selected-car unloading and empty return trains. The original browser application and static visual proof remain available for comparison. Existing portable JSON saves can be imported; importing preserves the current yard as a backup.
+Native v0.23.0 includes physical tanks, railway transfer pumps, piping, valves, gauges, conserved fluid transfer and unified rail editing and buffer-stop recovery, supplier locomotive handoff, owned shunting, selected-car unloading and empty return trains. The original browser application and static visual proof remain available for comparison. Existing portable JSON saves can be imported; importing preserves the current yard as a backup.
 
 ## Download or open on this Mac
 
-[Download the Apple Silicon Mac app](https://github.com/lukacslacko/factory_game/releases/tag/v0.22.0), unzip it, and open **Plant 01.app**. This checkpoint targets macOS 14 or newer.
+[Download the Apple Silicon Mac app](https://github.com/lukacslacko/factory_game/releases/tag/v0.23.0), unzip it, and open **Plant 01.app**. This checkpoint targets macOS 14 or newer.
 
 Open the **Plant 01.app** built beside the repository in `outputs/`. It includes the Godot runner, Node runtime, simulation, terrain maps, and license notices. It is a local app for this Mac, not a notarized public release.
 
@@ -180,4 +180,15 @@ Stops mount on existing track; they do not add a five-meter panel. Creative remo
 
 Railway now includes commissioned manual recovery of inherited steel, named parallel reception with physical route reservations, qualified drivers, direct shunter moves with an explicit manual release, physical coupling/brakes/hoses, loaded tanker movement, a constructed engine shed and empty pickup waiting charges. [Rail operations walkthrough](../docs/rail-operations.md) and the in-game Help tab describe the current controls.
 
-Tanker liquids stay contained. Transfer pumps, storage tanks, piping, valves and gauges are separate future chemical-plant work. Empty pickup and supplier reception can use suitable connected named unloading or transfer intervals.
+Tanker liquids can now be transferred through the v0.23.0 process equipment below. Empty pickup and supplier reception use suitable connected named unloading or transfer intervals.
+
+
+## First fluid system — v0.23.0
+
+Open **Process** for tanks, railway transfer pumps, supported DN100 pipe runs, elbows, tees, manual valves, and gauges. Purchase their physical kits; the 4,800 kg tank kit requires the excavator. Foundations, transport, staged assembly, fastening, and inspection are actual construction work. Creative completes the same identified components immediately.
+
+Select a pump, apply its destination tank/rate, choose a stopped tanker within its 8 m hose reach, and request a worker to connect. Complete the outlet pipe route, request opening of its valves, provide site electrical service, and start the pump. It transfers up to 5 L/s while consuming 2 kW of available site power. Stop and physically disconnect before moving the car. Tanks hold 30,000 L, pipes retain actual hold-up, and all liquid is conserved through stops and reloads.
+
+The Process register contains dense linked tanks/pumps/pipes/valves/gauges/ground-operation tables. Its **How to use** and asset **Fluid system help** buttons explain port geometry, pipe dragging, worker operations, interlocks, and reports. See the [complete fluid walkthrough](../docs/fluid-operations.md). Filled components cannot be recovered until drained; drainage, tank-to-tank transfer, pressure simulation and reactions are later work.
+
+The v0.23.0 Mac bundle includes a public example yard at `Contents/Resources/examples/first-fluid-transfer.json` (Finder → Show Package Contents). Import it through the game menu to try a paused, connected water-transfer system. Import retains the previous yard backup. The same [example save](../examples/first-fluid-transfer.json) is in the repository.

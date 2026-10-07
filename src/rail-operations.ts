@@ -22,6 +22,7 @@ import {
 import { railLocationPath, railLocationStatus } from './rail-locations';
 import { railFreightCarPose, railFreightCarBogies, railReceptionPlan, railMovementPose, RAIL_CAR_SPACING } from './rail-freight';
 import { bufferAssets } from './buffers';
+import { processRailCarLocked } from './process-fluids';
 import { angleDelta, localPoint, RAIL_STOP as railStopStation } from './motion';
 import {
   boxOverlap,
@@ -416,7 +417,7 @@ export function orderShunter(
     return { error: 'Choose a qualified railway driver as the shunter driver.' };
   if (
     driver &&
-    (driver.job ||
+    (driver.processAssignment || driver.job ||
       driver.deliveryOrder ||
       driver.transportOrder ||
       driver.vehicle ||
@@ -477,7 +478,7 @@ export function setShunterDriver(
     return 'Choose a qualified railway driver.';
   if (
     w &&
-    (w.job ||
+    (w.processAssignment || w.job ||
       w.deliveryOrder ||
       w.transportOrder ||
       (w.vehicle && w.vehicle !== e.id) ||
@@ -510,7 +511,7 @@ function driverReady(s: State, e: RailShunter, dt: number) {
     return true;
   }
   if (
-    w.job ||
+    w.processAssignment || w.job ||
     w.deliveryOrder ||
     w.transportOrder ||
     w.vehicle ||
@@ -757,6 +758,10 @@ export function shuntRailCars(
 ): string | undefined {
   const selected = selectedCars(s, choices.orderId, choices.carIds);
   if (selected.error) return selected.error;
+  for (const carId of choices.carIds) {
+    const pump = processRailCarLocked(s, carId);
+    if (pump) return `Disconnect the transfer hose at ${pump} before moving ${carId}.`;
+  }
   const e = s.shunters?.find((e) => e.id === choices.shunterId);
   if (!e || e.phase !== 'parked' || !e.anchor) return 'Choose a delivered idle shunter.';
   if(e.manualControl) return 'Release manual control before assigning automatic shunting.';
@@ -772,7 +777,7 @@ export function shuntRailCars(
   )
     return 'Wait until the assigned driver is on site and on duty before dispatching.';
   if (
-    driver.job ||
+    driver.processAssignment || driver.job ||
     driver.deliveryOrder ||
     driver.transportOrder ||
     driver.transition ||
@@ -920,7 +925,7 @@ export function parkShunter(s: State, shunterId: string, locationId: string): st
   )
     return 'Wait until the assigned driver is on site and on duty before dispatching.';
   if (
-    driver.job ||
+    driver.processAssignment || driver.job ||
     driver.deliveryOrder ||
     driver.transportOrder ||
     driver.transition ||
@@ -955,7 +960,7 @@ export function driveShunter(s:State,shunterId:string,signedDistance:number):str
   if(!Number.isFinite(signedDistance)||Math.abs(signedDistance)<1||Math.abs(signedDistance)>20) return 'Choose a forward or reverse distance between 1 and 20 m.';
   if(e.refueling) return 'Finish refueling before manual driving.';
   const driver=s.workers.find(w=>w.id===e.driverId);
-  if(!isRailQualified(driver)||!shiftIsActive(s,driver!)||driver!.duty==='rest'||driver!.job||driver!.deliveryOrder||driver!.transportOrder||driver!.transition||driver!.parkingEquipment||driver!.yieldingTo||driver!.commuteOrder||(driver!.shiftPhase&&driver!.shiftPhase!=='working')||(driver!.railAssignment&&driver!.railAssignment!==e.id)||(driver!.vehicle&&driver!.vehicle!==e.id)) return 'Assign an available qualified railway driver on duty.';
+  if(!isRailQualified(driver)||!shiftIsActive(s,driver!)||driver!.duty==='rest'||driver!.processAssignment||driver!.job||driver!.deliveryOrder||driver!.transportOrder||driver!.transition||driver!.parkingEquipment||driver!.yieldingTo||driver!.commuteOrder||(driver!.shiftPhase&&driver!.shiftPhase!=='working')||(driver!.railAssignment&&driver!.railAssignment!==e.id)||(driver!.vehicle&&driver!.vehicle!==e.id)) return 'Assign an available qualified railway driver on duty.';
   if(e.fuel<1) return 'Refuel the shunter before driving.';
   const target=relativeRailAnchor(s,e.anchor,e.yaw,signedDistance);
   const route=target&&railRoute(s,e.anchor,target);
@@ -1018,6 +1023,10 @@ export function requestEmptyReturn(
       error: 'Choose released, stopped freight orders with no active unloading or return movement.',
     };
   const cars = orders.flatMap((o) => o!.railFreight!.cars.filter((c) => !c.returned));
+  for (const car of cars) {
+    const pump = processRailCarLocked(s, car.id);
+    if (pump) return { error: `Disconnect the transfer hose at ${pump} before returning ${car.id}.` };
+  }
   if (!cars.length || cars.some((c) => !empty(c)))
     return { error: 'Unload every selected car before requesting an empty return train.' };
   const named=choices.railLocationId?s.railLocations?.find(l=>l.id===choices.railLocationId):undefined;
@@ -1262,6 +1271,8 @@ export function tickRailOperations(s: State, dt: number) {
     }
   }
   for (const e of s.shunters || []) {
+    const lockedPump=(e.carIds||[]).map(id=>processRailCarLocked(s,id)).find(Boolean);
+    if(lockedPump&&e.phase!=='parked'){e.status=`Disconnect transfer hose at ${lockedPump} before shunting`;continue;}
     if (e.phase === 'ordered') {
       if (s.time < e.eta) continue;
       const dest = e.destinationId
@@ -1452,6 +1463,8 @@ export function tickRailOperations(s: State, dt: number) {
   }
   for (const r of s.railReturns || []) {
     if (r.phase === 'done') continue;
+    const lockedPump=r.carIds.map(id=>processRailCarLocked(s,id)).find(Boolean);
+    if(lockedPump){r.status=`Disconnect transfer hose at ${lockedPump} before moving return cars`;continue;}
     tickRailPickupBilling(s,r,dt);
     const m = r.movement;
     if (r.phase === 'coupling') {
