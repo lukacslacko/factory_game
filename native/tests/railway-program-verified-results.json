@@ -1,0 +1,99 @@
+{
+  "version": "0.22.0",
+  "build": 215,
+  "date": "2026-10-07",
+  "fullSuite": {
+    "tests": 589,
+    "passed": 589,
+    "durationSeconds": 341.246247875,
+    "heapLimitMB": 384,
+    "concurrency": 1,
+    "frozenInputs": 149
+  },
+  "nativeAssertions": 422,
+  "nativeChecks": [
+    {
+      "name": "v0220-shunting-ui",
+      "elapsed_seconds": 1.02,
+      "peak_resident_bytes": 168083456,
+      "returncode": 0,
+      "stopped_reason": null
+    },
+    {
+      "name": "v0220-shunting-renderer",
+      "elapsed_seconds": 1.52,
+      "peak_resident_bytes": 303923200,
+      "returncode": 0,
+      "stopped_reason": null
+    },
+    {
+      "name": "v0220-engine-shed",
+      "elapsed_seconds": 1.02,
+      "peak_resident_bytes": 216776704,
+      "returncode": 0,
+      "stopped_reason": null
+    },
+    {
+      "name": "v0220-tankers-gpu",
+      "elapsed_seconds": 2.53,
+      "peak_resident_bytes": 427900928,
+      "returncode": 0,
+      "stopped_reason": null
+    },
+    {
+      "name": "v0220-shunting-bridge",
+      "elapsed_seconds": 5.56,
+      "peak_resident_bytes": 200114176,
+      "returncode": 0,
+      "stopped_reason": null
+    },
+    {
+      "name": "v0220-freight_ui",
+      "elapsed_seconds": 1.02,
+      "peak_resident_bytes": 146997248,
+      "returncode": 0,
+      "stopped_reason": null
+    },
+    {
+      "name": "v0220-switch_ui",
+      "elapsed_seconds": 1.53,
+      "peak_resident_bytes": 355631104,
+      "returncode": 0,
+      "stopped_reason": null
+    },
+    {
+      "name": "v0220-rail_recovery_ui",
+      "elapsed_seconds": 1.02,
+      "peak_resident_bytes": 197820416,
+      "returncode": 0,
+      "stopped_reason": null
+    },
+    {
+      "name": "v0220-rail_edit_bridge",
+      "elapsed_seconds": 2.05,
+      "peak_resident_bytes": 176898048,
+      "returncode": 0,
+      "stopped_reason": null
+    },
+    {
+      "name": "v0220-packaged-gpu",
+      "elapsed_seconds": 8.7,
+      "peak_resident_bytes": 505561088,
+      "returncode": 0,
+      "stopped_reason": null
+    }
+  ],
+  "privateDataUsedInFixtures": false,
+  "browserProcessesStarted": 0,
+  "notes": [
+    "Generated fixtures and isolated temporary test yards only.",
+    "One bounded native process at a time; 45 second / 2 GB watchdog.",
+    "No long factory-scale soak or cross-platform certification."
+  ],
+  "install": {
+    "version": "0.22.0",
+    "build": 215,
+    "privateSavePreserved": true,
+    "previousAppBackedUp": true
+  }
+}

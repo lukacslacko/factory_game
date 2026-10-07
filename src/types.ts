@@ -13,12 +13,13 @@ export type Item =
   | 'office'
   | 'sanitary'
   | 'shed'
+  | 'engineShed'
   | 'store'
   | 'lamp'
   | 'diesel'
   | 'fence';
 export type BuildKind = Item | 'power' | 'water';
-export type Role = 'builder' | 'operator' | 'engineer';
+export type Role = 'builder' | 'operator' | 'engineer' | 'railDriver';
 export type EquipmentKind = 'excavator' | 'forklift';
 export type EquipmentWorkRole =
   'all' | 'receiving' | 'paving' | 'construction' | 'rail' | 'recovery' | 'hold';
@@ -48,6 +49,8 @@ export interface Worker extends Point, Move, Motion {
   id: string;
   name: string;
   role: Role;
+  /** Explicit railway qualification; general equipment operation does not grant it. */
+  railQualified?: boolean;
   /** Dedicated ground helper; separate from the machine operator. */
   assistingEquipment?: string;
   duty: 'auto' | 'manual' | 'rest';
@@ -131,6 +134,9 @@ export interface Building extends Rect {
   connected: boolean;
   name: string;
   source?: string;
+  /** Stable physical component identities and the track-anchored locomotive bay. */
+  componentIds?: Record<string, string>;
+  parkingLocationId?: string;
 }
 export interface BufferStop extends Point {
   id: string;
@@ -315,6 +321,7 @@ export interface ShedAssembly {
     | 'withdraw'
     | 'complete';
   clock: number;
+  componentIds?: Record<string, string>;
   anchors: number;
   posts: number;
   beams: number;
@@ -403,7 +410,8 @@ export interface OrderLine {
 /** One physical flatcar with a stable identity and its own cargo accounting. */
 export interface RailFreightCar {
   id: string;
-  kind: 'flatcar';
+  kind: 'flatcar' | 'tanker';
+  tank?: { product: 'bulkWater' | 'bulkDiesel'; liters: number; capacity: number; density: number };
   manifest: (OrderLine & { orderLineIndex: number })[];
   length: number;
   width: number;
@@ -419,6 +427,46 @@ export interface RailFreightCar {
   locationId?: string;
   groupId?: string;
   returned?: boolean;
+  /** Physical links, including an engine at an exposed end; stable asset IDs. */
+  coupledTo?: string[];
+  handbrake?: boolean;
+  brakeHoseConnected?: boolean;
+}
+export interface RailCrewAction {
+  kind: 'secure-brake' | 'disconnect' | 'connect' | 'hose-test' | 'release-brake' | 'clear' | 'switch' | 'inspect' | 'handover';
+  point: Point & { yaw: number };
+  seconds: number;
+  carId?: string;
+  otherId?: string;
+  trackId?: string;
+  route?: 'straight' | 'branch';
+}
+/** An accepted physical ground task, persisted at its exact completed step. */
+export interface RailCoupling {
+  id: string;
+  ownerId: string;
+  locomotiveId: string;
+  workerId: string;
+  serviceCrew: boolean;
+  mode: 'couple' | 'uncouple' | 'switch' | 'handover';
+  carIds: string[];
+  actions: RailCrewAction[];
+  step: number;
+  clock: number;
+  phase: 'alighting' | 'walking' | 'working' | 'boarding' | 'done';
+  status: string;
+  retryAt?: number;
+  blockedSince?: number;
+  warned?: boolean;
+}
+export interface RailServiceCrew extends Point, Move, Motion {
+  id: string;
+  name: string;
+  ownerId: string;
+  locomotiveId: string;
+  phase: 'aboard' | 'alighting' | 'ground' | 'boarding' | 'left-site';
+  status: string;
+  task?: RailCoupling;
 }
 export interface RailAnchor { trackId: string; route: 'straight' | 'branch'; offset: number }
 export interface RailMove {
@@ -433,17 +481,40 @@ export interface RailMove {
   clock: number;
   /** Engine station minus leading car station; negative means pushing. */
   couplerOffset?: number;
+  /** Swept reservation extends behind/ahead of the route for the complete body. */
+  reservedBefore?: number;
+  reservedAfter?: number;
   blockedBy?: string;
   blockedSince?: number;
   warned?: boolean;
 }
 export interface RailShunter extends Point {
+  /** Persistent home bay remains assigned while the locomotive shunts elsewhere. */
+  parkingLocationId?: string;
+  shedId?: string;
   id: string;
   name: string;
+  mass?: number;
+  purchasePrice?: number;
+  deliveryService?: 'rail';
+  deliveryCost?: number;
+  handover?: RailCoupling;
   yaw: number;
   fuel: number;
   tank: number;
   used: number;
+  manualControl?: boolean;
+  refueling?: {
+    barrelId: string;
+    workerId: string;
+    phase: 'approach-engine' | 'alighting' | 'to-barrel' | 'fill-can' | 'to-engine' | 'pour' | 'return';
+    clock: number;
+    carried: number;
+    delivered: number;
+    blockedSince?: number;
+    warned?: boolean;
+    retryAt?: number;
+  };
   driverId?: string;
   status: string;
   phase: 'ordered' | 'delivering' | 'parked' | 'boarding' | 'approaching' | 'coupling' | 'hauling' | 'uncoupling' | 'parking';
@@ -463,6 +534,7 @@ export interface RailShunter extends Point {
   driverPhase?: 'walking' | 'boarding' | 'aboard' | 'switch';
   switchId?: string;
   driverClock?: number;
+  coupling?: RailCoupling;
 }
 export interface RailReturn extends Point {
   id: string;
@@ -476,6 +548,10 @@ export interface RailReturn extends Point {
   movement: RailMove;
   departure: RailMove;
   clock: number;
+  coupling?: RailCoupling;
+  waitingClock?: number;
+  waitingSeconds?: number;
+  waitingCost?: number;
 }
 export interface RailFreight {
   locomotiveId: string;
@@ -491,9 +567,15 @@ export interface RailFreight {
   locomotiveBogies?: (Point & { yaw: number })[];
   movement?: RailMove;
   incomingRailMove?: RailMove;
+  /** Inactive physical approach history for attached train departure; never a live reservation. */
+  arrivalRailMove?: RailMove;
+  departureReverse?: boolean;
+  /** Physical locomotive stop on any connected named reception track. */
+  receptionAnchor?: RailAnchor;
   locomotiveClock?: number;
   idleClock?: number;
   returnId?: string;
+  coupling?: RailCoupling;
 }
 export interface Order {
   /** Original parcel sizes: storage limits may increase without repacking an existing carrier. */
@@ -635,8 +717,11 @@ export interface State {
   buildings: Building[];
   rails: Rail[];
   railLocations?: RailLocation[];
+  /** Explicit inherited-steel replacements: once materialized, the bootstrap span never returns. */
+  railPossessions?: { id: string; kind: 'mainlineExit' | 'sidingAccess'; from: number; to: number; z: number; assetIds: string[]; released?: boolean }[];
   shunters?: RailShunter[];
   railReturns?: RailReturn[];
+  railServiceCrew?: RailServiceCrew[];
   buffers?: BufferStop[];
   paving: Record<string, string>;
   /** Compaction from accepted equipment travel, bounded to one value per meter cell. */

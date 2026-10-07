@@ -82,3 +82,9 @@ Rail batches become one identified supplier train, with bounded individual flatc
 The supplier locomotive stays attached and returns with its emptied cars. Custom factory-track supplier routing, physical detachment/exit, owned shunters, splitting consists, return assembly, separate pickup ordering and time-based locomotive charges remain planned; the existing fixed charter fee is retained. Future work must extend commissioned track topology and real crew-operated couplers rather than teleporting cars or spawning invisible equipment.
 
 The v0.20.0 checkpoint passes all 414 simulation/native-host tests, 26 native freight UI checks, 39 freight model checks and 39 existing switch UI checks. Isolated packaged-app integration passes in 6.65 seconds with a 314.7 MB renderer peak. The installed app retains the existing yard and is left paused on the rail help page. See `native/tests/freight-verified-results.json` for the verification record.
+
+## Railway program — v0.22.0
+
+The native Railway register now covers commissioned mainline/factory possessions, manual inherited-steel recovery, reception on connected named tracks, parallel reception and linked swept-route reservations. Physical ground crew perform coupler/brake/hose work. Owned diesel locomotives have qualified drivers, direct forward/reverse controls with explicit manual release, physical can refueling, delivered engine sheds and saved home bays. Tanker trains preserve contained liquid and per-car identities while receiving and shunting. Fluid transfer remains separate chemical-plant work (#8–#12).
+
+See [Rail operations](rail-operations.md) and **Railway → Rail management help** for the current workflow. Automatic combined turnout insertion (#24) is canceled; recover the conflicting rails yourself before placing the switch.

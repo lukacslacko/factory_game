@@ -20,7 +20,7 @@ import {
   type RailRoute,
 } from './rail-routing';
 import { railLocationPath, railLocationStatus } from './rail-locations';
-import { railFreightCarPose, railFreightCarBogies, RAIL_CAR_SPACING } from './rail-freight';
+import { railFreightCarPose, railFreightCarBogies, railReceptionPlan, railMovementPose, RAIL_CAR_SPACING } from './rail-freight';
 import { bufferAssets } from './buffers';
 import { angleDelta, localPoint, RAIL_STOP as railStopStation } from './motion';
 import {
@@ -33,6 +33,8 @@ import {
   staticObstacleRects,
   type TrafficBox,
 } from './traffic';
+import { isRailQualified, beginShunterRefueling, tickShunterRefueling } from './rail-driver';
+import { advanceRailCoupling, initializeRailCouplers, tickRailPickupBilling, advanceShunterHandover, advanceRailTurnoutService } from './rail-coupling';
 import { shiftIsActive } from './workforce';
 import { turnoutWorkerPoint, turnoutIsComplete, turnoutOccupant } from './turnout-operation';
 
@@ -128,53 +130,60 @@ function joined(...routes: RailRoute[]): RailRoute {
 }
 const empty = (c: RailFreightCar) => c.manifest.every((l) => l.arrived === l.qty);
 export function mainlineExitReady(s: State) {
-  return !!railRoute(s, anchor(115), main(180))?.tracks.some(
+  return !!railRoute(s, anchor(125), main(180))?.tracks.some(
     (t) => t !== 'BOOTSTRAP-SIDING' && t !== 'BOOTSTRAP-SWITCH' && t !== 'BOOTSTRAP-MAINLINE',
   );
 }
-export function railRouteReserved(s: State, trackId?: string): string | undefined {
-  const active: [string, RailMove | undefined][] = [
-    ...s.orders.flatMap(
-      (o) =>
-        [
-          [o.id, o.railFreight?.movement],
-          [o.id, o.railFreight?.incomingRailMove],
-        ] as [string, RailMove | undefined][],
-    ),
-    ...(s.shunters || [])
-      .filter((e) => e.phase !== 'parked' && e.phase !== 'ordered')
-      .flatMap(
-        (e) =>
-          [
-            [e.id, e.movement],
-            [e.id, e.haul],
-            ...(e.approachQueue || []).map((m) => [e.id, m]),
-          ] as [string, RailMove | undefined][],
-      ),
-    ...(s.railReturns || [])
-      .filter((r) => r.phase !== 'done')
-      .flatMap(
-        (r) =>
-          [
-            [r.id, r.movement],
-            [r.id, r.departure],
-          ] as [string, RailMove | undefined][],
-      ),
-  ];
-  return active.find(([, m]) => m && (!trackId || m.tracks.includes(trackId)))?.[0];
+function activeRailMovements(s: State): [string, RailMove][] {
+  return [
+    ...s.orders.flatMap(o => [[o.id,o.railFreight?.movement],[o.id,o.railFreight?.incomingRailMove]]),
+    ...(s.shunters||[]).filter(e=>!['parked','ordered'].includes(e.phase)).flatMap(e=>[[e.id,e.movement],[e.id,e.haul],...(e.approachQueue||[]).map(m=>[e.id,m])]),
+    ...(s.railReturns||[]).filter(r=>r.phase!=='done').flatMap(r=>[[r.id,r.movement],[r.id,r.departure]])
+  ].filter((entry): entry is [string,RailMove]=>!!entry[1]);
 }
-function motionBusy(s: State, own?: string) {
-  return (
-    s.jobs.some((j) => j.kind === 'throwSwitch' && !['done', 'canceled'].includes(j.status)) ||
-    (railRouteReserved(s) !== undefined && railRouteReserved(s) !== own) ||
-    s.orders.some(
-      (o) =>
-        o.mode === 'rail' &&
-        o.id !== own &&
-        !o.railFreight?.detached &&
-        ['approaching', 'departing'].includes(o.status),
-    )
-  );
+export function railRouteReserved(s: State, trackId?: string): string | undefined {
+  return activeRailMovements(s).find(([,m])=>!trackId||m.tracks.includes(trackId))?.[0];
+}
+/** Native tables inspect these persisted reservations and the exact blocking identity. */
+export function railReservationRows(s:State) {
+  return activeRailMovements(s).map(([owner,m],index)=>({id:`${owner}:reservation:${index+1}`,owner,phase:s.shunters?.find(e=>e.id===owner)?.phase||s.railReturns?.find(r=>r.id===owner)?.phase||s.orders.find(o=>o.id===owner)?.status||'reserved',tracks:m.tracks.slice(),distance:m.distance,end:m.end,blockedBy:m.blockedBy||'',reservedBefore:m.reservedBefore||5,reservedAfter:m.reservedAfter||5,carIds:s.shunters?.find(e=>e.id===owner)?.carIds||s.railReturns?.find(r=>r.id===owner)?.carIds||s.orders.find(o=>o.id===owner)?.railFreight?.cars.filter(c=>!c.returned).map(c=>c.id)||[]}));
+}
+function pointSegmentDistance(p: Point, a: Point, b: Point) {
+  const dx=b.x-a.x,dz=b.z-a.z,den=dx*dx+dz*dz;
+  const t=den?Math.max(0,Math.min(1,((p.x-a.x)*dx+(p.z-a.z)*dz)/den)):0;
+  return Math.hypot(p.x-a.x-dx*t,p.z-a.z-dz*t);
+}
+function reservationPoints(m: RailMove) {
+  // Include the complete train tail/nose and junction fouling clearance, rather than reserving only axle centers.
+  const start=Math.max(0,m.distance-(m.reservedBefore||5)),end=Math.min(m.length,m.end+(m.reservedAfter||5));
+  const points=[];
+  for(let at=start;at<end;at+=2) points.push(sampleRailRoute(m.points,at));
+  points.push(sampleRailRoute(m.points,end));
+  if(m.distance-(m.reservedBefore||5)<0) points.unshift(railMovementPose(m,m.distance-(m.reservedBefore||5),0));
+  if(m.end+(m.reservedAfter||5)>m.length) points.push(railMovementPose(m,m.end+(m.reservedAfter||5),0));
+  return points;
+}
+/** Disjoint tracks may move concurrently. Intersecting swept body corridors reserve first-come-first-served. */
+export function railMovementConflict(s: State, movements: RailMove[], own?: string): string | undefined {
+  for(const m of movements) {
+    const points=reservationPoints(m);
+    const possession=s.railPossessions?.find(p=>!p.released&&points.some(q=>q.x>=p.from-2&&q.x<=p.to+2&&Math.abs(q.z-p.z)<2));
+    if(possession) return possession.id;
+    const lever=s.jobs.find(j=>j.kind==='throwSwitch'&&!['done','canceled'].includes(j.status)&&m.tracks.includes(j.target||''));
+    if(lever) return lever.id;
+    for(const [who,other] of activeRailMovements(s)) {
+      if(who===own) continue;
+      if(m.switches.some(sw=>other.switches.some(q=>q.id===sw.id))) return who;
+      const otherPoints=reservationPoints(other);
+      for(const p of points) for(let i=1;i<otherPoints.length;i++)
+        if(pointSegmentDistance(p,otherPoints[i-1],otherPoints[i])<3.25) return who;
+      for(const p of otherPoints) for(let i=1;i<points.length;i++)
+        if(pointSegmentDistance(p,points[i-1],points[i])<3.25) return who;
+    }
+  }
+}
+function motionBusy(s: State, own?: string, movements: RailMove[] = []) {
+  return railMovementConflict(s,movements,own);
 }
 function box(
   p: Point & { yaw: number },
@@ -220,6 +229,8 @@ function blockage(s: State, boxes: TrafficBox[], ignore: Set<string>, dynamic = 
     );
     if (stop) return stop.id;
     if (!dynamic) continue;
+    const crew=s.railServiceCrew?.find(c=>!['aboard','left-site'].includes(c.phase)&&personTouchesBox(c,b,0.5));
+    if(crew) return crew.id;
     const w = s.workers.find(
       (w) => !w.vehicle && !w.transportOrder && (w.y || 0) < 0.5 && personTouchesBox(w, b, 0.5),
     );
@@ -230,10 +241,13 @@ function blockage(s: State, boxes: TrafficBox[], ignore: Set<string>, dynamic = 
     if (e) return e.id;
     const building = s.buildings.find(
       (q) =>
-        q.kind !== 'shed' &&
+        q.kind !== 'shed' && q.kind !== 'engineShed' &&
         boxOverlap(b, { x: q.x + q.w / 2, z: q.z + q.d / 2, length: q.w, width: q.d, yaw: 0 }, 0.1),
     );
     if (building) return building.id;
+    const shedIds=[...s.buildings.filter(q=>q.kind==='engineShed').map(q=>q.id),...s.jobs.filter(j=>j.kind==='engineShed'&&j.shedAssembly&&!['done','canceled'].includes(j.status)).map(j=>j.id)];
+    const shed=staticObstacleRects(s).find(q=>shedIds.some(id=>q.id===id||q.id?.startsWith(id+'-'))&&boxOverlap(b,{x:q.x+q.w/2,z:q.z+q.d/2,length:q.w,width:q.d,yaw:0},0.05));
+    if(shed) return shed.id;
     const stack = s.stacks.find(
       (q) =>
         q.qty > 0 &&
@@ -241,6 +255,13 @@ function blockage(s: State, boxes: TrafficBox[], ignore: Set<string>, dynamic = 
     );
     if (stack) return stack.id;
   }
+}
+/** Possession is granted only after every axle/body and reserved movement is outside the work limits. */
+export function railPossessionConflict(s:State,from:number,to:number,z:number):string|undefined {
+  const work:TrafficBox={x:(from+to)/2,z,yaw:0,length:to-from+3,width:5};
+  const actor=rollingBoxes(s).find(b=>boxOverlap(work,b,0.2));
+  if(actor) return actor.id;
+  for(const [id,m] of activeRailMovements(s)) if(reservationPoints(m).some(p=>personTouchesBox(p,work,1.6))) return id;
 }
 function requestClearance(s: State, who: string, blocking: string, p: Point & { yaw: number }) {
   const w = s.workers.find((w) => w.id === blocking);
@@ -297,7 +318,7 @@ function carMotion(s: State, m: RailMove, car: RailFreightCar, at: number) {
   const pose = bodyPose(m, at, car.wheelbase);
   car.pose = { x: pose.x, z: pose.z, yaw: pose.yaw };
   car.bogies = pose.bogies;
-  const a = anchorAtRailRoute(s, m, at);
+  const a = at<0 ? (Math.abs(pose.z)<0.01&&pose.x>=-260&&pose.x<=520?{trackId:'BOOTSTRAP-MAINLINE',route:'straight' as const,offset:pose.x+260}:undefined) : anchorAtRailRoute(s, m, at);
   if (a) car.anchor = { trackId: a.trackId, route: a.route, offset: a.offset };
 }
 function advance(
@@ -356,19 +377,22 @@ export function detachRailFreight(s: State, orderId: string): string | undefined
     f = o?.railFreight;
   if (!o || !f || o.status !== 'unloading')
     return 'Wait until the supplier train is stopped at reception.';
-  if (f.detached) return 'The supplier locomotive is already released.';
+  if (f.detached || f.locomotivePhase==='uncoupling') return 'The supplier locomotive is already released or uncoupling.';
   if (o.unload) return 'Finish the current lift before uncoupling the supplier locomotive.';
+  if(s.railPossessions?.some(p=>p.kind==='mainlineExit'&&!p.released)) return 'Finish and release the mainline possession before dispatching public locomotive services.';
   if (!mainlineExitReady(s))
     return 'Build the second mainline connection at the east end of the original siding, and remove its buffer stop first.';
-  if (motionBusy(s, o.id)) return 'Another rail movement is active; wait until it stops.';
-  const route = railRoute(s, anchor(o.vehicle.x), main(350));
+  const route = railRoute(s, f.receptionAnchor || anchor(o.vehicle.x), main(350));
   if (!route) return 'No continuous clear route from this locomotive to the east main line.';
   const m = moveFor(route),
     ignore = new Set([o.id]);
+  const reservation=motionBusy(s,o.id,[m]);
+  if(reservation) return `Locomotive exit is reserved by ${reservation}; wait until it clears.`;
   const blocked = routeClear(s, m, ignore, (at) => [box(bodyPose(m, at, 5.58), 8.6, 2.65, o.id)]);
   if (blocked) return `The locomotive exit is blocked by ${blocked}. Clear that rail section.`;
   freezeCars(o);
-  f.detached = true;
+  initializeRailCouplers(s);
+  f.coupling=undefined;
   f.locomotivePhase = 'uncoupling';
   f.locomotivePose = { ...o.vehicle, yaw: o.drive?.yaw || 0 };
   f.movement = m;
@@ -378,7 +402,7 @@ export function detachRailFreight(s: State, orderId: string): string | undefined
   record(
     s,
     o.id,
-    `Released ${f.locomotiveId}; brake hoses disconnected and cars secured before locomotive departure.`,
+    `Requested release of ${f.locomotiveId}; the railway crew will secure the cars and disconnect brake hoses and couplers before departure.`,
   );
 }
 export function orderShunter(
@@ -388,8 +412,8 @@ export function orderShunter(
   if ((s.shunters?.length || 0) >= 32)
     return { error: 'The yard supports at most 32 owned shunters.' };
   const driver = choices.driverId ? s.workers.find((w) => w.id === choices.driverId) : undefined;
-  if (choices.driverId && (!driver || driver.role !== 'operator'))
-    return { error: 'Choose an equipment operator as the shunter driver.' };
+  if (choices.driverId && !isRailQualified(driver))
+    return { error: 'Choose a qualified railway driver as the shunter driver.' };
   if (
     driver &&
     (driver.job ||
@@ -417,6 +441,7 @@ export function orderShunter(
   const e: RailShunter = {
     id: id(s, 'SHUNTER'),
     name: `Diesel shunter #${(s.shunters?.length || 0) + 1}`,
+    mass:32000,purchasePrice:SHUNTER_PRICE,deliveryService:'rail',deliveryCost:240,
     x: 350,
     z: 0,
     yaw: Math.PI,
@@ -445,10 +470,11 @@ export function setShunterDriver(
   const e = s.shunters?.find((e) => e.id === shunterId),
     w = workerId ? s.workers.find((w) => w.id === workerId) : undefined;
   if (!e) return 'Shunter not found.';
+  if(e.refueling) return 'Finish refueling before changing drivers.';
   if (!['parked', 'ordered'].includes(e.phase))
     return 'Finish the current shunting movement before changing drivers.';
-  if (workerId && (!w || w.role !== 'operator'))
-    return 'Choose an equipment operator as the driver.';
+  if (workerId && !isRailQualified(w))
+    return 'Choose a qualified railway driver.';
   if (
     w &&
     (w.job ||
@@ -472,8 +498,8 @@ export function setShunterDriver(
 }
 function driverReady(s: State, e: RailShunter, dt: number) {
   const w = s.workers.find((w) => w.id === e.driverId);
-  if (!w) {
-    e.status = 'Assign an equipment operator as driver';
+  if (!w || !isRailQualified(w)) {
+    e.status = 'Assign a qualified railway driver';
     return false;
   }
   if (w.vehicle === e.id) {
@@ -719,6 +745,8 @@ function haulingPlan(s: State, cars: RailFreightCar[], target: RailAnchor, pushi
     offset = pushing ? -(tail + COUPLER) : COUPLER,
     m = moveFor(route, prefix.length + offset, prefix.length + center.length + offset);
   m.couplerOffset = offset;
+  m.reservedBefore=Math.max(5,offset+(ordered.length-1)*RAIL_CAR_SPACING+9);
+  m.reservedAfter=Math.max(5,-offset+9);
   const engineStart = anchorAtRailRoute(s, m, m.distance);
   if (!engineStart) return { error: 'Cannot locate the exposed coupling end.' };
   return { movement: m, cars: ordered, engineStart, direction: dir as 1 | -1 };
@@ -731,7 +759,9 @@ export function shuntRailCars(
   if (selected.error) return selected.error;
   const e = s.shunters?.find((e) => e.id === choices.shunterId);
   if (!e || e.phase !== 'parked' || !e.anchor) return 'Choose a delivered idle shunter.';
-  if (!e.driverId) return 'Assign an operator to this shunter first.';
+  if(e.manualControl) return 'Release manual control before assigning automatic shunting.';
+  if(e.refueling) return 'Finish refueling before dispatching.';
+  if (!e.driverId) return 'Assign a qualified driver to this shunter first.';
   const driver = s.workers.find((w) => w.id === e.driverId);
   if (
     !driver ||
@@ -752,7 +782,6 @@ export function shuntRailCars(
   )
     return 'The assigned driver is busy with another task; release that assignment before dispatching.';
   if (e.fuel < 2) return 'Refuel the shunter before moving cars.';
-  if (motionBusy(s)) return 'Another rail movement is active; wait until it stops.';
   const dest = destinationAnchor(s, choices.railLocationId);
   if (dest.error) return dest.error;
   const required = (selected.cars!.length - 1) * RAIL_CAR_SPACING + 16.8;
@@ -836,6 +865,8 @@ export function shuntRailCars(
     2;
   if (e.fuel < neededFuel)
     return `This movement needs at least ${neededFuel.toFixed(1)} L of diesel including a reserve; refuel before dispatch.`;
+  const reservation=motionBusy(s,e.id,[...queue,plan.movement!]);
+  if(reservation) return `Shunting route is reserved by ${reservation}; wait until it clears.`;
   const a = queue.shift()!;
   const blocked = routeClear(s, plan.movement!, ignore, (at) =>
     consistBoxes(plan.movement!, plan.cars!, at, e.id),
@@ -876,6 +907,8 @@ export function parkShunter(s: State, shunterId: string, locationId: string): st
   const e = s.shunters?.find((e) => e.id === shunterId),
     dest = destinationAnchor(s, locationId);
   if (!e || e.phase !== 'parked' || !e.anchor) return 'Choose a delivered idle shunter.';
+  if(e.manualControl) return 'Release manual control before assigning automatic parking.';
+  if(e.refueling) return 'Finish refueling before dispatching.';
   if (!e.driverId) return 'Assign a driver first.';
   const driver = s.workers.find((w) => w.id === e.driverId);
   if (
@@ -898,13 +931,14 @@ export function parkShunter(s: State, shunterId: string, locationId: string): st
     return 'The assigned driver is busy with another task; release that assignment before dispatching.';
   if (dest.error) return dest.error;
   if (dest.location!.length < 9) return 'Parking point needs at least 9 m.';
-  if (motionBusy(s)) return 'Another rail movement is active.';
   const queue = locomotiveApproach(s, e, dest.anchor!);
   if (!queue)
     return 'No clear locomotive route to this parking point. Clear its approach or build a runaround.';
   const neededFuel = queue.reduce((n, m) => n + m.end - m.distance, 0) * 0.04 + 2;
   if (e.fuel < neededFuel)
     return `Parking needs at least ${neededFuel.toFixed(1)} L of diesel including a reserve; refuel before dispatch.`;
+  const reservation=motionBusy(s,e.id,queue);
+  if(reservation) return `Parking route is reserved by ${reservation}; wait until it clears.`;
   e.movement = queue.shift();
   e.approachQueue = queue;
   e.destinationId = locationId;
@@ -913,34 +947,48 @@ export function parkShunter(s: State, shunterId: string, locationId: string): st
   e.status = 'Moving to parking point';
   record(s, e.id, `Park at ${dest.location!.name}.`);
 }
-export function refuelShunter(s: State, shunterId: string): string | undefined {
-  const e = s.shunters?.find((e) => e.id === shunterId);
-  if (!e || e.phase !== 'parked') return 'Stop and uncouple the shunter before refueling.';
-  if (!e.driverId) return 'Assign a driver to refuel the locomotive.';
-  const barrel = s.stacks
-    .filter(
-      (t) =>
-        t.item === 'diesel' &&
-        (t.liters || 0) > 0 &&
-        Math.hypot(t.x + t.w / 2 - e.x, t.z + t.d / 2 - e.z) < 8,
-    )
-    .sort((a, b) => Math.hypot(a.x - e.x, a.z - e.z) - Math.hypot(b.x - e.x, b.z - e.z))[0];
-  if (!barrel)
-    return 'Place a diesel barrel within 8 m of the parked shunter, or park closer to one.';
-  const liters = Math.min(e.tank - e.fuel, barrel.liters || 0);
-  if (liters <= 0) return 'The fuel tank is already full.';
-  e.fuel += liters;
-  barrel.liters! -= liters;
-  s.movements.push({
-    id: id(s, 'MV'),
-    time: s.time,
-    item: 'diesel',
-    qty: liters,
-    from: barrel.id,
-    to: e.id,
-    reason: 'Refueled diesel shunter (liters)',
-  });
-  record(s, e.id, `Filled ${liters.toFixed(1)} L from ${barrel.id}.`);
+export function refuelShunter(s:State,shunterId:string):string|undefined { return beginShunterRefueling(s,shunterId); }
+/** Manual jogs are still actual rail movements with body clearance, buffers, driver boarding and route reservations. */
+export function driveShunter(s:State,shunterId:string,signedDistance:number):string|undefined {
+  const e=s.shunters?.find(e=>e.id===shunterId);
+  if(!e||e.phase!=='parked'||!e.anchor||e.carIds?.length) return 'Stop and uncouple the shunter before manual driving.';
+  if(!Number.isFinite(signedDistance)||Math.abs(signedDistance)<1||Math.abs(signedDistance)>20) return 'Choose a forward or reverse distance between 1 and 20 m.';
+  if(e.refueling) return 'Finish refueling before manual driving.';
+  const driver=s.workers.find(w=>w.id===e.driverId);
+  if(!isRailQualified(driver)||!shiftIsActive(s,driver!)||driver!.duty==='rest'||driver!.job||driver!.deliveryOrder||driver!.transportOrder||driver!.transition||driver!.parkingEquipment||driver!.yieldingTo||driver!.commuteOrder||(driver!.shiftPhase&&driver!.shiftPhase!=='working')||(driver!.railAssignment&&driver!.railAssignment!==e.id)||(driver!.vehicle&&driver!.vehicle!==e.id)) return 'Assign an available qualified railway driver on duty.';
+  if(e.fuel<1) return 'Refuel the shunter before driving.';
+  const target=relativeRailAnchor(s,e.anchor,e.yaw,signedDistance);
+  const route=target&&railRoute(s,e.anchor,target);
+  if(!route) return 'The requested distance crosses a buffer, open end, ambiguous switch or missing rail. Choose a shorter clear movement.';
+  const m=moveFor(route),conflict=railMovementConflict(s,[m],e.id);
+  if(conflict) return `Manual route reserved by ${conflict}; wait until clear.`;
+  const blocked=routeClear(s,m,new Set([e.id]),at=>[box(bodyPose(m,at,5.58),8.6,2.65,e.id)]);
+  if(blocked) return `Manual movement blocked by ${blocked}; clear it or choose a shorter distance.`;
+  e.manualControl=true;e.movement=m;e.destinationId=undefined;e.locationId=undefined;e.phase='parking';e.status='Manual control · driver boarding for rail movement';
+  record(s,e.id,`Manual ${signedDistance>0?'forward':'reverse'} movement ${Math.abs(signedDistance)} m.`);
+}
+export function releaseShunterControl(s:State,shunterId:string):string|undefined {
+  const e=s.shunters?.find(e=>e.id===shunterId);
+  if(!e) return 'Shunter not found.';
+  if(e.phase!=='parked') return 'Wait until the manual movement stops before releasing control.';
+  e.manualControl=false;e.status='Parked · automatic shunting available';record(s,e.id,'Manual control released.');
+}
+function projectRailPoint(points:(Point & {yaw:number})[],p:Point) {
+  let best={station:0,gap:Infinity},at=0;
+  for(let i=1;i<points.length;i++) {
+    const a=points[i-1],b=points[i],dx=b.x-a.x,dz=b.z-a.z,length=Math.hypot(dx,dz),t=length?Math.max(0,Math.min(1,((p.x-a.x)*dx+(p.z-a.z)*dz)/(length*length))):0;
+    const gap=Math.hypot(p.x-a.x-t*dx,p.z-a.z-t*dz);
+    if(gap<best.gap) best={station:at+t*length,gap};
+    at+=length;
+  }
+  return best;
+}
+function relativeRailAnchor(s:State,a:RailAnchor,heading:number,offset:number) {
+  const span=Math.abs(offset),p=railAnchorPose(s,a);
+  if(!p) return;
+  const sign=Math.cos(p.yaw-heading)>=0?1:-1;
+  const run=railInterval(s,a,sign*offset<0?span:0,sign*offset>0?span:0);
+  return run&&anchorAtRailRoute(s,run,sign*offset>0?run.length:0);
 }
 export function requestEmptyReturn(
   s: State,
@@ -952,7 +1000,7 @@ export function requestEmptyReturn(
     new Set(choices.orderIds).size !== choices.orderIds.length
   )
     return { error: 'Choose one or more empty supplier orders.' };
-  if (motionBusy(s)) return { error: 'Another rail movement is active; wait until it stops.' };
+  if(s.railPossessions?.some(p=>p.kind==='mainlineExit'&&!p.released)) return {error:'Finish and release the mainline possession before requesting public locomotive pickup.'};
   if (!mainlineExitReady(s))
     return { error: 'Build and clear the second mainline connection before pickup.' };
   const orders = choices.orderIds.map((id) => s.orders.find((o) => o.id === id));
@@ -972,50 +1020,37 @@ export function requestEmptyReturn(
   const cars = orders.flatMap((o) => o!.railFreight!.cars.filter((c) => !c.returned));
   if (!cars.length || cars.some((c) => !empty(c)))
     return { error: 'Unload every selected car before requesting an empty return train.' };
-  if (cars.some((c) => c.anchor?.trackId !== 'BOOTSTRAP-SIDING' || Math.abs(c.pose!.z - 5) > 0.1))
-    return {
-      error:
-        'Assemble all selected empty cars on the original receiving siding before requesting pickup.',
-    };
-  if (choices.railLocationId) {
-    const l = s.railLocations?.find((l) => l.id === choices.railLocationId);
-    if (!l || l.trackId !== 'BOOTSTRAP-SIDING' || !['unloading', 'transfer'].includes(l.kind))
-      return { error: 'Choose a receiving or transfer point on the original siding for pickup.' };
-    if (
-      cars.some(
-        (c) =>
-          c.pose!.x - c.length / 2 < 25 + l.offset - l.length / 2 - 0.05 ||
-          c.pose!.x + c.length / 2 > 25 + l.offset + l.length / 2 + 0.05,
-      )
-    )
-      return {
-        error: `The cars are outside ${l.name}; shunt them into that collection interval first.`,
-      };
+  const named=choices.railLocationId?s.railLocations?.find(l=>l.id===choices.railLocationId):undefined;
+  if(choices.railLocationId&&(!named||!['unloading','transfer'].includes(named.kind)||!railLocationStatus(s,named).valid||!railLocationStatus(s,named).connected)) return {error:'Choose a connected unloading or transfer interval for the empty return train.'};
+  if(named) {
+    const path=railLocationPath(s,named)!;
+    for(const c of cars) {
+      const projection=projectRailPoint(path,c.pose!);
+      if(projection.gap>0.4||projection.station-c.length/2 < -0.05||projection.station+c.length/2>named.length+0.05) return {error:`Cars are outside ${named.name}; shunt them into that collection interval first.`};
+    }
   }
-  cars.sort((a, b) => b.pose!.x - a.pose!.x);
-  if (cars.some((c, i) => i && Math.abs(cars[i - 1].pose!.x - c.pose!.x - RAIL_CAR_SPACING) > 0.8))
-    return {
-      error:
-        'The empty cars must be a contiguous consist. Shunt them to the same named return point first.',
-    };
-  const lead = cars[0],
-    tail = cars.at(-1)!;
-  const exit = railRoute(s, lead.anchor!, main(400)),
-    prefix = railInterval(s, tail.anchor!, 6, 0);
-  if (!exit || !prefix) return { error: 'No clear connected mainline pickup route.' };
-  const bodyRoute = railRoute(s, anchor(tail.pose!.x - 6), lead.anchor!);
-  if (!bodyRoute) return { error: 'Unable to reserve the assembled return train.' };
-  const departure = moveFor(
-    joined(bodyRoute, exit),
-    bodyRoute.length + COUPLER,
-    bodyRoute.length + exit.length,
-  );
-  const coupling = anchor(lead.pose!.x + COUPLER);
-  const approach = railRoute(s, main(400), coupling);
-  if (!approach) return { error: 'The pickup locomotive cannot reach the coupling end.' };
+  let departure:RailMove|undefined,movement:RailMove|undefined,ordered:RailFreightCar[]|undefined;
+  for(const lead of cars) {
+    if(!lead.anchor) continue;
+    const exit=railRoute(s,lead.anchor,main(400));
+    if(!exit) continue;
+    const heading=exit.points[0].yaw;
+    const candidate=cars.slice().sort((a,b)=>(b.pose!.x-a.pose!.x)*Math.cos(heading)+(b.pose!.z-a.pose!.z)*Math.sin(heading));
+    if(candidate[0].id!==lead.id) continue;
+    const tail=candidate.at(-1)!,rear=relativeRailAnchor(s,tail.anchor!,heading,-6),coupling=relativeRailAnchor(s,lead.anchor,heading,COUPLER);
+    if(!rear||!coupling) continue;
+    const bodyRoute=railRoute(s,rear,lead.anchor),approach=railRoute(s,main(400),coupling);
+    if(!bodyRoute||!approach||Math.abs(bodyRoute.length-(6+(cars.length-1)*RAIL_CAR_SPACING))>0.8) continue;
+    const m=moveFor(joined(bodyRoute,exit),bodyRoute.length+COUPLER,bodyRoute.length+exit.length);
+    m.reservedBefore=COUPLER+(cars.length-1)*RAIL_CAR_SPACING+9;
+    departure=m; movement=moveFor(approach);ordered=candidate;break;
+  }
+  if(!departure||!movement||!ordered) return {error:'The empty cars must form a contiguous consist on connected rail with an accessible coupling end and clear east mainline exit.'};
+  cars.splice(0,cars.length,...ordered);
+  const reservation=railMovementConflict(s,[movement,departure]);
+  if(reservation) return {error:`Pickup queued behind ${reservation}; shared track or turnout fouling area reserved.`};
   const pickupId = id(s, 'RETURN'),
-    locomotiveId = id(s, 'LOCO'),
-    movement = moveFor(approach);
+    locomotiveId = id(s, 'LOCO');
   const ignored = new Set([pickupId, ...cars.map((c) => c.id)]),
     blocked = routeClear(s, departure, ignored, (at) =>
       consistBoxes(departure, cars, at, pickupId),
@@ -1105,60 +1140,98 @@ function switchReady(s: State, e: RailShunter, m: RailMove, dt: number) {
   return false;
 }
 function supplierSwitches(s: State, m: RailMove, dt: number) {
-  const pending = m.switches.filter((sw) =>
-    s.rails.some((r) => r.id === sw.id && (r.selectedRoute || 'straight') !== sw.route),
-  );
-  if (!pending.length) return true;
-  if (
-    pending.some((sw) =>
-      turnoutOccupant(
-        s,
-        s.rails.find((r) => r.id === sw.id)!,
-      ),
-    )
-  ) {
-    m.clock = 0;
-    return false;
-  }
-  m.clock += dt;
-  if (m.clock < 4) return false;
-  for (const sw of pending) {
-    const r = s.rails.find((r) => r.id === sw.id)!;
-    r.selectedRoute = sw.route;
-    record(s, r.id, `Railway service crew set turnout ${sw.route} for mainline locomotive.`);
-  }
-  m.clock = 0;
-  return true;
+  const pending=m.switches.find(sw=>s.rails.some(r=>r.id===sw.id&&(r.selectedRoute||'straight')!==sw.route));
+  const order=s.orders.find(o=>o.railFreight?.movement===m||o.railFreight?.incomingRailMove===m);
+  const shunter=s.shunters?.find(e=>e.movement===m);
+  const pickup=s.railReturns?.find(r=>r.movement===m||r.departure===m);
+  const owner=order?.id||shunter?.id||pickup?.id;
+  if(!owner) return !pending;
+  const working=s.railServiceCrew?.find(c=>c.ownerId===owner&&c.task?.mode==='switch'&&c.task.phase!=='done')?.task;
+  const action=working?.actions.find(a=>a.kind==='switch');
+  const target=action?.trackId&&action.route?{id:action.trackId,route:action.route}:pending;
+  if(!target) return true;
+  const turnout=s.rails.find(r=>r.id===target.id);
+  if(!turnout||!turnoutIsComplete(s,turnout)) return false;
+  if(!working&&pending&&turnoutOccupant(s,turnout)) {m.velocity=0;return false;}
+  m.velocity=0;
+  const pose=order?.railFreight?.locomotivePose||shunter||pickup||railMovementPose(m,m.distance,5.58);
+  return advanceRailTurnoutService(s,owner,pose,turnout,target.route,dt) && !m.switches.some(sw=>s.rails.some(r=>r.id===sw.id&&(r.selectedRoute||'straight')!==sw.route));
 }
 export function prepareRailArrival(s: State, o: Order, dt: number): string | undefined {
-  const f = o.railFreight;
-  if (!f) return;
-  const x = o.drive?.distance !== undefined ? o.vehicle.x : 56;
-  // The original station system is linear east of its first protected turnout.
-  const receivingX = f.stopDistance !== undefined ? 56 + f.stopDistance - railStopStation : x;
-  const route = railRoute(s, main(-120), anchor(receivingX));
-  if (!route) return 'Receiving route has a gap, incomplete switch or secured buffer.';
-  const leverJob = s.jobs.find(
-    (j) =>
-      j.kind === 'throwSwitch' &&
-      !['done', 'canceled'].includes(j.status) &&
-      route.switches.some((sw) => sw.id === j.target),
-  );
-  if (leverJob)
-    return `Waiting for turnout operation ${leverJob.id} to finish before reserving arrival.`;
-  f.incomingRailMove ??= moveFor(route);
-  if (!supplierSwitches(s, f.incomingRailMove, dt))
-    return 'Railway service crew setting arrival turnouts';
+  const f=o.railFreight;
+  if(!f) return;
+  const plan=railReceptionPlan(s,o);
+  if(plan.error||!plan.route||!plan.anchor) return plan.error||'No physical receiving route.';
+  const candidate=moveFor(plan.route);
+  candidate.reservedBefore=railFreightTrainTail(o); candidate.reservedAfter=5;
+  const conflict=railMovementConflict(s,[candidate],o.id);
+  if(conflict) return `Arrival queued behind ${conflict}: shared track or turnout fouling area reserved.`;
+  const blocked=routeClear(s,candidate,new Set([o.id,...f.cars.map(c=>c.id)]),at=>supplierBoxes(o,candidate,at));
+  if(blocked) return `Receiving route or interval occupied by ${blocked}; move it clear or choose another reception point.`;
+  f.receptionAnchor=plan.anchor;
+  f.incomingRailMove ??= candidate;
+  f.stopDistance=f.incomingRailMove.end;
+  if(!supplierSwitches(s,f.incomingRailMove,dt)) return 'Railway service crew setting arrival turnouts';
+}
+const railFreightTrainTail=(o:Order)=>{const c=o.railFreight!.cars.at(-1)!;return c.centerOffset+c.length/2+0.5;};
+function supplierBoxes(o:Order,m:RailMove,at:number):TrafficBox[] {
+  return [box(railMovementPose(m,at,5.58),8.6,2.65,o.id),...o.railFreight!.cars.map(c=>box(railMovementPose(m,at-c.centerOffset,c.wheelbase),c.length,c.width,c.id))];
+}
+/** Delivery uses the same swept-body railway motion as shunters, rather than the old fixed siding spline. */
+export function advanceRailArrival(s:State,o:Order,dt:number):boolean {
+  const f=o.railFreight!,m=f.incomingRailMove!;
+  const check=railReceptionPlan(s,o);
+  if(check.error) {m.velocity=0;if(o.drive)o.drive.velocity=0;o.note=check.error;return false;}
+  const done=advance(s,o.id,m,dt,at=>supplierBoxes(o,m,at),new Set([o.id,...f.cars.map(c=>c.id)]),6);
+  const p=railMovementPose(m,m.distance,5.58);
+  f.locomotivePose={x:p.x,z:p.z,yaw:p.yaw}; f.locomotiveBogies=p.bogies;
+  o.vehicle={x:p.x,z:p.z};
+  o.drive={...(o.drive||{distance:0,velocity:0}),distance:m.distance,velocity:m.velocity,yaw:p.yaw,travel:m.distance};
+  o.note=m.blockedBy?`Arrival waiting for ${m.blockedBy} to clear`:'Approaching named receiving track';
+  for(const c of f.cars) carMotion(s,m,c,m.distance-c.centerOffset);
+  if(done) for(const c of f.cars) {c.locationId=f.receptionLocationId;c.groupId=o.id;}
+  return done;
+}
+/** An attached supplier consist departs on its real route; receiving on a factory track cannot use the old fixed siding spline. */
+export function advanceAttachedRailDeparture(s:State,o:Order,dt:number):boolean {
+  const f=o.railFreight!,arrival=f.arrivalRailMove!;
+  if(!f.movement) {
+    const exit=f.receptionAnchor&&railRoute(s,f.receptionAnchor,main(400));
+    if(exit) {f.movement=moveFor(joined(arrival,exit),arrival.length,arrival.length+exit.length);f.departureReverse=false;}
+    else {
+      const reverse=f.receptionAnchor&&railRoute(s,f.receptionAnchor,main(-120));
+      if(!reverse) {o.note='Empty supplier train needs a connected departure route; restore its approach or build an exit.';return false;}
+      f.movement=moveFor(reverse);f.departureReverse=true;
+    }
+    f.movement.reservedBefore=f.departureReverse?5:railFreightTrainTail(o);
+    f.movement.reservedAfter=f.departureReverse?railFreightTrainTail(o):5;
+    const reservation=railMovementConflict(s,[f.movement],o.id);
+    if(reservation) {f.movement=undefined;o.note=`Empty train departure queued behind ${reservation}`;return false;}
+  }
+  const m=f.movement,reverse=f.departureReverse;
+  if(!supplierSwitches(s,m,dt)) {o.note='Railway crew setting attached empty-train departure route';return false;}
+  const shapes=(at:number)=>[box(bodyPose(m,at,5.58,reverse?-1:1),8.6,2.65,o.id),...f.cars.map(c=>box(bodyPose(m,at+(reverse?c.centerOffset:-c.centerOffset),c.wheelbase,reverse?-1:1),c.length,c.width,c.id))];
+  const old=m.distance,done=advance(s,o.id,m,dt,shapes,new Set([o.id,...f.cars.map(c=>c.id)]),4),p=bodyPose(m,m.distance,5.58,reverse?-1:1);
+  f.locomotivePose={x:p.x,z:p.z,yaw:p.yaw};f.locomotiveBogies=p.bogies;o.vehicle={x:p.x,z:p.z};
+  if(o.drive) Object.assign(o.drive,{distance:m.distance,velocity:m.velocity,yaw:p.yaw,reverse:!!reverse,travel:(o.drive.travel||0)+(m.distance-old)*(reverse?-1:1)});
+  for(const c of f.cars) {
+    const at=m.distance+(reverse?c.centerOffset:-c.centerOffset),p=bodyPose(m,at,c.wheelbase,reverse?-1:1);
+    c.pose={x:p.x,z:p.z,yaw:p.yaw};c.bogies=p.bogies;
+    const a=at>=0&&at<=m.length?anchorAtRailRoute(s,m,at):Math.abs(p.z)<0.01&&p.x>=-260&&p.x<=520?main(p.x):undefined;
+    if(a)c.anchor={trackId:a.trackId,route:a.route,offset:a.offset};
+  }
+  o.note=m.blockedBy?`Empty train departure waiting for ${m.blockedBy}`:reverse?'Attached empty train reversing on its physical approach':'Attached empty train departing forward through mainline exit';
+  return done;
 }
 export function tickRailOperations(s: State, dt: number) {
+  initializeRailCouplers(s);
   for (const o of s.orders) {
     const f = o.railFreight;
-    if (!f?.detached || !f.movement) continue;
+    if (!f?.movement || (!f.detached && f.locomotivePhase!=='uncoupling')) continue;
     if (f.locomotivePhase === 'uncoupling') {
-      f.locomotiveClock = (f.locomotiveClock || 0) + dt;
-      if (f.locomotiveClock < 5) continue;
-      f.locomotivePhase = 'leaving';
-      record(s, o.id, 'Supplier locomotive uncoupled; cars secured on track.');
+      if(!advanceRailCoupling(s,f,dt,{ownerId:o.id,locomotiveId:f.locomotiveId,carIds:f.cars.filter(c=>!c.returned).map(c=>c.id),mode:'uncouple',locomotivePose:f.locomotivePose!})) {o.note=f.coupling?.status||'Railway crew securing and uncoupling cars';continue;}
+      f.detached=true; f.locomotivePhase='leaving';
+      record(s,o.id,'Supplier locomotive uncoupled; cars secured on track.');
     }
     if (!supplierSwitches(s, f.movement, dt)) {
       o.note = 'Railway service crew setting exit turnout';
@@ -1190,7 +1263,7 @@ export function tickRailOperations(s: State, dt: number) {
   }
   for (const e of s.shunters || []) {
     if (e.phase === 'ordered') {
-      if (s.time < e.eta || motionBusy(s)) continue;
+      if (s.time < e.eta) continue;
       const dest = e.destinationId
         ? destinationAnchor(s, e.destinationId)
         : { anchor: anchor(115) };
@@ -1204,8 +1277,10 @@ export function tickRailOperations(s: State, dt: number) {
           'Delivery needs the completed east mainline connection and a clear receiving point';
         continue;
       }
-      const m = moveFor(route),
-        blocked = routeClear(s, m, new Set([e.id]), (at) => [
+      const m = moveFor(route);
+      const reservation=motionBusy(s,e.id,[m]);
+      if(reservation) {e.status=`Delivery queued behind ${reservation} on shared rail`;continue;}
+      const blocked = routeClear(s, m, new Set([e.id]), (at) => [
           box(bodyPose(m, at, 5.58), 8.6, 2.65, e.id),
         ]);
       if (blocked) {
@@ -1216,13 +1291,14 @@ export function tickRailOperations(s: State, dt: number) {
       e.phase = 'delivering';
       e.status = 'Supplier driver delivering owned shunter';
     }
+    if(tickShunterRefueling(s,e,dt)) continue;
     if (e.phase === 'parked') {
       const w = s.workers.find((w) => w.id === e.driverId);
-      if (w?.vehicle === e.id && !shiftIsActive(s, w)) {
+      if (w && (w.vehicle===e.id||w.railAssignment===e.id) && !shiftIsActive(s, w)) {
+        if(w.vehicle===e.id) Object.assign(w,localPoint(e,0,2));
         w.vehicle = undefined;
         w.railAssignment = undefined;
         w.y = 0;
-        Object.assign(w, localPoint(e, 0, 2));
         e.driverPhase = undefined;
       }
       continue;
@@ -1234,24 +1310,9 @@ export function tickRailOperations(s: State, dt: number) {
       e.status = 'Stopped · reversing direction for runaround';
       continue;
     }
-    if (e.phase !== 'delivering') {
-      // Switch work can interrupt boarding; do not reboard until the lever is set.
-      if (e.driverPhase === 'switch') {
-        if (!switchReady(s, e, m, dt)) continue;
-      }
-      if (!driverReady(s, e, dt)) continue;
-      if (!switchReady(s, e, m, dt)) continue;
-    } else if (!supplierSwitches(s, m, dt)) continue;
-    if (e.phase === 'boarding') e.phase = 'approaching';
     if (e.phase === 'coupling' || e.phase === 'uncoupling') {
-      e.clock = (e.clock || 0) + dt;
-      if (e.clock < 5) {
-        e.status =
-          e.phase === 'coupling'
-            ? 'Connecting couplers, brake hoses and releasing car brakes'
-            : 'Securing car brakes and disconnecting couplers';
-        continue;
-      }
+      e.driverPhase='walking';
+      if(!advanceRailCoupling(s,e,dt,{ownerId:e.id,locomotiveId:e.id,workerId:e.driverId,carIds:e.carIds||[],mode:e.phase==='coupling'?'couple':'uncouple',locomotivePose:e})) {e.status=e.coupling?.status||'Crew working couplers and brakes';continue;}
       if (e.phase === 'coupling') {
         e.phase = 'hauling';
         e.movement = e.haul;
@@ -1283,6 +1344,15 @@ export function tickRailOperations(s: State, dt: number) {
       );
       continue;
     }
+    if (e.phase !== 'delivering') {
+      // Switch work can interrupt boarding; do not reboard until the lever is set.
+      if (e.driverPhase === 'switch') {
+        if (!switchReady(s, e, m, dt)) continue;
+      }
+      if (!driverReady(s, e, dt)) continue;
+      if (!switchReady(s, e, m, dt)) continue;
+    } else if (!supplierSwitches(s, m, dt)) continue;
+    if (e.phase === 'boarding') e.phase = 'approaching';
     const cars = allRailCars(s)
       .filter((q) => e.carIds?.includes(q.car.id))
       .sort((a, b) => e.carIds!.indexOf(a.car.id) - e.carIds!.indexOf(b.car.id))
@@ -1307,12 +1377,15 @@ export function tickRailOperations(s: State, dt: number) {
     const p = bodyPose(m, m.distance, 5.58);
     e.x = p.x;
     e.z = p.z;
-    e.yaw = p.yaw + (Math.abs(angleDelta(e.yaw, p.yaw)) > Math.PI / 2 ? Math.PI : 0);
+    const facing=p.yaw + (Math.abs(angleDelta(e.yaw,p.yaw))>Math.PI/2?Math.PI:0);
+    e.yaw=Math.atan2(Math.sin(facing),Math.cos(facing));
     e.bogies = p.bogies;
     const a = anchorAtRailRoute(s, m, m.distance);
     if (a) e.anchor = { trackId: a.trackId, route: a.route, offset: a.offset };
     if (e.phase !== 'delivering') {
-      const used = Math.min(e.fuel, (m.distance - old) * 0.025 + dt * 0.001);
+      // A blocked locomotive shuts down rather than consuming its trip reserve
+      // indefinitely where it cannot safely uncouple for a fuel service.
+      const used = Math.min(e.fuel, (m.distance - old) * 0.025 + (m.distance > old + 1e-6 ? dt * 0.001 : 0));
       e.fuel -= used;
       e.used += used;
       const w = s.workers.find((w) => w.id === e.driverId);
@@ -1336,6 +1409,7 @@ export function tickRailOperations(s: State, dt: number) {
           : 'Approaching coupling end';
     if (!done) continue;
     if (e.phase === 'delivering') {
+      if(!advanceShunterHandover(s,e,dt)) continue;
       e.phase = 'parked';
       e.movement = undefined;
       e.locationId = e.destinationId;
@@ -1356,7 +1430,7 @@ export function tickRailOperations(s: State, dt: number) {
         e.phase = 'parked';
         e.locationId = e.destinationId;
         e.movement = undefined;
-        e.status = 'Parked';
+        e.status = e.manualControl?'Manual control · stopped · release to resume automatic work':'Parked';
         record(s, e.id, 'Reached assigned parking point.');
       }
     } else if (e.phase === 'approaching') {
@@ -1367,22 +1441,21 @@ export function tickRailOperations(s: State, dt: number) {
       } else {
         e.approachQueue = undefined;
         e.phase = 'coupling';
+        e.coupling=undefined;
         e.clock = 0;
       }
     } else if (e.phase === 'hauling') {
       e.phase = 'uncoupling';
+      e.coupling=undefined;
       e.clock = 0;
     }
   }
   for (const r of s.railReturns || []) {
     if (r.phase === 'done') continue;
+    tickRailPickupBilling(s,r,dt);
     const m = r.movement;
     if (r.phase === 'coupling') {
-      r.clock += dt;
-      if (r.clock < 8) {
-        r.status = 'Railway crew coupling and testing brakes';
-        continue;
-      }
+      if(!advanceRailCoupling(s,r,dt,{ownerId:r.id,locomotiveId:r.locomotiveId,carIds:r.carIds,mode:'couple',locomotivePose:r})) {r.status=r.coupling?.status||'Railway crew coupling and testing brakes';continue;}
       r.phase = 'returning';
       r.movement = r.departure;
       r.clock = 0;
@@ -1428,6 +1501,7 @@ export function tickRailOperations(s: State, dt: number) {
       continue;
     }
     r.phase = 'done';
+    tickRailPickupBilling(s,r,0);
     r.status = 'Empty cars returned to supplier';
     cars.forEach((c) => (c.returned = true));
     for (const oid of r.orderIds) {

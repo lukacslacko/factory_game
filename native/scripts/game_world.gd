@@ -3,6 +3,7 @@ const G=preload("res://scripts/geometry.gd")
 const Ground=preload("res://scripts/ground.gd")
 const R=preload("res://scripts/rail_yard.gd")
 const Models=preload("res://scripts/game_models.gd")
+const TankerModels=preload("res://scripts/tanker_models.gd")
 var state:Dictionary={}
 var render:Dictionary={}
 var models:Dictionary={}
@@ -83,7 +84,7 @@ func sync_snapshot(message:Dictionary)->void:
 		shunter.visible=bool(data.get("visible",true))
 		shunter.set_meta("inspect_id",id)
 		var driver:Node3D=shunter.get_node_or_null("Operator")
-		if driver:driver.visible=not str(data.get("driverId","")).is_empty()
+		if driver:driver.visible=str(data.get("driverPhase",""))=="aboard" or (str(data.get("phase",""))=="delivering" and not data.has("handover"))
 		_new_pose(id,data)
 	for data in render.get("carriers",[]):
 		var id:=str(data.id)
@@ -91,12 +92,15 @@ func sync_snapshot(message:Dictionary)->void:
 			var locomotive=data.get("locomotive",data)
 			if locomotive is Dictionary and not locomotive.is_empty():
 				var engine_id:=str(locomotive.get("id",id));live[engine_id]=true
-				_ensure_dynamic(engine_id,"rail",data,true).set_meta("inspect_id",str(locomotive.get("inspectId",engine_id)))
+				var line_engine:Node3D=_ensure_dynamic(engine_id,"rail",data,true)
+				line_engine.set_meta("inspect_id",str(locomotive.get("inspectId",engine_id)))
+				var cab:Node3D=line_engine.get_node_or_null("Operator")
+				if cab:cab.visible=bool(locomotive.get("driverVisible",true))
 				_new_pose(engine_id,locomotive)
 			if data.has("cars"):
 				for car in data.cars:
 					var car_id:=str(car.id);live[car_id]=true
-					_ensure_wagon(car_id,float(car.get("length",16.8))-.8)
+					_ensure_wagon(car_id,float(car.get("length",16.8))-.8,str(car.get("kind","flatcar")),str(car.get("tank",{}).get("product","bulkWater")))
 					(models[car_id] as Node3D).set_meta("inspect_id",car_id)
 					_new_pose(car_id,car)
 			else:
@@ -147,7 +151,7 @@ func sync_snapshot(message:Dictionary)->void:
 			_new_pose(id,assembly.anchorPoses[index])
 		var kit:Dictionary=assembly.get("kitPose",{})
 		if not kit.is_empty():
-			var remaining:Dictionary={"posts":maxi(0,6-int(assembly.get("posts",0))),"beams":maxi(0,3-int(assembly.get("beams",0))),"roof":maxi(0,4-int(assembly.get("roofSheets",0))),"walls":maxi(0,2-int(assembly.get("wallPanels",0))),"brace":maxi(0,1-int(assembly.get("braces",0)))}
+			var remaining:Dictionary={"posts":maxi(0,6-int(assembly.get("posts",0))),"beams":maxi(0,3-int(assembly.get("beams",0))),"roof":maxi(0,int(assembly.get("limits",{}).get("roof",4))-int(assembly.get("roofSheets",0))),"walls":maxi(0,int(assembly.get("limits",{}).get("wall",2))-int(assembly.get("wallPanels",0))),"brace":maxi(0,int(assembly.get("limits",{}).get("brace",1))-int(assembly.get("braces",0)))}
 			var id:=str(assembly.jobId)+"/kit";live[id]=true;var key:=JSON.stringify(remaining)
 			if not models.has(id) or str((models[id] as Node3D).get_meta("kit_key",""))!=key:
 				if models.has(id):var old:Node3D=models[id];remove_child(old);old.queue_free()
@@ -157,11 +161,11 @@ func sync_snapshot(message:Dictionary)->void:
 		if int(assembly.get("rotation",0))%2==1:var swap:=w; w=d; d=swap
 		for part in assembly.get("parts",[]):
 			var id:=str(assembly.jobId)+"/assembly/"+str(part.kind)+"/"+str(part.index); live[id]=true
-			if not models.has(id):models[id]=Models.shed_part(self,str(part.kind),w,d,int(part.index))
+			if not models.has(id):models[id]=Models.shed_part(self,str(part.kind),w,d,int(part.index),str(assembly.get("kind","shed"))=="engineShed")
 			var job:Dictionary=_entity(str(assembly.jobId),"jobs")
 			(models[id] as Node3D).set_meta("cargo_item","shedPart")
 			(models[id] as Node3D).set_meta("cargo_width",w*.28 if str(part.kind) in ["beam","roof","wall"] else .16)
-			(models[id] as Node3D).set_meta("cargo_height",2.15 if str(part.kind)=="post" else 1.90 if str(part.kind)=="wall" else 1.95 if str(part.kind)=="brace" else .4)
+			(models[id] as Node3D).set_meta("cargo_height",(2.75 if str(assembly.get("kind",""))=="engineShed" else 2.15) if str(part.kind)=="post" else (2.55 if int(part.index)<4 else .35) if str(part.kind)=="wall" and str(assembly.get("kind",""))=="engineShed" else 1.90 if str(part.kind)=="wall" else 1.95 if str(part.kind)=="brace" else .4)
 			_new_pose(id,_attachment_pose(part.get("pose",{}),str(job.get("equipment","")),bool(part.get("carried",false))))
 	for id in models.keys():
 		if not live.has(id):
@@ -182,11 +186,11 @@ func _ensure_dynamic(id:String,kind:String,data:Dictionary,carrier:bool=false)->
 	models[id]=model
 	return model
 
-func _ensure_wagon(id:String,length:float=16.0)->void:
-	if models.has(id) and is_equal_approx(float((models[id] as Node3D).get_meta("deck_length",16)),length):return
+func _ensure_wagon(id:String,length:float=16.0,kind:String="flatcar",product:String="bulkWater")->void:
+	if models.has(id) and is_equal_approx(float((models[id] as Node3D).get_meta("deck_length",16)),length) and str((models[id] as Node3D).get_meta("car_type","flatcar"))==kind:return
 	if models.has(id):
 		var old:Node3D=models[id];remove_child(old);old.queue_free()
-	var wagon:=Models.flatcar(self,length,id if not "/" in id else "FLAT 014 · 40 t");wagon.set_meta("kind","wagon");wagon.set_meta("id",id)
+	var wagon:Node3D=TankerModels.tanker(self,length,id,product) if kind=="tanker" else Models.flatcar(self,length,id if not "/" in id else "FLAT 014 · 40 t");wagon.set_meta("kind","wagon");wagon.set_meta("id",id)
 	models[id]=wagon
 
 func _ensure_load(id:String,item:String,qty:int,hand:int=1,buffer_contact:bool=false)->void:
@@ -708,7 +712,7 @@ func pick_screen(camera:Camera3D,screen:Vector2)->String:
 				var item:=str(entity.item);var qty:int=int(entity.get("qty",1))
 				height=.02+qty*.18 if item=="slab" else .325+maxi(0,qty-1)*.36 if item.begins_with("rail") else .95 if item=="diesel" else 1.15 if item=="bufferStop" else 3.1
 			else:
-				height=5.4 if str(entity.kind) in ["shed","store"] else 4.7 if str(entity.kind)=="lamp" else 2.1 if str(entity.kind)=="fence" else 3.1
+				height=5.4 if str(entity.kind) in ["shed","store","engineShed"] else 4.7 if str(entity.kind)=="lamp" else 2.1 if str(entity.kind)=="fence" else 3.1
 			var box:=AABB(Vector3(float(entity.x),_surface_height(entity)+float(entity.get("baseHeight",0)),float(entity.z)),Vector3(float(entity.w),height,float(entity.d)))
 			var distance:=_ray_aabb(origin,direction,box)
 			if distance>=0 and distance<closest:closest=distance;selected_entity=id
@@ -804,7 +808,7 @@ func _construction_ghost(parent:Node3D,rect:Dictionary,color:Color)->void:
 	var corners:Array[Vector3]=[Vector3(x,surface+.030,z),Vector3(x+w,surface+.030,z),Vector3(x+w,surface+.030,z+d),Vector3(x,surface+.030,z+d)]
 	for index in range(4):_ghost_edge(batch,corners[index],corners[(index+1)%4],ink,bright)
 	var kind:String=str(rect.get("kind",""))
-	var height:float=3.0 if kind in ["office","sanitary"] else 4.3 if kind in ["shed","store"] else 0.0
+	var height:float=3.0 if kind in ["office","sanitary"] else 4.3 if kind in ["shed","store","engineShed"] else 0.0
 	if height>0:
 		for index in range(4):
 			var at:Vector3=corners[index]+Vector3(0,height*.5,0)

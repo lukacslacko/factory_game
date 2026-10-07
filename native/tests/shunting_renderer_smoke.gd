@@ -18,7 +18,7 @@ func _run()->void:
 	var second:Dictionary={"id":"CAR-9002","length":16.8,"x":62.4,"z":5.,"yaw":0.,"bogies":[_pose(56.9,5,0),_pose(67.9,5,0)]}
 	var cargo:Dictionary={"id":"LOT-1","item":"rail","qty":2,"carId":"CAR-9002","x":62.4,"z":5.,"y":1.3,"yaw":0.}
 	var train:Dictionary={"id":"PO-9001","kind":"rail","locomotive":null,"cars":[first,second],"cargo":[cargo]}
-	var shunter:=_pose(94,5,0);shunter.id="SHUNTER-9001";shunter.driverId="WRK-9001";shunter.bogies=_bogies(shunter)
+	var shunter:=_pose(94,5,0);shunter.id="SHUNTER-9001";shunter.driverId="WRK-9001";shunter.driverPhase="walking";shunter.phase="parked";shunter.bogies=_bogies(shunter)
 	fixture.render.carriers=[train];fixture.render.railShunters=[shunter]
 	var world:=W.new();root.add_child(world);world.setup();world.sync_snapshot(fixture);world.advance(.3)
 	_check(world.models.size()==4,"Detached two-car train, actual cargo, and owned shunter have exactly four keyed models")
@@ -26,7 +26,9 @@ func _run()->void:
 	var engine:Node3D=world.models[shunter.id]
 	_check(engine.get_meta("kind")=="railShunter" and engine.get_meta("forward")=="+X","Owned shunter uses rail forward convention and independent kind")
 	_check(engine.get_meta("inspect_id")==shunter.id,"Shunter is individually clickable")
-	_check(engine.get_node("Operator").visible,"Assigned driver visibly occupies owned engine cab")
+	_check(not engine.get_node("Operator").visible,"Assigned driver walking toward the shunter does not appear in its cab")
+	shunter.driverPhase="aboard";world.sync_snapshot(fixture);world.advance(.3)
+	_check(engine.get_node("Operator").visible,"A driver physically aboard visibly occupies the owned engine cab")
 	_check(world.entity_position(shunter.id).distance_to(Vector3(94,0,5))<.001,"Locate follows owned engine instead of delivery default")
 	var camera:=Camera3D.new();root.add_child(camera);camera.position=Vector3(94,12,23);camera.look_at(Vector3(94,2,5));camera.current=true
 	await process_frame
@@ -52,10 +54,10 @@ func _run()->void:
 	# arrives. There are no duplicated cars in the pickup carrier record.
 	var pickup:=_pose(150,0,0);pickup.id="LOCO-RETURN-9001";pickup.inspectId="RETURN-9001";pickup.bogies=_bogies(pickup)
 	fixture.render.carriers.append({"id":"RETURN-9001","kind":"rail","locomotive":pickup,"cars":[],"cargo":[]})
-	shunter.driverId="";world.sync_snapshot(fixture);world.advance(.3)
+	shunter.driverPhase="walking";world.sync_snapshot(fixture);world.advance(.3)
 	_check(world.models.size()==5,"Independent pickup engine adds one model without duplicating assigned empty or loaded cars")
 	_check(world.models[pickup.id].get_meta("inspect_id")=="RETURN-9001","Pickup engine opens its return operation")
-	_check(not engine.get_node("Operator").visible,"Driver exiting cab removes seated operator")
+	_check(not engine.get_node("Operator").visible,"Assigned driver exiting for ground work removes seated operator without losing assignment")
 	train.cars=[first];train.cargo=[];world.sync_snapshot(fixture);world.advance(.3)
 	_check(world.models.has(first.id) and not world.models.has(second.id),"Only physically returned car disappears; retained car stays in yard")
 	fixture.render.carriers=[];world.sync_snapshot(fixture);world.advance(.3)

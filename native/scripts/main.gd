@@ -345,7 +345,7 @@ func _placement_preview(point: Vector3) -> void:
 		return
 	var rect := _rect(click_point if placing else point,point)
 	if tool not in ["slab", "zone"]:
-		var sizes := {"office":Vector2i(6,3),"sanitary":Vector2i(3,2),"shed":Vector2i(8,6),"store":Vector2i(6,4),"lamp":Vector2i(1,1),"fence":Vector2i(3,1),"power":Vector2i(1,1),"water":Vector2i(1,1),"railStraight":Vector2i(5,2),"railCurve":Vector2i(20,20),"railTurnout":Vector2i(20,7),"railConverging":Vector2i(20,7),"parking":Vector2i(3,5),"relocate":Vector2i(5,2)}
+		var sizes := {"office":Vector2i(6,3),"sanitary":Vector2i(3,2),"shed":Vector2i(8,6),"engineShed":Vector2i(6,14),"store":Vector2i(6,4),"lamp":Vector2i(1,1),"fence":Vector2i(3,1),"power":Vector2i(1,1),"water":Vector2i(1,1),"railStraight":Vector2i(5,2),"railCurve":Vector2i(20,20),"railTurnout":Vector2i(20,7),"railConverging":Vector2i(20,7),"parking":Vector2i(3,5),"relocate":Vector2i(5,2)}
 		var size: Vector2i = sizes.get(tool,Vector2i(1,1))
 		if tool == "relocate":
 			for stack: Dictionary in state.get("stacks",[]):

@@ -159,6 +159,10 @@ export const MATERIALS: Record<
     color: 0x7e9190,
     description: 'Build an 8 × 6 m open shed. Pillars, bracing, and corrugated roof.',
   },
+  engineShed: {
+    name: 'Engine shed kit', unit: 'kits', price: 14800, mass: 5200, w: 4, d: 3, max: 1, work: 64, color: 0x6e8c85,
+    description: '6 × 14 m drive-through locomotive shed. Delivered columns, roof frames, eight roof sections, four side-wall panels and two raised roller doors; 5.1 m clear height and connected internal track required. Erected by an excavator and construction crew.',
+  },
   store: {
     name: 'Stores building kit',
     unit: 'kits',
@@ -217,6 +221,7 @@ export const BUILDINGS: Record<
   office: { name: 'Office', w: 6, d: 3, foundation: true },
   sanitary: { name: 'WC / showers', w: 3, d: 2, foundation: true },
   shed: { name: 'Equipment shed', w: 8, d: 6, foundation: true },
+  engineShed: { name: 'Engine shed', w: 6, d: 14, foundation: true },
   store: { name: 'Workshop', w: 6, d: 4, foundation: true },
   lamp: { name: 'Light pole', w: 1, d: 1, foundation: true },
   fence: { name: 'Fence', w: 3, d: 1, foundation: false },
@@ -246,6 +251,12 @@ export const ROLES: Record<
   Role,
   { name: string; price: number; wage: number; description: string }
 > = {
+  railDriver: {
+    name: 'Qualified railway driver',
+    price: 180,
+    wage: 44,
+    description: 'Licensed shunter driver. Arrives by crew bus and works an assigned shift.',
+  },
   builder: {
     name: 'Construction worker',
     price: 90,

@@ -13,6 +13,7 @@ import {
 import type { State } from './types';
 import { EQUIPMENT_ROLES, EQUIPMENT_ACTIVITIES } from './equipment-roles';
 import { MATERIALS, EQUIPMENT, ROLES, SERVICES } from './catalog';
+import { isRailCommodity } from './rail-commodities';
 import { railWorkGroup } from './rail-work-groups';
 const fail = (message: string): never => {
   throw new Error(`Invalid save: ${message}.`);
@@ -292,6 +293,7 @@ export function validateState(value: any): asserts value is State {
       !motion(w) ||
       !path(w.path) ||
       !(w.role in ROLES) ||
+      (w.railQualified !== undefined && typeof w.railQualified !== 'boolean') ||
       !['auto', 'manual', 'rest'].includes(w.duty) ||
       typeof w.status !== 'string' ||
       typeof w.name !== 'string' ||
@@ -470,6 +472,8 @@ export function validateState(value: any): asserts value is State {
   for (const b of [...s.buildings, ...s.zones, ...s.jobs])
     if (!point(b) || !finite(b.w) || !finite(b.d) || b.w <= 0 || b.d <= 0)
       fail('invalid footprint');
+  const engineComponents=(v:any)=>v && typeof v==='object' && !Array.isArray(v) && Object.keys(v).length===29 && Object.entries({anchor:6,post:6,beam:3,roof:8,wall:6}).every(([kind,n])=>Array.from({length:n},(_,i)=>v[`${kind}/${i}`]).every(id=>typeof id==='string' && id.length>0 && id.length<200)) && new Set(Object.values(v)).size===29;
+  for(const b of s.buildings) if(b.kind==='engineShed' && (!engineComponents(b.componentIds) || (b.parkingLocationId!==undefined && (typeof b.parkingLocationId!=='string' || b.parkingLocationId.length>200)))) fail('invalid engine shed components or parking bay');
   for (const r of s.rails) {
     if (!point(r) || ![0, 1].includes(r.rotation) || !finite(r.length)) fail('invalid track panel');
     if (r.track) {
@@ -673,8 +677,9 @@ export function validateState(value: any): asserts value is State {
     if (j.shedAssembly) {
       const h = j.shedAssembly;
       const pose = (p: any) => point(p) && finite(p.y) && finite(p.yaw);
+      if(j.kind==='engineShed' && !engineComponents(h.componentIds)) fail('invalid engine shed component identities');
       if (
-        j.kind !== 'shed' ||
+        !['shed','engineShed'].includes(j.kind) ||
         ![
           'stage',
           'unpack',
@@ -696,9 +701,9 @@ export function validateState(value: any): asserts value is State {
           ['anchors', 6],
           ['posts', 6],
           ['beams', 3],
-          ['roofSheets', 4],
-          ['wallPanels', 2],
-          ['braces', 1],
+          ['roofSheets', j.kind==='engineShed'?8:4],
+          ['wallPanels', j.kind==='engineShed'?6:2],
+          ['braces', j.kind==='engineShed'?0:1],
         ].every(([name, max]) => Number.isInteger(h[name]) && h[name] >= 0 && h[name] <= max) ||
         (h.dock && !point(h.dock)) ||
         (h.workerPoint && !point(h.workerPoint)) ||
@@ -712,7 +717,7 @@ export function validateState(value: any): asserts value is State {
             !Number.isInteger(h.part.index) ||
             h.part.index < 0 ||
             h.part.index >=
-              ({ post: 6, beam: 3, roof: 4, wall: 2, brace: 1 } as any)[h.part.kind] ||
+              ({ post: 6, beam: 3, roof: j.kind==='engineShed'?8:4, wall: j.kind==='engineShed'?6:2, brace: 1 } as any)[h.part.kind] ||
             ![h.part.pose, h.part.from, h.part.to].every(pose) ||
             (h.part.carried !== undefined && typeof h.part.carried !== 'boolean')))
       )
@@ -1055,7 +1060,8 @@ export function validateState(value: any): asserts value is State {
         fail('invalid delivery manifest');
       const material = lines.every((l: any) => Object.hasOwn(MATERIALS, l.item)),
         crew = lines.every((l: any) => Object.hasOwn(ROLES, l.item));
-      if (!material && !crew) fail('incompatible items on one carrier');
+      const bulk = !!o.railFreight && lines.every((l: any) => isRailCommodity(l.item)) && o.railFreight.cars.every((c: any) => c.kind === 'tanker');
+      if (!material && !crew && !bulk) fail('incompatible items on one carrier');
       if (crew && (o.mode !== 'road' || o.qty > CREW_BUS_SEATS)) fail('overfilled crew bus');
       if (
         material &&
@@ -1133,7 +1139,7 @@ export function validateState(value: any): asserts value is State {
     )
       fail('invalid bus boarding phase');
     if (
-      !(o.item in MATERIALS || o.item in ROLES || o.item in EQUIPMENT || o.item in SERVICES) ||
+      !(o.item in MATERIALS || o.item in ROLES || o.item in EQUIPMENT || o.item in SERVICES || (isRailCommodity(o.item) && o.railFreight)) ||
       !Number.isInteger(o.qty) ||
       o.qty < 1 ||
       !Number.isInteger(o.arrived) ||

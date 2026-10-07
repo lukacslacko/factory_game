@@ -1,3 +1,4 @@
+import { commissionExit, commissionAccess, prepareExitSteel } from './support/rail';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as S from '../src/sim';
@@ -19,7 +20,7 @@ function received() {
   const s = S.createState();
   s.creative = true;
   assert.equal(S.addZone(s, { x: 200, z: 100, w: 3, d: 3 }), '');
-  assert.equal(S.planMainlineExit(s).error, '');
+  assert.equal(commissionExit(s).error, '');
   assert.equal(mainlineExitReady(s), true);
   S.purchaseBatch(s, [{ item: 'slab', qty: 8 }], 'rail');
   tick(s, () => s.orders[0].status === 'unloading');
@@ -31,6 +32,7 @@ test('supplier engine leaves through the exit while real cars stay fixed and sur
   const before = railFreightCarPose(o, 0),
     carId = o.railFreight!.cars[0].id;
   assert.equal(detachRailFreight(s, o.id), undefined);
+  assert.equal(o.railFreight!.detached, undefined);
   for (let n = 0; n < 80; n++) {
     S.tick(s, 0.1);
     assert.deepEqual(railFreightCarPose(o, 0), before);
@@ -58,7 +60,7 @@ test('owned shunter is delivered by continuous rail movement, billed once and aw
   assert.ok(Math.abs(e.x - 115) < 0.01);
   assert.equal(e.driverId, undefined);
   assert.equal(e.fuel, 360);
-  assert.equal(s.costs.filter((c) => c.entity === e.id).length, 1);
+  assert.equal(s.costs.filter((c) => c.entity === e.id && c.description.includes('Owned diesel shunter')).length, 1);
   const loaded = S.load(S.save(s));
   assert.deepEqual(loaded.shunters, JSON.parse(JSON.stringify(s.shunters)));
 });
@@ -78,6 +80,7 @@ test('detached empty cars stay until mainline pickup, move continuously and retu
   let s = received(),
     o = s.orders[0];
   seedHandlingResources(s, 'forklift');
+  s.workers[0].railQualified=true;
   S.addZone(s, { x: 24, z: 26, w: 12, d: 12 });
   // Keep ordinary unloading in its intended nearby yard; the remote stop bay is finite salvage storage.
   s.zones.unshift(s.zones.pop()!);
@@ -112,6 +115,7 @@ test('a driver boards and a shunter pulls selected loaded cars to a named point 
   const s = received(),
     o = s.orders[0];
   seedHandlingResources(s, 'forklift');
+  s.workers[0].railQualified=true;
   assert.equal(detachRailFreight(s, o.id), undefined);
   tick(s, () => o.railFreight!.locomotivePhase === 'gone');
   assert.equal(
@@ -177,7 +181,7 @@ test('a driver boards and a shunter pulls selected loaded cars to a named point 
   assert.ok(Math.abs(railFreightCarPose(o, 0).x - 70) < 0.01);
   assert.equal(o.arrived, 0);
   assert.equal(o.railFreight!.cars[0].locationId, target.id);
-  assert.equal(s.workers[0].vehicle, e.id);
+  assert.equal(s.workers[0].vehicle, undefined);
   assert.ok(e.used > 0);
   S.tick(s, 0.1);
   assert.equal(
@@ -193,8 +197,8 @@ test('complete factory workflow pulls loaded cars onto a branch, unloads, pushes
   const s = S.createState();
   s.creative = true;
   assert.equal(S.addZone(s, { x: 200, z: 100, w: 3, d: 3 }), '');
-  assert.equal(S.planSidingAccess(s).error, '');
-  assert.equal(S.planMainlineExit(s).error, '');
+  assert.equal(commissionAccess(s,80).error, '');
+  assert.equal(commissionExit(s).error, '');
   for (let x = 100; x < 185; x += 5)
     assert.equal(S.planRailLayout(s, 'straight', { x, z: 10 }).error, '');
   const dockRail = s.rails.find((r) => r.track?.layout === 'straight' && r.track.origin.x === 150)!;
@@ -223,6 +227,7 @@ test('complete factory workflow pulls loaded cars onto a branch, unloads, pushes
   );
   const reception = s.railLocations!.at(-1)!;
   seedHandlingResources(s, 'forklift');
+  s.workers[0].railQualified=true;
   S.addZone(s, { x: 145, z: 24, w: 12, d: 12 });
   // Keep ordinary unloading in its intended nearby yard; the remote stop bay is finite salvage storage.
   s.zones.unshift(s.zones.pop()!);
@@ -248,6 +253,7 @@ test('complete factory workflow pulls loaded cars onto a branch, unloads, pushes
   // Release the driver and hire a different physical forklift operator for handling.
   const driver = s.workers[0];
   seedHandlingResources(s, 'forklift');
+  s.workers[0].railQualified=true;
   const handling = s.workers[1];
   handling.x = 140;
   handling.z = 22;
@@ -324,8 +330,9 @@ test('multi-car selected unloading can finish later cargo before earlier cargo a
   const s = S.createState();
   s.creative = true;
   assert.equal(S.addZone(s, { x: 200, z: 100, w: 3, d: 3 }), '');
-  assert.equal(S.planMainlineExit(s).error, '');
+  assert.equal(commissionExit(s).error, '');
   seedHandlingResources(s, 'forklift');
+  s.workers[0].railQualified=true;
   S.addZone(s, { x: 24, z: 26, w: 18, d: 18 });
   // Keep ordinary unloading in its intended nearby yard; the remote stop bay is finite salvage storage.
   s.zones.unshift(s.zones.pop()!);

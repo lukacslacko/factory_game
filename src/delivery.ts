@@ -2,7 +2,7 @@ import { appendRailLayers, incomingRailLayers } from './rail-stock';
 export { orderLines, orderDescription, orderMass, itemMass } from './procurement';
 import { orderLines, orderDescription, pendingOrderLine, freightStackLimit } from './procurement';
 import { railFreightCarPose, railReceptionPlan, railStopDistance } from './rail-freight';
-import { railActorBoxes, railRouteReserved, prepareRailArrival } from './rail-operations';
+import { railActorBoxes, prepareRailArrival, advanceRailArrival, advanceAttachedRailDeparture } from './rail-operations';
 import { workerAvailable, commuteDoor } from './workforce';
 import {
   equipmentAssistant,
@@ -123,6 +123,7 @@ export function shipmentLots(o: Order) {
     ? o.railFreight.cars.map((car, carIndex) => ({ car, carIndex, lines: car.manifest }))
     : [{ car: undefined, carIndex: undefined, lines: orderLines(o) }];
   for (const group of groups) {
+    if(group.car?.kind==='tanker') continue;
     const begin = out.length;
     let width = 0;
     for (const [localLineIndex, line] of group.lines.entries()) {
@@ -226,7 +227,7 @@ function freeOperator(s: State, e?: Equipment, preferred?: string) {
 }
 function walkingRoute(s: State, w: Worker, p: Point, api: DeliveryAPI) {
   return walkRoute(s, w, p, [
-    ...s.buildings.filter((b) => !['lamp', 'power', 'water', 'shed'].includes(b.kind)),
+    ...s.buildings.filter((b) => !['lamp', 'power', 'water', 'shed', 'engineShed'].includes(b.kind)),
     ...s.stacks.filter((t) => t.qty > 0 || t.item === 'diesel'),
   ]);
 }
@@ -1306,7 +1307,7 @@ function equipmentTick(s: State, o: Order, dt: number, api: DeliveryAPI) {
           break;
         }
         const solids = [
-          ...s.buildings.filter((b) => !['lamp', 'power', 'water', 'shed'].includes(b.kind)),
+          ...s.buildings.filter((b) => !['lamp', 'power', 'water', 'shed', 'engineShed'].includes(b.kind)),
           ...s.stacks.filter((t) => t.qty > 0 || t.item === 'diesel'),
         ];
         const exact = machineRoute(s, e, park, solids);
@@ -1467,7 +1468,7 @@ function serviceTick(s: State, o: Order, dt: number, api: DeliveryAPI) {
   const c = o.contractor;
   const foot = localPoint({ ...o.vehicle, yaw: o.drive?.yaw || 0 }, 3, 1.85);
   const solids = [
-    ...s.buildings.filter((b) => !['lamp', 'power', 'water', 'shed'].includes(b.kind)),
+    ...s.buildings.filter((b) => !['lamp', 'power', 'water', 'shed', 'engineShed'].includes(b.kind)),
     ...s.stacks.filter((t) => t.qty > 0 || t.item === 'diesel'),
   ];
   if (c.phase === 'walk') {
@@ -1802,6 +1803,7 @@ export function tickDelivery(s: State, o: Order, dt: number, api: DeliveryAPI) {
   if (o.unload && (o.status === 'departing' || o.status === 'done')) unloadTick(s, o, dt, api);
   if (o.status === 'done' || o.carrierDeparted) return;
   const kind = deliveryKind(o);
+  if(o.railFreight?.locomotivePhase==='uncoupling') return;
   if(o.railFreight?.detached) {
     const f=o.railFreight;
     if(o.unload) unloadTick(s,o,dt,api);
@@ -1829,7 +1831,6 @@ export function tickDelivery(s: State, o: Order, dt: number, api: DeliveryAPI) {
   if (o.status === 'ordered') {
     if (s.time < o.eta) return;
     if (o.railFreight) {
-      if(railRouteReserved(s) && railRouteReserved(s)!==o.id) {o.note=`Waiting for rail movement ${railRouteReserved(s)} to clear`;return;}
       const reception = railReceptionPlan(s, o);
       if (reception.error) {
         waiting(s, o, reception.error, 'receiving-track', api);
@@ -1843,7 +1844,7 @@ export function tickDelivery(s: State, o: Order, dt: number, api: DeliveryAPI) {
         q.status !== 'ordered' &&
         q.status !== 'done' &&
         !q.carrierDeparted &&
-        deliveryKind(q) === kind &&
+        deliveryKind(q) === kind && kind !== 'rail' &&
         !(q.railFreight?.detached && q.railFreight.locomotivePhase==='gone' && q.railFreight.cars.every(c=>c.returned || Math.abs((c.pose?.z ?? 5) - 5)>1.6 || (c.pose?.x || 0)>130)) &&
         (q.status !== 'departing' ||
           (q.mode === 'rail' ? true : (q.drive?.distance || 0) < roadLength(q) + 14)),
@@ -1853,7 +1854,7 @@ export function tickDelivery(s: State, o: Order, dt: number, api: DeliveryAPI) {
       return;
     }
     if(o.railFreight){const error=prepareRailArrival(s,o,dt);if(error){o.note=error;return;}}
-    const spawn = kind === 'rail' ? carPose(0, 5) : sampleRoad(o, 0);
+    const spawn = kind === 'rail' ? (o.railFreight?.incomingRailMove?.points[0] || carPose(0, 5)) : sampleRoad(o, 0);
     if (o.mode === 'road' && roadBlocked(s, o, spawn, api)) {
       o.note = 'Waiting for a safe gap in approaching traffic';
       return;
@@ -1874,6 +1875,18 @@ export function tickDelivery(s: State, o: Order, dt: number, api: DeliveryAPI) {
       o.id,
     );
     if (kind === 'lowloader') purchasedMachine(s, o, api);
+  }
+  if(o.status==='departing' && o.railFreight?.arrivalRailMove && !o.railFreight.detached) {
+    if(!advanceAttachedRailDeparture(s,o,dt)) return;
+    o.carrierDeparted=true;o.status=o.unload?'departing':'done';o.railFreight.cars.forEach(c=>c.returned=true);
+    o.railFreight.movement=undefined;o.note=o.unload?'Empty train returned; site placement still in progress':'Delivery complete; empty train returned';s.revision++;return;
+  }
+  if(o.status==='approaching' && o.railFreight?.incomingRailMove) {
+    if(!advanceRailArrival(s,o,dt)) return;
+    o.status='unloading'; o.railFreight.arrivalRailMove=o.railFreight.incomingRailMove; o.railFreight.incomingRailMove=undefined;
+    o.note='At receiving track; release supplier locomotive or initiate unloading'; o.handling=0;
+    if(!o.invoiced) {api.cost(s,'Purchases',o.id,`${orderDescription(o)} + transport`,o.total);o.invoiced=true;}
+    api.event(s,'Delivery',o.id,'Arrived; awaiting site unloading resources.');s.revision++;return;
   }
   if (o.status === 'approaching' || o.status === 'departing') {
     const d = o.drive!,

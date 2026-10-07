@@ -23,7 +23,7 @@ var row_id_pattern: RegEx = RegEx.new()
 
 func setup(column_names: Array[String], widths: Array[int] = []) -> void:
 	headers = column_names
-	row_id_pattern.compile("(?:WRK|EQ|STK|JOB|GRP|WORK|PO|ORD|BLD|ZONE|ZON|RAIL|LOC|EV|EVT|COST|CST|MV|MOV|N|NTC|NTE|AST|ASSET|BUFFER|CAR|RLOC|LOCO|SHUNTER|RETURN)-[0-9]+")
+	row_id_pattern.compile("(?:WRK|EQ|STK|JOB|GRP|WORK|PO|ORD|BLD|ZONE|ZON|RAIL|LOC|EV|EVT|COST|CST|MV|MOV|N|NTC|NTE|AST|ASSET|BUFFER|CAR|RLOC|LOCO|SHUNTER|RETURN|CREW|COUPLING|POSSESSION)-[0-9]+(?:/BAY)?")
 	add_theme_constant_override("separation",2)
 	filter_row=HBoxContainer.new()
 	filter_row.add_theme_constant_override("separation",2)

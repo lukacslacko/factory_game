@@ -7,7 +7,11 @@ import crypto from 'node:crypto';
 import { performance } from 'node:perf_hooks';
 import * as Sim from '../src/sim';
 import { bufferAssets } from '../src/buffers';
-import { detachRailFreight, orderShunter, setShunterDriver, shuntRailCars, parkShunter, refuelShunter, requestEmptyReturn } from '../src/rail-operations';
+import { detachRailFreight, orderShunter, setShunterDriver, shuntRailCars, parkShunter, refuelShunter, requestEmptyReturn, driveShunter, releaseShunterControl, railReservationRows } from '../src/rail-operations';
+import { verifyRailQualification } from '../src/rail-driver';
+import { orderTankers, tankerOrderPreview } from '../src/rail-tankers';
+import { RAIL_COMMODITIES } from '../src/rail-commodities';
+import { assignEngineShedParking } from '../src/engine-shed';
 import {
   configureRailFreight,
   requestRailUnloading,
@@ -106,6 +110,7 @@ const catalog = {
   buildings: BUILDINGS,
   equipment: EQUIPMENT,
   roles: ROLES,
+  railCommodities: RAIL_COMMODITIES,
   services: SERVICES,
   equipmentRoles: EQUIPMENT_ROLES,
   activities: EQUIPMENT_ACTIVITIES,
@@ -207,6 +212,9 @@ function reportingRows() {
     workers: state.workers,
     equipment: state.equipment,
     shunters: state.shunters||[],
+    railServiceCrew: state.railServiceCrew || [],
+    railPossessions: state.railPossessions || [],
+    railReservations: railReservationRows(state),
     railReturns: state.railReturns||[],
     materials: state.stacks,
     deliveries: state.orders,
@@ -260,6 +268,7 @@ function snapshot() {
     render,
     storage: storage(),
     workRows: tables.work,
+    railReservations: tables.railReservations,
     inventory: tables.inventory,
     summaries: {
       totalCosts: state.costs.reduce((n, c) => n + c.amount, 0),
@@ -437,6 +446,9 @@ async function dispatch(action: string, a: any) {
       return {};
     }
     case 'rail_access_plan': {const plan=Sim.planSidingAccess(state,a.x??80);check(plan.error || undefined);return {workId:plan.group?.id,jobs:plan.jobs.map(j=>j.id)};}
+    case 'rail_access_prepare':check(Sim.prepareSidingAccess(state,a.x??80));return {};
+    case 'rail_exit_prepare':check(Sim.prepareMainlineExit(state));return {};
+    case 'rail_possession_release':check(Sim.releaseRailPossession(state,a.id));return {};
     case 'rail_exit_plan': {
       const plan=Sim.planMainlineExit(state);check(plan.error || undefined);return {workId:plan.group?.id,jobs:plan.jobs.map(j=>j.id)};
     }
@@ -446,6 +458,12 @@ async function dispatch(action: string, a: any) {
     case 'rail_shunt':check(shuntRailCars(state,a));return {};
     case 'shunter_park':check(parkShunter(state,a.shunterId,a.railLocationId));return {};
     case 'shunter_refuel':check(refuelShunter(state,a.shunterId));return {};
+    case 'rail_qualification':check(verifyRailQualification(state,a.workerId));return {};
+    case 'shunter_drive':check(driveShunter(state,a.shunterId,a.distance));return {};
+    case 'shunter_release':check(releaseShunterControl(state,a.shunterId));return {};
+    case 'engine_shed_park':check(assignEngineShedParking(state,a.shunterId,a.buildingId));return {};
+    case 'tanker_preview':return tankerOrderPreview(a.product,a.litersPerCar,a.carCount);
+    case 'tanker_order':{const result=orderTankers(state,a);check(result.error);return result;}
     case 'rail_return': {const result=requestEmptyReturn(state,a);check(result.error);return result;}
     case 'purchase':
       return { orders: Sim.purchase(state, a.item, a.qty, a.mode) };

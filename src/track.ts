@@ -479,10 +479,12 @@ export function sidingAccessSpans(
         .map((r) => r.track!.origin.x),
     ),
   ];
+  const explicit=(s.railPossessions||[]).filter(p=>p.kind==='sidingAccess');
+  for(const p of explicit) if(!origins.includes(p.from)) origins.push(p.from);
   return origins.map((x) => ({
     x,
     end: x + 20,
-    complete: trackSections('turnout', { x, z: 5 }, 0, 1).every((p) =>
+    complete: explicit.some(p=>p.from===x) || trackSections('turnout', { x, z: 5 }, 0, 1).every((p) =>
       [...s.rails, ...s.jobs.filter((j) => j.kind === 'rail' && j.status === 'done')].some(
         (r) =>
           r.track?.layout === 'turnout' &&
@@ -500,6 +502,7 @@ export function sidingAccessSpans(
 /** Commissioning removes the original main-line steel permanently. Recovery
  * must leave a real gap, rather than resurrecting that protected track. */
 export function mainlineExitCommissioned(s: State): boolean {
+  if(s.railPossessions?.some(p=>p.kind==='mainlineExit')) return true;
   const history = [...s.rails, ...s.jobs.filter((j) => j.kind === 'rail' && j.status === 'done')];
   return trackSections('turnout', { x: 145, z: 0 }, 2, -1, undefined, 'converging').every((p) =>
     history.some(
@@ -580,7 +583,7 @@ export function trackNetwork(s: State, includePlanned = false): TrackNetwork {
           r.track.hand === -1 &&
           r.track.flow === 'converging',
       );
-      return exists
+      return (exists||s.railPossessions?.some(p=>p.kind==='mainlineExit'))
         ? [
             {
               x,

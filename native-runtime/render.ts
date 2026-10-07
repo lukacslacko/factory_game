@@ -25,7 +25,7 @@ import {
   smoothstep,
   trackPose,
 } from '../src/motion';
-import { shedComponentPose, shedPostPoints } from '../src/shed-geometry';
+import { shedComponentPose, shedPostPoints, shedPartLimits } from '../src/shed-geometry';
 import { RAIL_PANEL_PITCH } from '../src/railwork';
 import { railLocationPath, railLocationPose, railLocationStatus } from '../src/rail-locations';
 
@@ -78,9 +78,17 @@ export function renderState(s: State) {
   const surface = (p: { x: number; z: number }) =>
     s.paving[`${Math.floor(p.x)},${Math.floor(p.z)}`] ? 0.105 : 0;
   const loads: any[] = [];
+  const groundTasks = [
+    ...s.orders.map(o => o.railFreight?.coupling),
+    ...(s.shunters || []).map(e => e.coupling),
+    ...(s.shunters || []).map(e => e.handover),
+    ...(s.railReturns || []).map(r => r.coupling),
+    ...(s.railServiceCrew || []).map(c => c.task),
+  ].filter(t => t && t.phase !== 'done');
   const actors = [
     ...s.workers.map((w) => {
       const job = s.jobs.find((j) => j.status === 'doing' && j.worker === w.id);
+      const groundTask = groundTasks.find(t => t!.workerId === w.id);
       const pose = { x: w.x, z: w.z, y: w.y || surface(w), yaw: w.yaw ?? 0 };
       return {
         ...w,
@@ -89,18 +97,27 @@ export function renderState(s: State) {
         visible: !w.vehicle && !['home', 'returning', 'aboard'].includes(w.shiftPhase || 'working'),
         walking: !!w.path?.length || Math.abs(w.velocity || 0) > 0.01,
         workPhase:
-          job?.railWork?.phase || job?.shedAssembly?.phase || job?.handling?.phase || job?.phase,
+          (groundTask?.phase === 'working' ? 'rail-fastening' : undefined) || job?.railWork?.phase || job?.shedAssembly?.phase || job?.handling?.phase || job?.phase,
         workClock:
-          job?.railWork?.clock ||
+          groundTask?.clock || job?.railWork?.clock ||
           job?.shedAssembly?.clock ||
           job?.handling?.clock ||
           job?.elapsed ||
           0,
         fuelCan:
-          job?.kind === 'refuel' && (job.fuelLiters || 0) > 0
+          (s.shunters || []).some(e => e.refueling?.workerId === w.id && e.refueling.carried > 0)
+            ? {liters: s.shunters!.find(e => e.refueling?.workerId === w.id)!.refueling!.carried, phase: 'Carry fuel'}
+            : job?.kind === 'refuel' && (job.fuelLiters || 0) > 0
             ? { liters: job.fuelLiters, phase: job.phase }
             : undefined,
       };
+    }),
+    ...(s.railServiceCrew || []).map(w => {
+      const task = groundTasks.find(t => t!.workerId === w.id);
+      return { ...w, kind: 'worker', y: w.y || surface(w), yaw: w.yaw || 0,
+        visible: !['aboard', 'left-site'].includes(w.phase), walking: !!w.path.length || (w.velocity || 0) > 0.01,
+        workPhase: task?.phase === 'working' ? 'rail-fastening' : undefined,
+        workClock: task?.clock || 0, serviceCrew: true };
     }),
     ...s.equipment.map((e) => {
       let pose = {
@@ -293,7 +310,7 @@ export function renderState(s: State) {
       const freight = freightPose(o);
       const rail = o.mode === 'rail';
       const pose = rail
-        ? carPose(o.drive?.distance ?? RAIL_STOP, 5)
+        ? o.railFreight?.locomotivePose || carPose(o.drive?.distance ?? RAIL_STOP, 5)
         : { ...o.vehicle, yaw: o.drive?.yaw ?? 0 };
       const surface = rail ? 0 : roadSurfaceHeight(pose);
       const deck = rail
@@ -345,6 +362,7 @@ export function renderState(s: State) {
                   ? null
                   : {
                       id: o.railFreight.locomotiveId,
+                      driverVisible: !(s.railServiceCrew || []).some(c => c.locomotiveId === o.railFreight!.locomotiveId && c.phase !== 'aboard'),
                       ...(o.railFreight.locomotivePose || pose),
                       y: 0,
                       bogies:
@@ -402,6 +420,7 @@ export function renderState(s: State) {
       cars: [],
       locomotive: {
         id: pickup.locomotiveId,
+        driverVisible: !(s.railServiceCrew || []).some(c => c.locomotiveId === pickup.locomotiveId && c.phase !== 'aboard'),
         inspectId: pickup.id,
         x: pickup.x,
         z: pickup.z,
@@ -455,11 +474,12 @@ export function renderState(s: State) {
         Array.from({ length: count }, (_, index) => ({
           kind,
           index,
+          assetId:assembly.componentIds?.[`${kind}/${index}`],
           pose: shedComponentPose(j, kind, index),
           installed: true,
         })),
       );
-      if (assembly.part) parts.push({ ...assembly.part, installed: false });
+      if (assembly.part) parts.push({ ...assembly.part, assetId:assembly.componentIds?.[`${assembly.part.kind}/${assembly.part.index}`], installed: false });
       return {
         jobId: j.id,
         kind: j.kind,
@@ -469,6 +489,7 @@ export function renderState(s: State) {
         d: j.d,
         rotation: j.rotation,
         ...assembly,
+        limits:shedPartLimits(j),
         anchorPoses: shedPostPoints(j)
           .slice(0, assembly.anchors)
           .map((p) => ({ ...p, y: surface(p) + 0.025 })),

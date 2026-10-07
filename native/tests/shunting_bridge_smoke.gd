@@ -28,6 +28,58 @@ func _state() -> Dictionary:
 func _refresh() -> void:
 	await create_timer(0.25).timeout
 	ui.update_snapshot(latest)
+func _commission_rail(kind: String,x: int = 80) -> void:
+	# The bridge follows the same deliberate four-panel recovery as the player.
+	if kind=="access":await _ok("rail_access_prepare",{"x":x})
+	else:await _ok("rail_exit_prepare")
+	var state: Dictionary = await _state()
+	var possessions: Array = state.get("railPossessions",[])
+	if possessions.is_empty():failures.append("Preparing railway steel created no possession");return
+	var possession: Dictionary = possessions[-1]
+	for asset_id: String in possession.assetIds:
+		await _ok("remove_rail",{"id":asset_id,"scope":"panel"})
+	if kind=="access":await _ok("rail_access_plan",{"x":x})
+	else:await _ok("rail_exit_plan")
+	await _ok("rail_possession_release",{"id":possession.id})
+	state=await _state()
+	_check(bool(state.railPossessions[-1].get("released",false)),"The "+kind+" possession reopens only after manual steel recovery and completed construction")
+func _complete_supplier_ground_work(order_id: String) -> Dictionary:
+	# Exercise actual walking, brake and coupler phases; checkpoint reload interrupts
+	# a real worker action rather than fabricating an instantaneous release.
+	var deadline: int = Time.get_ticks_msec()+12000
+	var walked: bool = false
+	var worked: bool = false
+	var reloaded: bool = false
+	var crew_id: String = ""
+	var state: Dictionary = {}
+	await _ok("speed",{"value":10})
+	while Time.get_ticks_msec()<deadline:
+		await create_timer(0.08).timeout
+		state=await _state()
+		var freight: Dictionary = state.orders[0].railFreight
+		var task: Dictionary = freight.get("coupling",{})
+		walked=walked or task.get("phase","")=="walking"
+		worked=worked or task.get("phase","")=="working"
+		if task.get("phase","")=="working" and not reloaded:
+			await _ok("pause",{"paused":true})
+			state=await _state()
+			crew_id=str(state.orders[0].railFreight.coupling.workerId)
+			await _ok("import",{"json":JSON.stringify(state)})
+			var restored: Dictionary = await _state()
+			_check(str(restored.orders[0].railFreight.coupling.workerId)==crew_id,"Reload preserves the actual ground crew and interrupted coupling action")
+			reloaded=true
+			await _ok("speed",{"value":10})
+		if bool(freight.get("detached",false)):break
+	await _ok("pause",{"paused":true})
+	state=await _state()
+	var final_freight: Dictionary = state.orders[0].railFreight
+	var car: Dictionary = final_freight.cars[0]
+	_check(str(state.orders[0].id)==order_id,"Ground work retains the original supplier order identity")
+	_check(walked and worked and reloaded,"Supplier uncoupling includes visible walking, hands-on work and an interrupted reload")
+	_check(bool(final_freight.get("detached",false)) and final_freight.get("coupling",{}).get("phase","")=="done","The supplier detaches only after all physical crew phases complete")
+	_check(bool(car.get("handbrake",false)) and not bool(car.get("brakeHoseConnected",true)) and not car.get("coupledTo",[]).has(final_freight.locomotiveId),"The real ground crew secures brakes and disconnects the supplier coupler and hose")
+	_check(state.get("railServiceCrew",[]).size()==1,"Checkpoint reload creates no duplicate supplier ground crew")
+	return state
 func _finish() -> void:
 	await _request("shutdown")
 	client.close()
@@ -49,12 +101,13 @@ func _run() -> void:
 	await _ok("new_game",{"mode":"empty"})
 	await _ok("pause",{"paused":true})
 	await _ok("creative",{"enabled":true})
-	await _ok("rail_access_plan",{"x":80})
-	await _ok("rail_exit_plan")
+	await _ok("zone",{"rect":{"x":150,"z":80,"w":18,"d":18},"name":"Recovered railway steel"})
+	await _commission_rail("access",80)
+	await _commission_rail("exit")
 	await _refresh()
 	ui.show_tab("Railway")
 	_check(ui.tables[1].rows.size()>0,"Completed access and exit panels appear in the actual native Railway register")
-	await _ok("save_rail_location",{"location":{"name":"West reception","kind":"unloading","trackId":"BOOTSTRAP-SIDING","route":"straight","offset":30,"length":40}})
+	await _ok("save_rail_location",{"location":{"name":"West reception","kind":"unloading","trackId":"BOOTSTRAP-SIDING","route":"straight","offset":25,"length":50}})
 	await _ok("purchase_batch",{"lines":[{"item":"slab","qty":4}],"mode":"rail"})
 	var fixture: Dictionary = await _state()
 	if fixture.get("orders",[]).is_empty():failures.append("Service failed to create freight order");await _finish();return
@@ -64,16 +117,35 @@ func _run() -> void:
 	var reply: Dictionary = await _request("rail_detach",{"orderId":order_id})
 	_check(not bool(reply.get("ok",true)) and str(reply.get("error","")).contains("stopped"),"Dispatch rejects uncoupling a supplier train that has not arrived")
 	# Import a focused arrived checkpoint; all order/cargo/rail fields come from real commands.
-	order.status="unloading";order.note="Stopped at reception";order.vehicle={"x":73.4,"z":5};order.erase("drive")
+	order.status="unloading";order.note="Stopped at reception";order.vehicle={"x":56,"z":5};order.erase("drive")
 	order.railFreight.receptionLocationId=fixture.railLocations[0].id
+	order.railFreight.receptionAnchor={"trackId":"BOOTSTRAP-SIDING","route":"straight","offset":31}
+	order.railFreight.locomotivePose={"x":56,"z":5,"yaw":0}
+	order.railFreight.locomotiveBogies=[{"x":53.21,"z":5,"yaw":0},{"x":58.79,"z":5,"yaw":0}]
+	var arrived_car: Dictionary = order.railFreight.cars[0]
+	arrived_car.pose={"x":42.6,"z":5,"yaw":0}
+	arrived_car.bogies=[{"x":37.1,"z":5,"yaw":0},{"x":48.1,"z":5,"yaw":0}]
+	arrived_car.anchor={"trackId":"BOOTSTRAP-SIDING","route":"straight","offset":17.6}
+	arrived_car.locationId=fixture.railLocations[0].id;arrived_car.groupId=order_id
+	# Configure the focused arrival's outbound points in its imported checkpoint;
+	# the physical supplier ground work below is the mechanism under test.
+	for rail: Dictionary in fixture.rails:
+		var track: Dictionary = rail.get("track",{})
+		if track.get("origin",{}).get("x",0)==125 and track.get("section",-1)==0:rail.selectedRoute="branch"
 	fixture.workers=[{"id":"WRK-9991","name":"Worker #1","role":"operator","duty":"auto","status":"Available","hours":0,"wage":36,"x":108,"z":8,"y":0,"heading":0,"yaw":0,"path":[]}]
 	await _ok("import",{"json":JSON.stringify(fixture)})
+	await _ok("rail_qualification",{"workerId":"WRK-9991"})
+	fixture=await _state()
+	_check(bool(fixture.workers[0].get("railQualified",false)),"Authenticated license verification authorizes the existing operator for railway driving")
 	await _ok("rail_detach",{"orderId":order_id})
 	fixture=await _state();order=fixture.orders[0]
-	_check(order.railFreight.detached and order.railFreight.locomotivePhase=="uncoupling","Authentic detach dispatch freezes the cars and starts physical engine departure")
+	_check(not bool(order.railFreight.get("detached",false)) and order.railFreight.locomotivePhase=="uncoupling","Detach dispatch starts physical ground work without prematurely separating the cars")
 	await _refresh();ui.show_entity(order_id)
-	_check(ui.inspector.visible,"The stopped detached delivery is visible through the live native snapshot")
-	# Advance the focused checkpoint to an engine-free siding, keeping real frozen car poses.
+	_check(ui.inspector.visible,"The supplier ground-work request is visible through the live native snapshot")
+	fixture=await _complete_supplier_ground_work(order_id);order=fixture.orders[0]
+	if not bool(order.railFreight.get("detached",false)):await _finish();return
+	# Separate travel checkpoint: physical brake/coupler work above really finished.
+	# Long mainline travel is covered by the core rail integration tests.
 	order.railFreight.locomotivePhase="gone";order.railFreight.erase("movement")
 	await _ok("import",{"json":JSON.stringify(fixture)})
 	var ordered: Dictionary = await _ok("shunter_order",{"driverId":"WRK-9991"})
@@ -118,7 +190,7 @@ func _run() -> void:
 	shunter.phase="ordered";shunter.status="Delivery pending";shunter.x=350;shunter.z=0;shunter.eta=fixture.time+10000
 	for key: String in ["anchor","movement","haul","carIds","orderId","direction","driverPhase"]:shunter.erase(key)
 	await _ok("import",{"json":JSON.stringify(fixture)})
-	var returned: Dictionary = await _ok("rail_return",{"orderIds":[order_id]})
+	var returned: Dictionary = await _ok("rail_return",{"orderIds":[order_id],"railLocationId":fixture.railLocations[0].id})
 	_check(str(returned.get("id","")).begins_with("RETURN-"),"Empty collection dispatch creates a physical outgoing train identity")
 	await _refresh();ui.show_tab("Deliveries")
 	_check(ui.tables[1].rows.size()==1,"An outgoing collection appears in the real native Deliveries snapshot")

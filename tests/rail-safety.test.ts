@@ -1,3 +1,4 @@
+import { commissionAccess } from './support/rail';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as S from '../src/sim';
@@ -33,7 +34,7 @@ function shunter(s: State, x = 90, z = 5): RailShunter {
 function pointsFixture(worker = true) {
   const s = S.createState();
   s.creative = true;
-  assert.equal(S.planSidingAccess(s).error, '');
+  assert.equal(commissionAccess(s,80).error, '');
   s.creative = false;
   const rail = s.rails.find((r) => r.track?.section === 0)!;
   if (worker) {

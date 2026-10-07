@@ -2,6 +2,7 @@ import { trackGeometry, trackNetwork } from './track';
 import { bufferAssets } from './buffers';
 import { railLocationPose, railLocationStatus } from './rail-locations';
 import { railFreightCarPose } from './rail-freight';
+import { railReservationRows } from './rail-operations';
 import initSqlJs from 'sql.js';
 import wasmUrl from 'sql.js/dist/sql-wasm.wasm?url';
 import type { State } from './types';
@@ -112,8 +113,13 @@ export async function query(s: State, sql: string) {
     ),
     rail_shunters: (s.shunters||[]).map(e=>({...e,driver:e.driverId,location:e.locationId})),
     rail_return_trains: (s.railReturns||[]).map(r=>({...r})),
+    rail_reservations: railReservationRows(s),
+    rail_service_crew: (s.railServiceCrew || []).map(c=>({...c})),
+    rail_possessions: (s.railPossessions || []).map(p=>({...p})),
     freight_cars: s.orders.flatMap(o => (o.railFreight?.cars || []).map((car,index) => ({
       id: car.id, order_id: o.id, status: o.status, length_m: car.length,
+      kind: car.kind, liquid: car.tank?.product, liters: car.tank?.liters, capacity_liters: car.tank?.capacity,
+      coupled_to: car.coupledTo?.join(', '), handbrake: car.handbrake, brake_hose_connected: car.brakeHoseConnected,
       payload_kg: car.mass, tare_kg: car.tareMass, deck_length_m: car.deckLength,
       received_units: car.manifest.reduce((n,line)=>n+line.arrived,0),
       remaining_kg: car.manifest.reduce((n,line)=>n+(line.qty-line.arrived)*(itemMass(line.item)||0),0),
@@ -316,9 +322,12 @@ export async function query(s: State, sql: string) {
       'staging_batch_qty',
     ],
     orders: ['id', 'item', 'qty', 'arrived', 'status', 'total', 'eta', 'automaticEquipment'],
-    rail_shunters: ['id','name','driver','location','phase','status','fuel','tank','used','x','z','yaw'],
-    rail_return_trains: ['id','locomotiveId','orderIds','carIds','phase','status','x','z','yaw'],
-    freight_cars: ['id', 'order_id', 'status', 'length_m', 'payload_kg', 'tare_kg', 'remaining_kg', 'x', 'z', 'yaw', 'reception_location', 'storage_zone'],
+    rail_shunters: ['id','name','driver','location','phase','status','fuel','tank','used','manualControl','parkingLocationId','shedId','x','z','yaw'],
+    rail_return_trains: ['id','locomotiveId','orderIds','carIds','phase','status','waitingSeconds','waitingCost','x','z','yaw'],
+    rail_reservations: ['id','owner','phase','tracks','distance','end','blockedBy','carIds'],
+    rail_service_crew: ['id','name','ownerId','locomotiveId','phase','status','x','z','yaw'],
+    rail_possessions: ['id','kind','from','to','z','assetIds','released'],
+    freight_cars: ['id', 'order_id', 'kind','liquid','liters','capacity_liters','coupled_to','handbrake','brake_hose_connected','status', 'length_m', 'payload_kg', 'tare_kg', 'remaining_kg', 'x', 'z', 'yaw', 'reception_location', 'storage_zone'],
     freight_car_lines: ['car_id', 'order_id', 'item', 'qty', 'arrived', 'orderLineIndex'],
     costs: ['id', 'time', 'category', 'entity', 'description', 'amount'],
     events: ['id', 'time', 'severity', 'type', 'entity', 'text'],

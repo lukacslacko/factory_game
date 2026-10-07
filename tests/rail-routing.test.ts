@@ -1,3 +1,4 @@
+import { commissionExit, commissionAccess, prepareExitSteel } from './support/rail';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
@@ -73,7 +74,7 @@ test('same-panel reverse route rotates yaw, while graph cannot reverse at a dead
 });
 test('mainline exit is commissioned as seven real panels and does not bypass construction', () => {
   const s = createState(),
-    result = planMainlineExit(s);
+    result = commissionExit(s);
   assert.equal(result.error, '');
   assert.equal(result.jobs.length, 7);
   assert.equal(s.rails.length, 0);
@@ -87,7 +88,7 @@ test('Creative east exit makes an actual through route, removes the stop from th
   const s = createState();
   setCreativeMode(s, true);
   addRecoveryStockyard(s);
-  const result = planMainlineExit(s);
+  const result = commissionExit(s);
   assert.equal(result.error, '');
   assert.equal(s.rails.length, 7);
   assert.ok(result.jobs.every((j) => j.status === 'done'));
@@ -109,6 +110,7 @@ test('corridor permission is confined to the exact east connection, and occupied
   assert.ok(planRailLayout(s, 'turnout', { x: 130, z: 0 }, 0, 1, 'converging').error);
   setCreativeMode(s, true);
   assert.equal(planRailLayout(s, 'straight', { x: 125, z: 5 }).error, '');
+  prepareExitSteel(s);
   assert.match(planMainlineExit(s).error, /parallel|endpoint/i);
 });
 test('installed arbitrary paths can be routed, but planned panels, missing panels and crossing centerlines cannot', () => {
@@ -144,7 +146,7 @@ test('parked consist intervals extend over real joints and retain segment anchor
   assert.equal(railInterval(s, siding(90), 5, 20), undefined);
   setCreativeMode(s, true);
   addRecoveryStockyard(s);
-  assert.equal(planMainlineExit(s).error, '');
+  assert.equal(commissionExit(s).error, '');
   const extended = railInterval(s, siding(95), 5, 50)!;
   assert.ok(extended);
   assert.equal(extended.segments.at(-1)!.trackId, 'BOOTSTRAP-MAINLINE');
@@ -160,7 +162,7 @@ test('normal east connection physically constructs all seven panels and recovers
     w.x = 116 + i;
     w.z = 22;
   });
-  const result = planMainlineExit(s);
+  const result = commissionExit(s);
   assert.equal(result.error, '');
   result.jobs.forEach((j, i) => {
     const item = j.item!,
@@ -224,7 +226,7 @@ test('factory access switch preserves both mainline exit and a buildable connect
   const s = createState();
   setCreativeMode(s, true);
   addRecoveryStockyard(s);
-  const access = planSidingAccess(s);
+  const access = commissionAccess(s,80);
   assert.equal(access.error, '');
   assert.equal(access.jobs.length, 7);
   assert.ok(trackOpenPorts(s, false).some((p) => p.x === 100 && p.z === 10));
@@ -235,7 +237,7 @@ test('factory access switch preserves both mainline exit and a buildable connect
   assert.ok(route);
   assert.ok(route.switches.some((v) => v.route === 'branch'));
   assert.equal(railAnchorPose(s, siding(65)), undefined);
-  assert.equal(planMainlineExit(s).error, '');
+  assert.equal(commissionExit(s).error, '');
   assert.ok(railRoute(s, siding(30), main(180)));
   const through = railRoute(s, siding(30), siding(85))!;
   assert.ok(through);
@@ -259,7 +261,7 @@ test('normal factory access uses seven physical panel jobs and then exposes its 
     w.x = 73 + i;
     w.z = 23;
   });
-  const result = planSidingAccess(s);
+  const result = commissionAccess(s,80);
   assert.equal(result.error, '');
   assert.equal(s.rails.length, 0);
   result.jobs.forEach((j, i) => {
@@ -286,7 +288,7 @@ test('normal factory access uses seven physical panel jobs and then exposes its 
 test('recovering commissioned access rails leaves a physical gap and never regenerates protected original rails', () => {
   const s = createState();
   setCreativeMode(s, true);
-  planSidingAccess(s);
+  commissionAccess(s,80);
   assert.ok(railRoute(s, siding(30), siding(85)));
   s.rails = s.rails.filter((r) => r.track?.section !== 0);
   assert.equal(railRoute(s, siding(30), siding(85)), undefined);
@@ -358,7 +360,7 @@ test('recovering the commissioned exit leaves a mainline gap instead of restorin
   assert.equal(mainlineExitCommissioned(s), false);
   setCreativeMode(s, true);
   addRecoveryStockyard(s);
-  assert.equal(planMainlineExit(s).error, '');
+  assert.equal(commissionExit(s).error, '');
   assert.equal(mainlineExitCommissioned(s), true);
   const continuous = railRoute(s, main(120), main(170));
   assert.ok(continuous);

@@ -20,6 +20,7 @@ import {
   trackOpenPorts,
   trackNetwork,
   sidingAccessSpans,
+  mainlineExitCommissioned,
 } from './track';
 import type { TrackPiece, TrackPort } from './track';
 import {
@@ -40,9 +41,13 @@ import {
   updateEquipmentAssistants,
 } from './work-crews';
 import { recordEquipmentTravel } from './ground-wear';
+import { railLocationStatus } from './rail-locations';
+import { railPossessionConflict } from './rail-operations';
+import { railRoute } from './rail-routing';
 import { railRecoveryConflict } from './rail-recovery';
 import { tickRailWork, railStagingStackOwned } from './railwork';
 import { staticRailPickupFaces } from './rail-pickup';
+import { engineShedPlacementError, engineShedRailCell, engineShedParkingLocation, engineShedComponentIds } from './engine-shed';
 import { tickShedConstruction } from './shed-construction';
 import {
   constructionSourceBusy,
@@ -442,12 +447,10 @@ export function purchaseBatch(
     !s.railLocations?.some(
       (l) =>
         l.id === options.railLocationId &&
-        l.trackId === 'BOOTSTRAP-SIDING' &&
-        l.route === 'straight' &&
-        ['unloading', 'transfer'].includes(l.kind),
+        ['unloading', 'transfer'].includes(l.kind) && railLocationStatus(s,l).valid && railLocationStatus(s,l).connected,
     )
   )
-    throw new Error('Choose an unloading or transfer point on the original receiving siding.');
+    throw new Error('Choose a valid unloading or transfer point on connected rail.');
   if (options.storageZoneId && !s.zones.some((z) => z.id === options.storageZoneId))
     throw new Error('Choose an existing destination stockyard.');
   const loads = [
@@ -545,12 +548,13 @@ export function validPlan(s: State, kind: string, r: Rect, ignoreJobs = false): 
     return 'Outside the buildable yard or inside the protected road / railway corridor.';
   if (r.x < -3 && r.z < 25) return 'Keep the crossing and receiving access lane clear.';
   if (kind === 'slab' && s.paving[key(r.x, r.z)]) return 'Already paved.';
+  if(kind==='engineShed') {const error=engineShedPlacementError(s,r,r.w>r.d?1:0);if(error)return error;}
   if (s.buildings.some((b) => overlap(b, r))) return 'An existing structure occupies this area.';
   if (s.zones.some((z) => overlap(z, r)) && kind !== 'slab')
     return 'This is a storage zone. Place the structure outside its marked boundary.';
   if (s.stacks.some((t) => (t.qty > 0 || t.item === 'diesel') && overlap(t, r)))
     return 'Stored material occupies the construction area.';
-  if (s.rails.some((t) => railCells(t).some((p) => overlap(r, { ...p, w: 1, d: 1 }))))
+  if (kind !== 'engineShed' && s.rails.some((t) => railCells(t).some((p) => overlap(r, { ...p, w: 1, d: 1 }))))
     return 'Existing track occupies this area.';
   if (
     !ignoreJobs &&
@@ -734,6 +738,7 @@ function completeCreativePlacement(s: State, jobs: Job[]) {
           j.kind === 'lamp' ? s.utilities.power : j.kind === 'sanitary' ? s.utilities.water : true,
       });
     }
+    if(j.kind==='engineShed') { const b=s.buildings.at(-1)!; b.componentIds=engineShedComponentIds(b.id); engineShedParkingLocation(s,b.id); }
     complete(s, j);
   }
   if (jobs.length)
@@ -755,6 +760,7 @@ export function plan(
   const r = footprint(kind, x, z, rotation),
     error = validPlan(s, kind, r);
   if (error) return { error };
+  if (kind === 'engineShed') { const railError=engineShedPlacementError(s,r,rotation); if(railError) return {error:railError}; }
   const firstNewJob = s.jobs.length;
   let parentId: string | undefined;
   if (kind !== 'slab') {
@@ -790,6 +796,7 @@ export function plan(
         const px = r.x + dx,
           pz = r.z + dz;
         if (
+          !(kind==='engineShed' && engineShedRailCell(s,px,pz)) &&
           !s.paving[key(px, pz)] &&
           !s.jobs.some(
             (j) => j.kind === 'slab' && j.x === px && j.z === pz && j.status !== 'canceled',
@@ -868,6 +875,9 @@ export function validRailLayout(
     origin.z === 0 &&
     heading === 0 &&
     hand === 1;
+  if(mainlineExit && !s.railPossessions?.some(p=>p.kind==='mainlineExit'&&!p.released&&p.assetIds.every(id=>s.jobs.some(j=>j.railRecovery?.railId===id&&j.status==='done')))) return 'Request mainline possession and recover its original straight panels before building this connection.';
+  if(sidingAccess && !s.railPossessions?.some(p=>p.kind==='sidingAccess'&&p.from===origin.x&&!p.released&&p.assetIds.every(id=>s.jobs.some(j=>j.railRecovery?.railId===id&&j.status==='done')))) return 'Request siding possession and recover its original straight panels before building this switch.';
+  const restoration=s.railPossessions?.find(p=>!p.released&&layout==='straight'&&heading===0&&origin.z===p.z&&origin.x>=p.from&&origin.x+5<=p.to);
   const pieces = railLayoutPieces(layout, origin, heading, hand, flow),
     geometries = pieces.map(trackGeometry);
   // Legal connections are exact opposing rail ports, including both incoming
@@ -879,6 +889,7 @@ export function validRailLayout(
     !entries.every(
       (entry) =>
         (mainlineExit && entry.x === 125 && entry.z === 0) ||
+        (restoration && entry.x===restoration.from && entry.z===restoration.z) ||
         (sidingAccess && entry.x === origin.x && entry.z === 5) ||
         ports.some((port) => portsConnect(port, entry, 0.02, 0.02)),
     )
@@ -896,7 +907,8 @@ export function validRailLayout(
     const cell = { ...p, w: 1, d: 1 };
     if (
       (p.x < -12 || p.x + 1 > 220 || p.z < 4 || p.z + 1 > 110) &&
-      !(mainlineExit && p.x >= 125 && p.x + 1 <= 145 && p.z >= -1 && p.z + 1 <= 6)
+      !(mainlineExit && p.x >= 125 && p.x + 1 <= 145 && p.z >= -1 && p.z + 1 <= 6) &&
+      !(restoration && p.x>=restoration.from && p.x+1<=restoration.to && p.z>=restoration.z-1 && p.z+1<=restoration.z+1)
     )
       return 'Track extends outside the buildable yard or into the protected transport corridor.';
     if (p.x < -3 && p.z < 25) return 'Keep the crossing and receiving access lane clear.';
@@ -1018,28 +1030,61 @@ export function planRailLayout(
   s.revision++;
   return { jobs, group: railWorkGroup(s, jobs[0]) || group, error: '' };
 }
-/** Commission a factory branch without consuming the receiving siding's east exit. */
+/** Start a protected work boundary and expose the inherited steel as ordinary recoverable assets.
+ * No switch is inserted automatically: the player recovers these panels, then builds the chosen layout. */
+function prepareInheritedRail(s:State,kind:'mainlineExit'|'sidingAccess',from:number,z:number):string|undefined {
+  const old=s.railPossessions?.find(p=>p.kind===kind&&p.from===from);
+  if(old&&!old.released) return 'This possession already exists; recover its original panels, finish the replacement, then reopen it.';
+  const blocking=railPossessionConflict(s,from,from+20,z);
+  if(blocking) return `Move ${blocking} and its reserved route clear before requesting possession.`;
+  if(old) {old.released=false;s.revision++;event(s,'Railway',old.id,'Work possession reopened for manual recovery and replacement of owned steel.');return;}
+  if((s.railLocations||[]).some(l=>l.trackId==='BOOTSTRAP-SIDING'&&z===5&&25+l.offset-l.length/2<from+20&&25+l.offset+l.length/2>from)) return 'Move or shorten named rail intervals overlapping the work boundary first.';
+  const possession={id:id(s,'POSSESSION'),kind,from,to:from+20,z,assetIds:[] as string[]};
+  for(let x=from;x<from+20;x+=5) {
+    const piece=trackSections('straight',{x,z},0)[0],g=trackGeometry(piece),assetId=id(s,'RAIL');
+    s.rails.push({id:assetId,x:g.rect.x,z:g.rect.z,rotation:0,length:g.length,item:'rail',track:piece});
+    possession.assetIds.push(assetId);
+  }
+  (s.railPossessions??=[]).push(possession);
+  event(s,'Railway',possession.id,`Possession granted E${from}–E${from+20}, S${z}. Four inherited panels are now individually recoverable; public movements through this work boundary are suspended.`);
+  notice(s,'Rail work possession',`Recover the four original straight panels, build the replacement, then reopen ${possession.id}.`,possession.id);
+  s.revision++;
+}
+export function prepareMainlineExit(s:State):string|undefined {
+  if(mainlineExitCommissioned(s)&&!s.railPossessions?.some(p=>p.kind==='mainlineExit')) return 'The original east connection is already commissioned.';
+  return prepareInheritedRail(s,'mainlineExit',125,0);
+}
+export function prepareSidingAccess(s:State,x=80):string|undefined {
+  if(!Number.isInteger(x)||x%5||x<30||x>100) return 'Choose a five-meter station between E30 and E100.';
+  if(sidingAccessSpans(s,true).some(a=>x<a.end&&x+20>a.x)) return 'A siding replacement already occupies this span.';
+  return prepareInheritedRail(s,'sidingAccess',x,5);
+}
+export function releaseRailPossession(s:State,possessionId:string):string|undefined {
+  const p=s.railPossessions?.find(p=>p.id===possessionId);
+  if(!p||p.released) return 'Select an active rail work possession.';
+  if(p.assetIds.some(id=>!s.jobs.some(j=>j.railRecovery?.railId===id&&j.status==='done'))) return 'Recover every inherited straight panel before reopening this replacement.';
+  if(s.jobs.some(j=>!['done','canceled'].includes(j.status)&&j.track&&j.track.origin.x>=p.from&&j.track.origin.x<=p.to&&Math.abs(j.track.origin.z-p.z)<6)) return 'Finish or cancel the rail construction inside this possession first.';
+  const route=railRoute(s,{trackId:p.z===0?'BOOTSTRAP-MAINLINE':'BOOTSTRAP-SIDING',route:'straight',offset:p.from-(p.z===0?-260:25)},{trackId:p.z===0?'BOOTSTRAP-MAINLINE':'BOOTSTRAP-SIDING',route:'straight',offset:p.to-(p.z===0?-260:25)});
+  if(!route) return 'The replacement has a gap, incomplete turnout or buffer stop; complete a continuous through route first.';
+  p.released=true;s.revision++;event(s,'Railway',p.id,'Physical replacement inspected; possession released and public movements reopened.');
+}
+/** Player-selected manual recovery followed by construction, with no automatic turnout insertion. */
 export function planSidingAccess(s: State, x = 80): ReturnType<typeof planRailLayout> {
-  if (!Number.isInteger(x) || x % 5 || x < 30 || x > 100) return { jobs: [], error: 'Choose a five-meter station between E30 and E100 on the receiving siding.' };
-  if (sidingAccessSpans(s,true).some(a => x < a.end && x+20 > a.x)) return {jobs:[],error:'A siding access switch is already installed or planned in this span.'};
-  if ((s.railLocations||[]).some(l => l.trackId === 'BOOTSTRAP-SIDING' && 25+l.offset-l.length/2 < x+20 && 25+l.offset+l.length/2 > x))
-    return {jobs:[],error:'A named rail interval overlaps the replacement span. Shorten or move that location first.'};
-  if (s.orders.some(o => o.mode === 'rail' && !['ordered','done'].includes(o.status) &&
-    ((o.railFreight?.cars.some(c => !c.returned && (c.pose?.z ?? o.vehicle.z) === 5 && (c.pose?.x ?? o.vehicle.x)+c.length/2 > x && (c.pose?.x ?? o.vehicle.x)-c.length/2 < x+20)) ||
-      (!o.railFreight?.detached && o.vehicle.z === 5 && o.vehicle.x+5 > x && o.vehicle.x-5 < x+20))))
-    return {jobs:[],error:'Move the train clear of the siding replacement span before commissioning its switch.'};
-  if (s.shunters?.some(e => e.z === 5 && e.x+5>x && e.x-5<x+20 && e.phase !== 'ordered'))
-    return {jobs:[],error:'Move the shunter clear of the siding replacement span first.'};
+  const possession=s.railPossessions?.find(p=>p.kind==='sidingAccess'&&p.from===x&&!p.released);
+  if(!possession) return {jobs:[],error:'Request a siding work possession first, then manually recover the four original straight panels.'};
+  if(possession.assetIds.some(id=>!s.jobs.some(j=>j.railRecovery?.railId===id&&j.status==='done'))) return {jobs:[],error:'Recover all four original straight panels before placing the factory access switch.'};
   const result=planRailLayout(s,'turnout',{x,z:5},0,1);
   if(result.group) result.group.label='Install receiving-siding factory access switch';
   return result;
 }
-/** Player-commissioned physical runaround exit; no track is added for free. */
 export function planMainlineExit(s: State): ReturnType<typeof planRailLayout> {
   const existing = [...s.rails, ...s.jobs.filter(j => j.kind === 'rail' && !['done', 'canceled'].includes(j.status))].some(r =>
     r.track?.layout === 'turnout' && r.track.origin.x === 145 && r.track.origin.z === 0 &&
     r.track.heading === 2 && r.track.hand === -1 && r.track.flow === 'converging');
   if (existing) return { jobs: [], error: 'The east main-line connection is already installed or planned.' };
+  const possession=s.railPossessions?.find(p=>p.kind==='mainlineExit'&&!p.released);
+  if(!possession) return {jobs:[],error:'Request mainline possession first, then manually recover the four original straight panels.'};
+  if(possession.assetIds.some(id=>!s.jobs.some(j=>j.railRecovery?.railId===id&&j.status==='done'))) return {jobs:[],error:'Recover all four original mainline panels before building the east connection.'};
   const result = planRailLayout(s, 'turnout', { x: 125, z: 0 }, 0, 1, 'converging');
   if (result.group) result.group.label = 'Connect receiving siding to main line · east exit';
   return result;
@@ -2417,7 +2462,7 @@ export function unloadDelivery(s: State, oid: string, wid: string) {
 function foundationReady(s: State, j: Job) {
   if (!BUILDINGS[j.kind]?.foundation) return true;
   for (let x = j.x; x < j.x + j.w; x++)
-    for (let z = j.z; z < j.z + j.d; z++) if (!s.paving[key(x, z)]) return false;
+    for (let z = j.z; z < j.z + j.d; z++) if (!s.paving[key(x, z)] && !(j.kind==='engineShed' && engineShedRailCell(s,x,z))) return false;
   return true;
 }
 function assign(s: State, j: Job) {
@@ -2697,7 +2742,7 @@ function assign(s: State, j: Job) {
   }
   if (requested && !equipmentCanDoJob(requested, j)) {
     j.reason =
-      j.kind === 'shed'
+      ['shed','engineShed'].includes(j.kind)
         ? `Assigned ${requested.id} cannot erect the shed; assign an excavator`
         : `Assigned ${requested.id} cannot lift or handle this load`;
     return;
@@ -2823,7 +2868,7 @@ function assign(s: State, j: Job) {
           allowed(e) &&
           (!e.operator || e.operator === candidate.id) &&
           (!j.railRecovery || e.kind === 'excavator') &&
-          (!['rail', 'shed'].includes(j.kind) || j.railStageOnly || e.kind === 'excavator') &&
+          (!['rail', 'shed', 'engineShed'].includes(j.kind) || j.railStageOnly || e.kind === 'excavator') &&
           EQUIPMENT[e.kind].capacity >= mass &&
           (!equipmentAssistant(s, e.id) ||
             !!availableEquipmentAssistant(s, e.id) ||
@@ -2854,7 +2899,7 @@ function assign(s: State, j: Job) {
               !e.job &&
               allowed(e) &&
               (!j.railRecovery || e.kind === 'excavator') &&
-              (!['rail', 'shed'].includes(j.kind) || j.railStageOnly || e.kind === 'excavator') &&
+              (!['rail', 'shed', 'engineShed'].includes(j.kind) || j.railStageOnly || e.kind === 'excavator') &&
               EQUIPMENT[e.kind].capacity >= mass &&
               e.fuel <= 0.2,
           )
@@ -2862,20 +2907,20 @@ function assign(s: State, j: Job) {
         : s.equipment.some(
               (e) =>
                 (!j.railRecovery || e.kind === 'excavator') &&
-                (!['rail', 'shed'].includes(j.kind) || j.railStageOnly || e.kind === 'excavator') &&
+                (!['rail', 'shed', 'engineShed'].includes(j.kind) || j.railStageOnly || e.kind === 'excavator') &&
                 EQUIPMENT[e.kind].capacity >= mass,
             ) &&
             !s.equipment.some(
               (e) =>
                 allowed(e) &&
                 (!j.railRecovery || e.kind === 'excavator') &&
-                (!['rail', 'shed'].includes(j.kind) || j.railStageOnly || e.kind === 'excavator') &&
+                (!['rail', 'shed', 'engineShed'].includes(j.kind) || j.railStageOnly || e.kind === 'excavator') &&
                 EQUIPMENT[e.kind].capacity >= mass,
             )
           ? `No suitable machine allows ${EQUIPMENT_ROLES[jobActivity(j)].replace(' only', '').toLowerCase()} — change Automatic work in Equipment`
           : j.kind === 'rail'
             ? 'Need an available excavator for rail laying and buffer handling'
-            : j.kind === 'shed'
+            : ['shed','engineShed'].includes(j.kind)
               ? 'Need an available excavator to erect and lift shed components'
               : 'Need available equipment with enough lift capacity';
     return;

@@ -2,7 +2,7 @@
 
 ## Native game
 
-The playable Godot migration uses the approved Concept C art and a separate local simulation process. Open **Plant 01.app** in the surrounding `outputs/` folder, or double-click **Open Plant 01.command** for development. No browser is required. [Download the Mac app](https://github.com/lukacslacko/factory_game/releases/tag/v0.21.1). See [native game instructions](native/README.md) and [migration notes](docs/native-migration.md). The browser game and static visual proof remain available below.
+The playable Godot migration uses the approved Concept C art and a separate local simulation process. Open **Plant 01.app** in the surrounding `outputs/` folder, or double-click **Open Plant 01.command** for development. No browser is required. [Download the Mac app](https://github.com/lukacslacko/factory_game/releases/tag/v0.22.0). See [native game instructions](native/README.md) and [migration notes](docs/native-migration.md). The browser game and static visual proof remain available below.
 
 
 A playable first version of the fantasy chemistry plant game. Build and operate the construction yard before chemical production arrives: hire a crew, receive physical materials, move equipment, pave ground, extend track, and assemble a small base.
@@ -13,23 +13,25 @@ The world uses a true perspective 3D camera, with a meter grid, dimensional stoc
 
 ## Recover and rebuild track
 
-Select installed track in Yard or Railway, then **Recover this rail panel**. Curves and turnouts also offer **Recover whole curve / turnout**. A worker releases the fasteners and rigs each panel; an excavator physically lifts it, transports it to an accessible stockyard, lowers it and withdraws. Attached buffer stops are recovered first. Canceled work retains secured installed steel or safely stores an already lifted load. Protected mainline and original receiving siding cannot be removed.
+Select installed track in Yard or Railway, then **Recover this rail panel**. Curves and turnouts also offer **Recover whole curve / turnout**. A worker releases the fasteners and rigs each panel; an excavator physically lifts it, transports it to an accessible stockyard, lowers it and withdraws. Attached buffer stops are recovered first. Canceled work retains secured installed steel or safely stores an already lifted load. Protected inherited track can be exposed for manual recovery only inside an explicitly commissioned work possession. Ordinary rail editing does not touch public track.
 
-To insert a switch, recover the straight panels across its 20-meter footprint and build a turnout from the exposed end. Its through exit can reconnect to surviving downstream track. In Creative, rail recovery places the reusable components directly into finite stockyard storage; missing capacity refuses the entire edit. Completed endpoints can close loops when their positions and opposing tangents match; crossing rails alone do not connect. **Railway → Rail help** explains these controls.
+To insert a switch, recover the straight panels across its 20-meter footprint and build a turnout from the exposed end. Its through exit can reconnect to surviving downstream track. In Creative, rail recovery places the reusable components directly into finite stockyard storage; missing capacity refuses the entire edit. Completed endpoints can close loops when their positions and opposing tangents match; crossing rails alone do not connect. **Railway → Rail management help** explains these controls.
 
 ## Rail editing — native v0.21.1
 
 Select installed track in **Railway** to review recovery of one panel or its whole curve/turnout assembly. The review lists material identities, storage destinations and constraints before submission. **Buffer stops / editing** brings purchasing, endpoint installation, recovery, stock and outstanding work into the same workflow. Normal mode uses real equipment and crew; Creative recovery is immediate and preserves material in finite stockyard storage. Connecting turnouts recover redundant stops, and secured stops continue to block trains. See the [rail walkthrough](docs/rail-operations.md).
 
-## Rail operations — native v0.21.1
+## Rail operations — native v0.22.0
 
-Receive a multi-car supplier train, release its mainline locomotive through a second siding connection, and move selected loaded or empty cars between connected named locations with an owned diesel shunter and driver. Choose a physical stockyard for unloading, assemble empty cars on the original siding, and request a mainline locomotive to collect the return train. The cars retain their IDs and manifests throughout these operations. **Railway → Rail management help** explains the controls in game; the [rail operations walkthrough](docs/rail-operations.md) describes the complete setup and return sequence.
+Receive multi-car flatcar or tanker trains at connected named receiving intervals, release the supplier locomotive with a physical ground crew, and use an owned diesel shunter with a qualified driver to move selected cars between factory tracks. Separate routes can operate concurrently; shared sections, switch fouling and standing stock remain protected. Select the destination stockyard for actual flatcar unloading, assemble empty cars near the main line, and request a pickup locomotive. Car IDs, cargo, brake state, invoices and operation progress survive reload.
 
-Before receiving freight, use **+ Yard access switch** to branch into the factory and **Build siding exit** to connect the eastern end back to the main line. Both are seven-panel construction orders in normal play and immediate placements in Creative. With the default access switch at E80, S5, build factory track from its branch at E100, S10. Put the receiving interval before that switch; the form defaults to E55 with 40 meters of usable track for a one-car train.
+New mainline and original-siding connections use explicit work possessions. Prepare the boundary, **manually recover the four original straight panels**, build the new seven-panel turnout, then reopen the completed track. The game never automatically replaces ordinary straight rails with a switch. #24 was canceled at the creator’s request. **Railway → Rail management help** and the [rail walkthrough](docs/rail-operations.md) explain each step.
 
-All six rail material types stack up to eight pieces (2.85 m high) on deliveries and in stockyards, with finite footprints, separate item types and actual carrier/lift weight limits. Larger orders can share one multi-car train when its complete length fits the receiving interval.
+Hire **Qualified railway drivers** through the normal crew-bus flow. The shunter inspector offers driver assignment, named parking, forward/reverse manual moves, explicit release of manual control and physical can refueling. An **Engine shed** kit builds a 6 × 14 m shelter around connected internal track through real foundation, column, frame, roof, wall and door work, with a saved locomotive bay.
 
-This release handles flatcars and one rail movement at a time. Supplier reception and empty collection use the original siding; owned shunting serves the connected factory network. Direct shunter driving, an engine shed, tanker cars and chemical transfer equipment remain further work under the [rail operations roadmap](https://github.com/lukacslacko/factory_game/issues/22).
+**+ Tanker train** orders process water or bulk diesel in identified 30,000-liter cars. Review liquid weight, car tare, train length and service cost before ordering. Tankers keep their liquid contained during reception and shunting; pumping, tanks, piping, valves and gauges remain separate chemical-plant issues. Loaded cars cannot be collected as empties.
+
+All six rail material types stack up to eight pieces (2.85 m high) on deliveries and in stockyards, with finite footprints and actual carrier/lift weight limits. Larger orders share one multi-car train when the complete train fits the chosen receiving interval.
 
 ![Three-car reception](native/screenshots/freight-received.png)
 
@@ -39,7 +41,7 @@ An independent [Godot visual study](native-proof/README.md) recreates the concep
 
 ## Browser legacy game
 
-The private game Site is **https://plant-01-starter-yard.lukacslacko.chatgpt.site**. The browser deployment remains **0.18.0**; the native release is **0.21.1**. Browser deployment status is recorded in `docs/publishing.md`. Sign in with the account that owns the Site. Local and hosted browser saves are separate; use Export save / Import save to transfer a yard.
+The private game Site is **https://plant-01-starter-yard.lukacslacko.chatgpt.site**. The browser deployment remains **0.18.0**; the native release is **0.22.0**. Browser deployment status is recorded in `docs/publishing.md`. Sign in with the account that owns the Site. Local and hosted browser saves are separate; use Export save / Import save to transfer a yard.
 
 On this Mac, double-click **Start Plant 01.command**. It starts the included local server and opens the game at **http://127.0.0.1:4173/**. Keep its Terminal window open while playing; Control-C stops the server.
 
@@ -96,7 +98,7 @@ Choose **Rail location** in the yard or **Railway → + Named location**, then c
 
 Click a label or linked **RLOC** ID to edit its name, purpose, length or distance along its anchor panel. **Reposition in yard** changes its track anchor while preserving its ID. Deleting the designation retains the track. If its anchor or neighboring rail is recovered, the saved record remains available with a repair reason. The Railway register supports the existing search, header sorting and column filters; SQL exposes `rail_locations`, including position, interval validity, connectivity and status.
 
-These designations became receiving and shunting destinations in native v0.21.0. Supplier reception still uses the original siding, while an owned shunter can move selected cars to connected factory points. A designation does not build track or supply route clearance. The browser deployment retains the earlier named-location checkpoint; see the [current native walkthrough](docs/rail-operations.md) for working rail operations.
+Native v0.22.0 uses suitable connected named intervals for supplier reception, owned shunting and empty pickup. A designation does not build track or supply route clearance. The browser deployment retains the earlier named-location checkpoint; see the [current native walkthrough](docs/rail-operations.md) for working rail operations.
 
 The [actual location interface capture](railway-locations-preview.png) shows a designation created, edited and repositioned through the game controls.
 
@@ -207,7 +209,7 @@ The game does not advance while closed. Clearing browser data removes browser sa
 
 ## Deliberate first-version boundaries
 
-This is a construction sandbox, with **no chemical production yet**. The buildable structure area is 232 × 98 m; the surrounding landscape and public transport lines are visual context. Buildable rail includes straight panels, R20 quarter-turns and modular turnouts. Native v0.21.0 supports named freight destinations through owned shunting, supplier locomotive release and empty-return dispatch. Supplier trains still receive and collect on the original siding. Direct locomotive driving and an engine shed are not implemented. The hosted browser retains its earlier rail controls; the native walkthrough describes current operation.
+This is a construction sandbox, with **no chemical production yet**. The buildable structure area is 232 × 98 m; the surrounding landscape and public transport lines are visual context. Buildable rail includes straight panels, R20 quarter-turns and modular turnouts. Native v0.22.0 supports connected named reception and collection, parallel route reservations, physical supplier handoff, owned shunting, qualified drivers, manual locomotive controls and engine sheds. Tanker liquid remains contained; pumps and chemical production are future work. The hosted browser retains its earlier rail controls; the native walkthrough describes current operation.
 
 Workers default to Always on. Assign daily or overnight shifts to use recurring charter buses: workers finish their current work, park equipment in assigned bays, leave the cab, walk to the bus, and return for their next shift. Labor is recorded while workers are on site; each charter is recorded separately. Food and welfare simulation are future work. Office and shed interiors are not simulated. Weather, seasons, tire wear, component failures, and repairs are not implemented.
 

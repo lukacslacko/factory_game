@@ -1,9 +1,9 @@
 import { bufferAssets } from './buffers';
-import { railFreightCarPose, railFreightCarBogies } from './rail-freight';
+import { railFreightCarPose, railFreightCarBogies, railMovementPose } from './rail-freight';
 import type { State, Point, Equipment, Order, Worker, Rect } from './types';
 import { MATERIALS } from './catalog';
 import { forkTip } from './fork-geometry';
-import { shedComponentPose, shedPostPoints } from './shed-geometry';
+import { shedComponentPose, shedPostPoints, shedPartSize } from './shed-geometry';
 import {
   localPoint,
   carPose,
@@ -214,6 +214,18 @@ export function carrierBoxes(o: Order, pose?: Point & { yaw: number }): TrafficB
     const front = pose ?? carPose(distance, 5),
       back = carPose(distance - COUPLED_CENTERS, 11);
     if (o.railFreight) {
+      if(o.railFreight.incomingRailMove) {
+        const m=o.railFreight.incomingRailMove;
+        let station=m.distance;
+        if(pose) {
+          let best=Infinity;
+          for(let at=Math.max(0,m.distance-8);at<=Math.min(m.end,m.distance+40);at+=0.25) {
+            const p=railMovementPose(m,at,5.58),d=Math.hypot(p.x-pose.x,p.z-pose.z);
+            if(d<best) {best=d;station=at;}
+          }
+        }
+        return [{...railMovementPose(m,station,5.58),length:8.6,width:2.65,id:o.id},...o.railFreight.cars.map(c=>({...railMovementPose(m,station-c.centerOffset,c.wheelbase),length:c.length,width:c.width,id:c.id}))];
+      }
       // The movement caller supplies a future head pose. Derive its station by
       // a bounded local search along the surveyed route, rather than shifting
       // the cars rigidly sideways across the turnout.
@@ -347,24 +359,25 @@ export function staticObstacleRects(s: State): (Rect & { id: string })[] {
     if (!h || j.status !== 'doing' || !j.delivered) continue;
     const rotated = Math.abs(Math.sin(h.kitPose.yaw)) > 0.5;
     out.push({
-      x: h.kitPose.x - (rotated ? 1 : 2),
-      z: h.kitPose.z - (rotated ? 2 : 1),
-      w: rotated ? 2 : 4,
-      d: rotated ? 4 : 2,
+      x: h.kitPose.x - (rotated ? (j.kind==='engineShed'?1.5:1) : 2),
+      z: h.kitPose.z - (rotated ? 2 : (j.kind==='engineShed'?1.5:1)),
+      w: rotated ? (j.kind==='engineShed'?3:2) : 4,
+      d: rotated ? 4 : (j.kind==='engineShed'?3:2),
       id: j.id + '-kit',
     });
     for (const p of shedPostPoints(j).slice(0, h.posts))
       out.push({ x: p.x - 0.2, z: p.z - 0.2, w: 0.4, d: 0.4, id: j.id + '-post' });
     for (let index = 0; index < h.wallPanels; index++) {
       const p = shedComponentPose(j, 'wall', index);
-      const width = (j.rotation % 2 ? j.d : j.w) / 2;
+      if(j.kind==='engineShed' && index>=4) continue; // Raised roller doors preserve the rail entrance.
+      const width = shedPartSize(j,'wall',index)[0];
       out.push({ ...boxRect({ ...p, length: width, width: 0.08 }), id: j.id + '-wall-' + index });
     }
   }
   for (const b of s.buildings) {
     const c = { x: b.x + b.w / 2, z: b.z + b.d / 2 },
       yaw = ((b.rotation % 2) * Math.PI) / 2;
-    if (b.kind === 'shed') {
+    if (['shed','engineShed'].includes(b.kind)) {
       const w = b.rotation % 2 ? b.d : b.w,
         d = b.rotation % 2 ? b.w : b.d;
       for (const x of [-w / 2 + 0.18, w / 2 - 0.18])
@@ -372,8 +385,13 @@ export function staticObstacleRects(s: State): (Rect & { id: string })[] {
           const p = localPoint({ ...c, yaw }, x, z);
           out.push({ x: p.x - 0.2, z: p.z - 0.2, w: 0.4, d: 0.4, id: b.id });
         }
-      const back = localPoint({ ...c, yaw }, 0, -d / 2);
-      out.push({ ...boxRect({ ...back, yaw, length: w, width: 0.08 }), id: b.id });
+      if(b.kind==='engineShed') {
+        for(const x of [-w/2+.08,w/2-.08]) { const side=localPoint({...c,yaw},x,0);
+          out.push({...boxRect({...side,yaw:yaw+Math.PI/2,length:d,width:.12}),id:b.id}); }
+      } else {
+        const back = localPoint({ ...c, yaw }, 0, -d / 2);
+        out.push({ ...boxRect({ ...back, yaw, length: w, width: 0.08 }), id: b.id });
+      }
     } else if (b.kind === 'lamp') {
       out.push({ x: c.x - 0.275, z: c.z - 0.275, w: 0.55, d: 0.55, id: b.id });
     } else if (b.kind === 'power' || b.kind === 'water') {
@@ -400,6 +418,8 @@ export function people(s: State) {
   for (const o of s.orders)
     if (o.contractor && o.contractor.phase !== 'seated')
       out.push({ ...o.contractor, id: o.id + '-crew' });
+  for (const crew of s.railServiceCrew || [])
+    if (!['aboard', 'left-site'].includes(crew.phase)) out.push({ ...crew });
   return out;
 }
 export function roadMoveBlocked(s: State, o: Order, pose: Point & { yaw: number }): string {
@@ -925,8 +945,11 @@ export function walkRoute(
   w: Point & { id?: string },
   goal: Point,
   staticObstacles: Rect[],
+  /** External railway staff may walk back to an engine waiting outside the yard. */
+  allowOutsideYard = false,
 ): Point[] | null {
-  if (goal.x < -48 || goal.x > 230 || goal.z < -30 || goal.z > 115) return null;
+  const minX = allowOutsideYard ? -260 : -48, maxX = allowOutsideYard ? 520 : 230;
+  if (goal.x < minX || goal.x > maxX || goal.z < -30 || goal.z > 115) return null;
   // A newly lowered asset may touch an existing crew position. Permit only
   // monotonically outward escape, checking every real obstacle at each step.
   const initiallyTouching = new Set(staticObstacles.filter((r) => !segmentClear(w, w, [r], 0.22)));
@@ -1013,8 +1036,8 @@ export function walkRoute(
         k = key(x, z),
         g = p.g + Math.hypot(dx, dz) * 0.5;
       if (
-        q.x < -48 ||
-        q.x > 230 ||
+        q.x < minX ||
+        q.x > maxX ||
         q.z < -30 ||
         q.z > 115 ||
         g >= (score.get(k) ?? Infinity) ||

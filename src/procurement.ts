@@ -1,5 +1,6 @@
 import type { Item, Order, OrderLine } from './types';
 import { MATERIALS, EQUIPMENT, ROLES, SERVICES, label } from './catalog';
+import { RAIL_COMMODITIES, isRailCommodity } from './rail-commodities';
 
 export const FREIGHT_CAPACITY = { road: 12000, rail: 48000 };
 export const FREIGHT_DECK_LENGTH = { road: 6, rail: 16 };
@@ -20,6 +21,7 @@ export function freightStackLimit(o: Pick<Order, 'stackLimits'>, item: Item): nu
   return freightStackLimits(o)[item] ?? MATERIALS[item].max;
 }
 export function itemMass(item: string): number | undefined {
+  if (isRailCommodity(item)) return RAIL_COMMODITIES[item].density;
   return Object.hasOwn(MATERIALS, item)
     ? (MATERIALS as any)[item].mass
     : Object.hasOwn(EQUIPMENT, item)
@@ -31,7 +33,7 @@ export function orderLines(o: Pick<Order, 'item' | 'qty' | 'arrived' | 'manifest
 }
 export function orderDescription(o: Pick<Order, 'item' | 'qty' | 'arrived' | 'manifest'>) {
   return orderLines(o)
-    .map((line) => `${line.qty} × ${label(line.item)}`)
+    .map((line) => isRailCommodity(line.item) ? `${line.qty.toLocaleString('en-US')} L ${RAIL_COMMODITIES[line.item].name}` : `${line.qty} × ${label(line.item)}`)
     .join(' + ');
 }
 export function orderMass(o: Pick<Order, 'item' | 'qty' | 'arrived' | 'manifest'>) {

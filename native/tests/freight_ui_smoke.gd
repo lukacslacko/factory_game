@@ -35,7 +35,7 @@ func _run()->void:
 	await process_frame
 	await process_frame
 	_check(ui.tables[4].get_global_rect().end.y<=ui.register_panel.get_global_rect().end.y,"All five freight/track registers remain inside the actual information panel")
-	_check(ui.tables.size()==8,"Railway retains freight cars and shunters and includes buffer stock and physical work")
+	_check(ui.tables.size()==9,"Railway retains freight cars and shunters and includes buffer stock and physical work")
 	_check(ui.tables[4].rows.size()==2,"Both cars of one supplier train appear individually")
 	_check(ui.tables[4].rows[0].cells[2]=="Receiving East","Car records show the named reception instead of an opaque ID")
 	_check(ui.tables[4].rows[0].cells[4]=="24.08 t","Remaining car mass reflects its actual unloaded quantity")
@@ -56,7 +56,7 @@ func _run()->void:
 	start=_button(ui.inspector_body,"Start unloading")
 	_check(start!=null and not start.disabled,"A stopped train with an applied stockyard has a Start unloading action")
 	if start:start.pressed.emit()
-	_check(actions.back()=={"action":"begin_rail_unloading","args":{"orderId":"ORD-9001"}},"Start unloading uses the whole linked train order")
+	_check(actions.back()=={"action":"begin_rail_unloading","args":{"orderId":"ORD-9001"}},"Start unloading uses the whole linked train order when all cars are selected")
 	apply=_button(ui.inspector_body,"Apply rail freight destinations")
 	if apply:apply.pressed.emit()
 	_check(actions.back().args.get("railLocationId")=="RLOC-9001","Stockyard changes after arrival preserve the locked receiving point")
@@ -70,7 +70,7 @@ func _run()->void:
 	_check(_button(ui.inspector_body,"Open train delivery controls")!=null,"Supplier locomotive identity is clickable and links to its train")
 	ui.show_purchase();ui.purchase_mode.selected=1;ui.purchase_mode.item_selected.emit(1)
 	_check(ui.purchase_rail_controls.visible,"Rail mode reveals reception and stockyard fields")
-	_check(ui.purchase_reception.item_count==2,"Reception options exclude custom shunting docks and parking designations")
+	_check(ui.purchase_reception.item_count==3,"Reception includes custom unloading destinations and excludes parking designations")
 	_choose(ui.purchase_reception,"RLOC-9001");_choose(ui.purchase_stockyard,"ZONE-9001")
 	ui.purchase_quantity.slab.value=180
 	ui.purchase_quantity.slab.get_line_edit().text="180"
@@ -82,7 +82,7 @@ func _run()->void:
 	ui.show_tab("Help")
 	_check(ui.active_tab=="Help" and not ui.inspector.visible and ui.register_panel.offset_right==0,"The in-game help page uses the full information panel")
 	var text:String="\n".join(ui._rail_help_paragraphs())
-	_check(text.contains("Start unloading") and text.contains("BOOTSTRAP-SIDING") and text.contains("Shunt selected cars") and text.contains("Collect empty cars"),"Simple help paragraphs explain reception, shunting and empty returns")
+	_check(text.contains("Start unloading") and text.contains("named receiving point") and text.contains("Shunt selected cars") and text.contains("Collect empty cars"),"Simple help paragraphs explain reception, shunting and empty returns")
 	_check(_button(ui.register_body,"Back to Railway")!=null,"Help has a direct return to Railway")
 	ui.show_tab("Yard");ui._menu_action(11)
 	_check(ui.active_tab=="Help","The game menu can open the rail-management help page")

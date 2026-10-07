@@ -52,7 +52,10 @@ with output.open("w") as log:
             process.kill()
             process.wait()
         print("Stopped:", reason, flush=True)
-print(output.read_text(), flush=True)
+final_log = output.read_text(errors="replace")
+if not reason and ("SCRIPT ERROR:" in final_log or "ERROR:" in final_log):
+    reason = "engine or script error; see log"
+print(final_log, flush=True)
 report = {"name": args.name, "elapsed_seconds": round(time.monotonic()-start, 2), "peak_resident_bytes": peak_rss, "returncode": process.returncode, "stopped_reason": reason}
 (project / "captures" / (args.name + "-resources.json")).write_text(json.dumps(report, indent=2) + "\n")
 print(json.dumps(report), flush=True)

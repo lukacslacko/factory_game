@@ -21,6 +21,7 @@ func _nodes(node: Node,type: String) -> Array:
 	return result
 func _choose(options: Array,id: String) -> OptionButton:
 	for option: OptionButton in options:
+		if option.disabled:continue
 		for index: int in option.item_count:
 			if str(option.get_item_metadata(index))==id:
 				option.selected=index;option.item_selected.emit(index);return option
@@ -29,36 +30,74 @@ func _window(ui: Node,title: String) -> Window:
 	for node: Node in ui.find_children("*","Window",true,false):
 		if node.title==title:return node
 	return null
+func _text(node: Node) -> String:
+	var value: String = str(node.text) if node is Label or node is RichTextLabel else ""
+	for child: Node in node.get_children():value+="\n"+_text(child)
+	return value
 func _run() -> void:
 	root.size=Vector2i(1440,810);root.gui_embed_subwindows=true
 	var fixture: Dictionary = JSON.parse_string(FileAccess.get_file_as_string("res://tests/renderer-fixtures.json")).empty.duplicate(true)
-	fixture.state.workers=[{"id":"WRK-9001","name":"Worker #1","role":"operator","status":"idle"},{"id":"WRK-9002","name":"Worker #2","role":"builder","status":"idle"}]
+	fixture.state.workers=[{"id":"WRK-9001","name":"Worker #1","role":"operator","railQualified":true,"status":"idle"},{"id":"WRK-9002","name":"Worker #2","role":"builder","status":"idle"},{"id":"WRK-9003","name":"Worker #3","role":"operator","status":"idle"}]
 	fixture.state.zones=[{"id":"ZONE-9001","name":"East storage","x":70,"z":16,"w":20,"d":20}]
 	fixture.state.railLocations=[{"id":"RLOC-9001","name":"Reception","kind":"unloading","trackId":"BOOTSTRAP-SIDING","route":"straight","offset":50,"length":70},{"id":"RLOC-9002","name":"Plant loading track","kind":"unloading","trackId":"RAIL-9010","route":"straight","offset":20,"length":40}]
-	fixture.state.shunters=[{"id":"SHUNTER-9001","name":"Yard engine","status":"idle","driverId":"WRK-9001","x":115,"z":5,"fuel":160,"tank":200,"used":2}]
+	fixture.state.shunters=[{"id":"SHUNTER-9001","name":"Yard engine","status":"idle","phase":"parked","driverId":"WRK-9001","x":115,"z":5,"fuel":160,"tank":200,"used":2}]
 	var order: Dictionary = {"id":"ORD-9001","item":"slab","qty":20,"arrived":0,"mode":"rail","status":"unloading","eta":39000,"total":2000,"vehicle":{"x":80,"z":5},"manifest":[{"item":"slab","qty":20,"arrived":0}],"railFreight":{"locomotiveId":"LOCO-9001","receptionLocationId":"RLOC-9001","storageZoneId":"ZONE-9001","unloadRequested":false,"detached":false,"locomotivePhase":"attached","cars":[{"id":"CAR-9001","length":16.8,"mass":2800,"locationId":"RLOC-9001","manifest":[{"item":"slab","qty":10,"arrived":0}]},{"id":"CAR-9002","length":16.8,"mass":2800,"locationId":"RLOC-9001","manifest":[{"item":"slab","qty":10,"arrived":0}]}]}}
 	fixture.state.orders=[order]
 	fixture.state.railReturns=[]
+	fixture.railReservations=[{"owner":"SHUNTER-9001","phase":"parking","tracks":["RAIL-9010"],"distance":5,"end":20,"carIds":["CAR-9001"],"blockedBy":"WRK-9002"}]
 	var ui := UI.new();root.add_child(ui);ui.setup();ui.set_process(false)
 	ui.command.connect(func(action: String,args: Dictionary) -> void:actions.append({"action":action,"args":args}))
 	ui.update_snapshot(fixture);ui.receive_reply({"action":"continue","ok":true});ui.show_tab("Railway")
 	await process_frame;await process_frame
-	_check(ui.tables.size()==8,"Railway shows owned locomotives beside freight and track registers")
+	_check(ui.tables.size()==9,"Railway includes every infrastructure, locomotive and live reservation register")
+	_check(ui.tables[8].get_global_rect().end.y<=ui.register_panel.get_global_rect().end.y,"The final rail reservation table fits the 810-pixel information panel")
+	_check(ui.tables[8].rows.size()==1 and ui.tables[8].rows[0].cells==["SHUNTER-9001","parking","RAIL-9010","5.0 / 20.0","CAR-9001","WRK-9002"],"Reservation rows expose owning engine, car, sections, progress and identified blocker")
+	for reference: Array in [[0,"SHUNTER-9001"],[4,"CAR-9001"],[5,"WRK-9002"]]:
+		var reservation_item: TreeItem=ui.tables[8].tree.get_root().get_first_child()
+		reservation_item.select(int(reference[0]));ui.tables[8]._selected()
+		_check(ui.selected_id==str(reference[1]),"Reservation reference opens "+str(reference[1]))
+	ui.show_entity("");await process_frame
 	_check(ui.tables[5].get_global_rect().end.y<=ui.register_panel.get_global_rect().end.y,"The final shunter table fits the 810-pixel information panel")
 	_check(ui.tables[5].rows[0].cells[0]=="SHUNTER-9001","Owned shunter ID is shown in the real table")
 	_check(ui.tables[5].row_id_pattern.search("SHUNTER-9001")!=null and ui.tables[5].row_id_pattern.search("RETURN-9001")!=null,"Owned engine and return-train IDs are recognized as navigable")
 	_button(ui.register_body,"+ Yard access switch").pressed.emit()
 	await process_frame
 	var access_window := _window(ui,"Factory yard access switch")
-	_check(access_window!=null and access_window.visible,"The yard access switch has a real placement form")
+	_check(access_window!=null and access_window.visible,"The yard access switch has a protected manual replacement form")
 	var access_fields: Array = _nodes(access_window,"SpinBox")
 	_check(access_fields.size()==1 and access_fields[0].value==80 and access_fields[0].step==5,"Access switch starts at E80 with five-meter placement increments")
 	access_fields[0].value=70
-	_button(access_window,"Plan yard access switch").pressed.emit()
-	_check(actions.back()=={"action":"rail_access_plan","args":{"x":70.0}},"Internal siding switch construction uses the chosen location")
+	_button(access_window,"1 · Prepare siding work possession").pressed.emit()
+	_check(actions.back()=={"action":"rail_access_prepare","args":{"x":70.0}},"Preparing local possession does not automatically build or remove the original track")
 	await process_frame
-	_button(ui.register_body,"Build siding exit").pressed.emit()
-	_check(actions.back()=={"action":"rail_exit_plan","args":{}},"Exit construction action plans the rail connection")
+	ui._yard_access_form();await process_frame
+	access_window=_window(ui,"Factory yard access switch")
+	_nodes(access_window,"SpinBox")[0].value=70
+	_button(access_window,"3 · Plan yard access switch").pressed.emit()
+	_check(actions.back()=={"action":"rail_access_plan","args":{"x":70.0}},"After manual recovery, internal switch construction uses the chosen location")
+	await process_frame
+	_button(ui.register_body,"Mainline connection").pressed.emit();await process_frame
+	var exit_window := _window(ui,"Commission the mainline connection")
+	_check(exit_window!=null,"Mainline commission opens the step-by-step protected replacement form")
+	_button(exit_window,"1 · Prepare mainline work possession").pressed.emit()
+	_check(actions.back()=={"action":"rail_exit_prepare","args":{}},"Requesting mainline possession preserves explicit player-directed steel recovery")
+	await process_frame
+	ui._mainline_exit_form();await process_frame
+	exit_window=_window(ui,"Commission the mainline connection")
+	_button(exit_window,"3 · Plan / build the siding exit").pressed.emit()
+	_check(actions.back()=={"action":"rail_exit_plan","args":{}},"Exit construction remains a separate step after manual recovery")
+	await process_frame
+	fixture.state.railPossessions=[{"id":"POSSESSION-9001","kind":"mainlineExit","from":125,"to":145,"z":0,"assetIds":["RAIL-9021"]},{"id":"POSSESSION-9002","kind":"sidingAccess","from":70,"to":90,"z":5,"assetIds":["RAIL-9022"]}]
+	ui._mainline_exit_form();await process_frame
+	exit_window=_window(ui,"Commission the mainline connection")
+	_button(exit_window,"Reopen completed track · POSSESSION-9001").pressed.emit()
+	_check(actions.back()=={"action":"rail_possession_release","args":{"id":"POSSESSION-9001"}},"Completed mainline replacement is reopened explicitly after inspection")
+	await process_frame
+	ui._yard_access_form();await process_frame
+	access_window=_window(ui,"Factory yard access switch")
+	_button(access_window,"Reopen completed siding · POSSESSION-9002").pressed.emit()
+	_check(actions.back()=={"action":"rail_possession_release","args":{"id":"POSSESSION-9002"}},"Independent siding possession has its own explicit reopen control")
+	await process_frame
 	ui.show_entity("ORD-9001")
 	var release := _button(ui.inspector_body,"Release supplier locomotive")
 	_check(release!=null and not release.disabled,"A stopped attached train exposes locomotive release")
@@ -91,21 +130,61 @@ func _run() -> void:
 	_check(_button(ui.inspector_body,"Apply rail freight destinations").disabled and _button(ui.inspector_body,"Shunt selected cars").disabled,"An ongoing physical lift cannot be rerouted or moved by shunting")
 	order.erase("unload");order.railFreight.cars[0].locationId="RLOC-9002";ui.show_tab("Railway");ui._refresh_register()
 	_check(ui.tables[4].rows[0].cells[2]=="Plant loading track","The freight register follows the car's current named location after transfer")
+	ui.show_entity("WRK-9003")
+	_check(_button(ui.inspector_body,"Verify railway license · $180")!=null,"An ordinary equipment operator requires explicit railway qualification")
+	_button(ui.inspector_body,"Verify railway license · $180").pressed.emit()
+	_check(actions.back()=={"action":"rail_qualification","args":{"workerId":"WRK-9003"}},"Qualification verification targets the intended worker without silently licensing operators")
 	ui.show_entity("SHUNTER-9001")
 	_check(_button(ui.inspector_body,"Apply shunter driver")!=null,"A clicked shunter opens its driver controls")
 	var drivers: Array = _nodes(ui.inspector_body,"OptionButton")
-	_check((drivers[0] as OptionButton).item_count==2,"Only equipment operators appear as shunter drivers")
+	_check((drivers[0] as OptionButton).item_count==2,"Only explicitly railway-qualified operators appear as shunter drivers")
 	_button(ui.inspector_body,"Apply shunter driver").pressed.emit()
 	_check(actions.back()=={"action":"shunter_driver","args":{"shunterId":"SHUNTER-9001","workerId":"WRK-9001"}},"Apply driver targets this owned locomotive and worker")
 	_choose(drivers,"RLOC-9002");_button(ui.inspector_body,"Drive shunter to named location").pressed.emit()
 	_check(actions.back()=={"action":"shunter_park","args":{"shunterId":"SHUNTER-9001","railLocationId":"RLOC-9002"}},"Parking drives the locomotive to a chosen connected named point")
 	_button(ui.inspector_body,"Refuel stopped shunter").pressed.emit()
 	_check(actions.back()=={"action":"shunter_refuel","args":{"shunterId":"SHUNTER-9001"}},"Owned locomotive has an explicit refueling action")
+	_check(not _button(ui.inspector_body,"Forward 5 m").disabled and not _button(ui.inspector_body,"Reverse 5 m").disabled,"A parked owned locomotive exposes physical manual travel in both cab-relative directions")
+	_button(ui.inspector_body,"Forward 5 m").pressed.emit()
+	_check(actions.back()=={"action":"shunter_drive","args":{"shunterId":"SHUNTER-9001","distance":5}},"Manual forward travels a real bounded rail distance")
+	_button(ui.inspector_body,"Reverse 5 m").pressed.emit()
+	_check(actions.back()=={"action":"shunter_drive","args":{"shunterId":"SHUNTER-9001","distance":-5}},"Manual reverse sends the signed distance")
+	_check(_button(ui.inspector_body,"Release manual control").disabled,"Automatic locomotive is not misleadingly labeled as needing manual release")
+	fixture.state.shunters[0].manualControl=true;fixture.state.shunters[0].shedId="BLD-9001";fixture.state.shunters[0].parkingLocationId="RLOC-9003"
+	ui.show_entity("SHUNTER-9001")
+	_check(_text(ui.inspector_body).contains("MANUAL"),"Manual control remains conspicuous after the locomotive stops")
+	_button(ui.inspector_body,"Release manual control").pressed.emit()
+	_check(actions.back()=={"action":"shunter_release","args":{"shunterId":"SHUNTER-9001"}},"One action explicitly releases manual control")
+	fixture.state.shunters[0].manualControl=false;ui.show_entity("SHUNTER-9001")
+	_button(ui.inspector_body,"Return to assigned engine shed").pressed.emit()
+	_check(actions.back()=={"action":"shunter_park","args":{"shunterId":"SHUNTER-9001","railLocationId":"RLOC-9003"}},"Home shed parking uses the saved named bay and ordinary physical rail movement")
+	fixture.state.shunters[0].refueling={"barrelId":"STK-9001","workerId":"WRK-9001","phase":"to-engine","carried":20}
+	ui.show_entity("SHUNTER-9001")
+	_check(_button(ui.inspector_body,"Forward 5 m").disabled and _text(ui.inspector_body).contains("20.0 L"),"Manual departure waits while the driver carries accounted fuel in a can")
+	fixture.state.shunters[0].erase("refueling")
+	fixture.state.buildings=[{"id":"BLD-9001","kind":"engineShed","name":"Engine shed","x":90,"z":30,"w":14,"d":6,"rotation":1,"parkingLocationId":"RLOC-9003","componentIds":{}}]
+	ui.show_entity("BLD-9001")
+	_choose(_nodes(ui.inspector_body,"OptionButton"),"SHUNTER-9001")
+	_button(ui.inspector_body,"Assign shed and park locomotive").pressed.emit()
+	_check(actions.back()=={"action":"engine_shed_park","args":{"buildingId":"BLD-9001","shunterId":"SHUNTER-9001"}},"Completed shed assigns and physically dispatches the chosen locomotive")
 	ui._shunter_order_form();await process_frame
 	var window := _window(ui,"Order owned diesel shunter")
 	_check(window!=null and window.visible,"The order dialog is visible and describes real rail delivery")
 	_choose(_nodes(window,"OptionButton"),"WRK-9001");_button(window,"Order shunter").pressed.emit()
 	_check(actions.back()=={"action":"shunter_order","args":{"driverId":"WRK-9001"}},"Ordering owns a persistent locomotive with an optional driver")
+	await process_frame
+	ui._tanker_order_form();await process_frame
+	window=_window(ui,"Order loaded tanker cars")
+	_check(window!=null and window.visible,"Tanker procurement has a real volume and train-size form")
+	var tanker_options: Array=_nodes(window,"OptionButton")
+	(tanker_options[0] as OptionButton).selected=1;(tanker_options[0] as OptionButton).item_selected.emit(1)
+	var tanker_numbers: Array=_nodes(window,"SpinBox")
+	tanker_numbers[0].value=20000;tanker_numbers[1].value=2
+	await process_frame;await process_frame
+	_check(_text(window).contains("40,000 L") and _text(window).contains("33.60 t") and _text(window).contains("40.00 t") and _text(window).contains("43.7 m") and _text(window).contains("$54,560"),"Tanker quote recalculates volume, density-based payload, tare, train length and procurement charges")
+	_check(_choose(tanker_options,"RLOC-9002")!=null,"A connected non-original named track can be chosen as supplier reception")
+	_button(window,"Order tanker train").pressed.emit()
+	_check(actions.back()=={"action":"tanker_order","args":{"product":"bulkDiesel","litersPerCar":20000,"carCount":2,"railLocationId":"RLOC-9002"}},"Tanker order preserves product, per-car volume, car count and named reception")
 	await process_frame
 	for car: Dictionary in order.railFreight.cars:car.manifest[0].arrived=car.manifest[0].qty
 	ui._return_train_form("ORD-9001");await process_frame
@@ -121,12 +200,23 @@ func _run() -> void:
 	_check(_button(ui.inspector_body,"Open empty return train")!=null,"The collection locomotive identity opens the return consist")
 	_button(ui.inspector_body,"Open empty return train").pressed.emit()
 	_check(ui.selected_id=="RETURN-9001","Collection engine links to its actual outgoing train")
+	var coupling: Dictionary={"id":"COUPLING-9001","workerId":"RSC-9001","locomotiveId":"LOCO-9011","ownerId":"RETURN-9001","phase":"working","status":"Connect brake hose","carIds":["CAR-9001"]}
+	fixture.state.railReturns[0].coupling=coupling
+	fixture.state.railServiceCrew=[{"id":"RSC-9001","name":"Supplier crew","ownerId":"RETURN-9001","locomotiveId":"LOCO-9011","status":"Connect brake hose","task":coupling}]
+	ui.show_entity("RETURN-9001")
+	var rich: Array=_nodes(ui.inspector_body,"RichTextLabel")
+	var crew_link: RichTextLabel=null
+	for label: RichTextLabel in rich:
+		if label.text.contains("[url=RSC-9001]"):crew_link=label
+	_check(crew_link!=null,"Physical coupling names its individually clickable assigned service crew")
+	if crew_link:crew_link.meta_clicked.emit("RSC-9001")
+	_check(ui.selected_id=="RSC-9001" and _text(ui.inspector_body).contains("Supplier railway service"),"Crew reference opens its linked employer, locomotive and ground-operation record")
 	ui.show_entity("RETURN-9001")
 	_check(ui.inspector.visible,"An outgoing train ID opens its own linked inspector")
 	order.railFreight.cars[0].returned=true;ui.show_tab("Railway")
 	_check(ui.tables[4].rows.size()==1,"Returned cars are removed from the on-site freight register")
 	var help: String = "\n".join(ui._rail_help_paragraphs())
-	_check(help.contains("+ Yard access switch") and help.contains("Build siding exit") and help.contains("Release supplier locomotive") and help.contains("Shunt selected cars") and help.contains("Collect empty cars"),"Simple in-game help describes the complete release, shunt, unload, and return workflow")
+	_check(help.contains("+ Yard access switch") and help.contains("Mainline connection") and help.contains("Manually recover") and help.contains("Release supplier locomotive") and help.contains("Shunt selected cars") and help.contains("Collect empty cars") and help.contains("qualified") and help.contains("Refuel") and help.contains("engine shed") and help.contains("tankers"),"Simple in-game help describes the complete release, shunt, unload, and return workflow")
 	ui.queue_free();await process_frame
 	print("SHUNTING_UI_SMOKE ",JSON.stringify({"passed":failures.is_empty(),"checks":checks,"failures":failures,"serviceStarted":false,"gpuRendering":false}))
 	quit(0 if failures.is_empty() else 1)

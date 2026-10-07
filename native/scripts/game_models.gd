@@ -166,7 +166,7 @@ static func stock(parent:Node3D,item:String,qty:int,hand:int=1)->Node3D:
 		R._container(root,b,Vector3.ZERO,6.0 if item=="office" else 3.0,"OFFICE" if item=="office" else "WC",G.mat("deded0",.72),m.black,m.steel)
 		if item=="sanitary": root.scale.z=2.0/3.0
 	else:
-		var dims:Dictionary={"shed":Vector2(4,2),"store":Vector2(4,3),"lamp":Vector2(4,1),"fence":Vector2(3,1)}
+		var dims:Dictionary={"shed":Vector2(4,2),"engineShed":Vector2(4,3),"store":Vector2(4,3),"lamp":Vector2(4,1),"fence":Vector2(3,1)}
 		var size:Vector2=dims.get(item,Vector2(1,1))
 		b.box(Vector3(0,.12,0),Vector3(size.x,.19,size.y),m.wood)
 		if item=="lamp":
@@ -213,9 +213,9 @@ static func carrier(parent:Node3D,kind:String)->Node3D:
 	root.set_meta("forward","+X" if kind in ["rail","railShunter"] else "-Z")
 	return root
 
-static func flatcar(parent:Node3D,length:float=16.0,identification:String="FLAT 014 · 40 t")->Node3D:
+static func flatcar(parent:Node3D,length:float=16.0,identification:String="FLAT 014 · 40 t",tanker_frame:bool=false)->Node3D:
 	var root:=Node3D.new(); parent.add_child(root); var b:=R.Batch.new(); var m:=materials()
-	R._flatcar(root,b,Vector3.ZERO,[m.bright_steel,G.mat("955532",.82,.26),m.steel],m.black,m.steel,m.wood,m.bright_steel,false,length,false,identification)
+	R._flatcar(root,b,Vector3.ZERO,[m.bright_steel,G.mat("955532",.82,.26),m.steel],m.black,m.steel,m.wood,m.bright_steel,false,length,false,identification,tanker_frame)
 	b.finish(root)
 	for index in range(2):
 		var bogie:=rail_bogie(root,false);bogie.name="RailBogie"+str(index)
@@ -313,6 +313,23 @@ static func building(parent:Node3D,data:Dictionary)->Node3D:
 	elif kind=="lamp":
 		var lamp:=R._lamp(root,b,Vector3.ZERO,m.steel,m.bright_steel)
 		lamp.set_meta("connected",data.get("connected",false))
+	elif kind=="engineShed":
+		var w:float=float(data.get("w",6));var d:float=float(data.get("d",14))
+		if int(data.get("rotation",0))%2==1:var swap:=w;w=d;d=swap
+		for x in [-w*.5+.18,w*.5-.18]:
+			for z in [-d*.5+.18,0,d*.5-.18]:
+				var post:=shed_part(root,"post",w,d,0,true);post.name="EnginePost"+str(root.get_child_count());post.position=Vector3(x,2.855,z)
+		for i in range(3):
+			var beam:=shed_part(root,"beam",w,d,i,true);beam.name="EngineFrame"+str(i);beam.position=Vector3(0,5.605,[-d*.5+.18,0,d*.5-.18][i])
+		for i in range(8):
+			var roof:=shed_part(root,"roof",w,d,i,true);roof.name="EngineRoof"+str(i);var x:float=-w*.5+(i%4+.5)*w/4
+			roof.position=Vector3(x,6.055-absf(x)/w*1.5,-d*.25 if i<4 else d*.25)
+		for i in range(6):
+			var wall:=shed_part(root,"wall",w,d,i,true);wall.name="SideWall"+str(i) if i<4 else "RaisedDoor"+str(i-4)
+			if i<4:
+				wall.position=Vector3((-1 if i<2 else 1)*(w*.5-.08),2.655,(-1 if i%2==0 else 1)*d*.25);wall.rotation.y=-PI*.5
+			else:wall.position=Vector3(0,5.75,(-1 if i==4 else 1)*(d*.5-.12))
+		G.label(root,"ENGINE SHED",Vector3(0,5.05,d*.5+.02),32,.007)
 	elif kind in ["shed","store"]:
 		var w:float=float(data.get("w",8)); var d:float=float(data.get("d",6))
 		if int(data.get("rotation",0))%2==1: var swap:=w; w=d; d=swap
@@ -337,9 +354,24 @@ static func building(parent:Node3D,data:Dictionary)->Node3D:
 	b.finish(root)
 	return root
 
-static func shed_part(parent:Node3D,kind:String,w:float,d:float,index:int)->Node3D:
+static func shed_part(parent:Node3D,kind:String,w:float,d:float,index:int,engine:bool=false)->Node3D:
 	var root:=Node3D.new(); parent.add_child(root); var b:=R.Batch.new(); var m:=materials()
 	var galvanized:=G.mat("a9b5b5",.36,.58)
+	if engine:
+		if kind=="post":
+			b.box(Vector3.ZERO,Vector3(.18,5.50,.18),galvanized);b.box(Vector3(0,-2.67,0),Vector3(.45,.16,.45),m.concrete)
+		elif kind=="beam":
+			G.beam(root,Vector3(-w*.5+.12,-.40,0),Vector3(0,.40,0),.16,galvanized);G.beam(root,Vector3(0,.40,0),Vector3(w*.5-.12,-.40,0),.16,galvanized);b.box(Vector3(0,-.40,0),Vector3(w-.24,.14,.18),galvanized)
+		elif kind=="roof":_corrugated_roof(root,w,d*.5,index%4,galvanized)
+		elif kind=="wall":
+			if index<4:
+				b.box(Vector3.ZERO,Vector3(d*.5-.10,5.10,.12),G.mat("799c8e",.51,.28))
+				for i in range(int(d*.5/.20)):b.box(Vector3(-d*.25+.1+i*.20,0,.08),Vector3(.035,5.05,.025),galvanized)
+			else:
+				# Raised roller shutter is a real installed door, leaving 5.1 m clear below.
+				b.box(Vector3.ZERO,Vector3(w-.35,.70,.55),G.mat("d8d2b8",.5,.25))
+				for y in [-.25,-.1,.05,.2]:b.box(Vector3(0,y,.3),Vector3(w-.4,.025,.02),galvanized)
+		b.finish(root);return root
 	if kind=="post":
 		b.box(Vector3.ZERO,Vector3(.15,4.30,.15),galvanized)
 		b.box(Vector3(0,-2.07,0),Vector3(.37,.16,.37),m.concrete)

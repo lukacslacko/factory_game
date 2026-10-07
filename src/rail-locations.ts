@@ -227,7 +227,7 @@ export function railLocationStatus(
     connected,
     valid: true,
     reason: connected
-      ? l.trackId === 'BOOTSTRAP-SIDING' && ['unloading', 'transfer'].includes(l.kind)
+      ? ['unloading', 'transfer'].includes(l.kind)
         ? 'Supplier reception is available here when the complete train fits this interval.'
         : 'Designated on connected rail. Shunt cars here when the complete consist fits the interval and its route is clear.'
       : 'Designated rail is disconnected from the starter siding. Complete its physical rail connections.',

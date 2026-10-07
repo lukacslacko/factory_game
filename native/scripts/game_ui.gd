@@ -265,6 +265,8 @@ func _records(key: String) -> Array[Dictionary]:
 	return result
 
 func _name(key: String) -> String:
+	if key=="bulkWater":return "Process water (L)"
+	if key=="bulkDiesel":return "Bulk diesel (L)"
 	return str(catalog.get(key,{}).get("name",key))
 
 func _money(value: Variant) -> String:
@@ -329,7 +331,7 @@ func _build_yard_controls() -> void:
 	tool_panel.add_child(tools)
 	var row: HBoxContainer = HBoxContainer.new()
 	tools.add_child(row)
-	var choices: Dictionary = {"select":"Select","slab":"Pave","office":"Office","sanitary":"WC","shed":"Shed","store":"Stores","lamp":"Light","fence":"Fence","power":"Power","water":"Water","zone":"Stockyard"}
+	var choices: Dictionary = {"select":"Select","slab":"Pave","office":"Office","sanitary":"WC","shed":"Shed","engineShed":"Engine shed","store":"Stores","lamp":"Light","fence":"Fence","power":"Power","water":"Water","zone":"Stockyard"}
 	for key: String in choices:
 		_button(row,str(choices[key]),func() -> void: _select_tool(key))
 	var rail_row: HBoxContainer = HBoxContainer.new()
@@ -636,8 +638,9 @@ func _build_register() -> void:
 			var rail_operations: HBoxContainer = HBoxContainer.new()
 			register_body.add_child(rail_operations)
 			_button(rail_operations,"+ Yard access switch",_yard_access_form)
-			_button(rail_operations,"Build siding exit",func() -> void: _send("rail_exit_plan"))
+			_button(rail_operations,"Mainline connection",_mainline_exit_form)
 			_button(rail_operations,"+ Shunter",_shunter_order_form)
+			_button(rail_operations,"+ Tanker train",_tanker_order_form)
 			_button(rail_operations,"Collect empty cars",func() -> void: _return_train_form())
 			_button(rail_operations,"Buffer stops / editing",func() -> void: _buffer_endpoint_form())
 			buffer_summary_label=_note(register_body,_buffer_summary()+" Select installed track to review panel or assembly recovery. Plans remain in Work until built.")
@@ -650,7 +653,8 @@ func _build_register() -> void:
 			_table(register_body,"Owned shunters · select to assign a driver",["ID","Name","Driver","Position","Fuel L","State","Waiting / assignment"])
 			_table(register_body,"Buffer stop stock and incoming orders · select an ID to inspect",["ID","State","Quantity","Destination / position","Source"])
 			_table(register_body,"Buffer-stop work · select for assignment and waiting reasons",["ID","Operation","Status","Destination","Worker","Equipment","Waiting / step"])
-			for table: Control in tables:table.tree.custom_minimum_size.y=44
+			_table(register_body,"Active rail route reservations · select the owning train or locomotive",["Owner","Operation","Track sections","Progress m","Cars","Waiting for"])
+			for table: Control in tables:table.tree.custom_minimum_size.y=34
 		"Materials":
 			_table(register_body,"Inventory",["Material","Delivered","Incoming","Stored","Reserved","In transit","Installed","Construction","Mass stored"])
 			_table(register_body,"Physical stacks",["ID","Material","Qty","Reserved","Footprint","Position","Source","Diesel L"])
@@ -726,7 +730,10 @@ func _refresh_register() -> void:
 			for work: Dictionary in _records("jobs"):
 				if work.get("item")=="bufferStop" or work.get("kind")=="bufferStop":
 					rows.append(_row(str(work.id),[work.id,"Recover" if work.get("kind")=="remove" else "Install",work.get("status",""),work.get("target",_position(work.get("bufferTarget",work))),work.get("worker",""),work.get("equipment",""),work.get("reason",work.get("phase",""))]))
-			_set_table(7,rows)
+			_set_table(7,rows);rows=[]
+			for reservation: Dictionary in metadata.get("railReservations",[]):
+				rows.append(_row(str(reservation.owner),[reservation.owner,reservation.get("phase",""),", ".join(reservation.get("tracks",[])),"%.1f / %.1f"%[float(reservation.get("distance",0)),float(reservation.get("end",0))],", ".join(reservation.get("carIds",[])),reservation.get("blockedBy","")]))
+			_set_table(8,rows)
 		"Materials":
 			for value: Dictionary in metadata.get("inventory",[]):
 				var key: String = str(value.get("item",""))
@@ -818,9 +825,14 @@ func _work_tasks(group_id: String) -> Array[Dictionary]:
 func _entity(id: String) -> Dictionary:
 	# Missing optional reference IDs are empty too; they are not a selection.
 	if id.is_empty(): return {}
-	for key: String in ["workers","equipment","shunters","stacks","buildings","rails","zones","jobs","jobGroups","orders","railLocations","railReturns","notices","events","costs","movements"]:
+	for key: String in ["workers","equipment","shunters","stacks","buildings","rails","zones","jobs","jobGroups","orders","railLocations","railReturns","railServiceCrew","railPossessions","notices","events","costs","movements"]:
 		for entity: Dictionary in _records(key):
 			if str(entity.get("id",""))==id: return {"type":key,"entity":entity}
+	for holder: Dictionary in _records("shunters")+_records("railReturns")+_records("railServiceCrew"):
+		for field: String in ["coupling","handover","task"]:
+			if str(holder.get(field,{}).get("id",""))==id:return {"type":"railGroundTask","entity":holder[field]}
+	for holder: Dictionary in _records("orders"):
+		if str(holder.get("railFreight",{}).get("coupling",{}).get("id",""))==id:return {"type":"railGroundTask","entity":holder.railFreight.coupling}
 	for car: Dictionary in _freight_cars():
 		if str(car.id)==id:return {"type":"freightCars","entity":car}
 	for train: Dictionary in _records("railReturns"):
@@ -849,7 +861,7 @@ func _detail(label_text: String,value: Variant) -> void:
 	rich.mouse_filter=Control.MOUSE_FILTER_STOP
 	var text: String = str(value)
 	var pattern: RegEx = RegEx.new()
-	pattern.compile("[A-Z]{1,8}-[0-9]{3,}")
+	pattern.compile("[A-Z]{1,16}-[0-9]{3,}(?:/BAY)?")
 	var matches: Array[RegExMatch] = pattern.search_all(text)
 	for i: int in range(matches.size()-1,-1,-1):
 		var hit: RegExMatch = matches[i]
@@ -867,13 +879,14 @@ func _option(parent: Node,choices: Array,selected: int = 0) -> OptionButton:
 	parent.add_child(option)
 	return option
 
-func _entity_option(parent: Node,key: String,empty_text: String,current: String = "",operators_only: bool = false) -> OptionButton:
+func _entity_option(parent: Node,key: String,empty_text: String,current: String = "",operators_only: bool = false,rail_only: bool = false) -> OptionButton:
 	var option: OptionButton = OptionButton.new()
 	option.size_flags_horizontal=Control.SIZE_EXPAND_FILL
 	option.add_item(empty_text)
 	option.set_item_metadata(0,"")
 	for entry: Dictionary in _records(key):
 		if operators_only and entry.get("role")!="operator": continue
+		if rail_only and entry.get("role")!="railDriver" and not bool(entry.get("railQualified",false)):continue
 		var text: String = "%s · %s"%[entry.get("id",""),entry.get("name",_name(str(entry.get("kind",entry.get("role","")))))]
 		option.add_item(text)
 		option.set_item_metadata(option.item_count-1,str(entry.get("id","")))
@@ -928,9 +941,25 @@ func _render_inspector() -> void:
 		"orders": _order_inspector(entity)
 		"freightCars": _freight_car_inspector(entity)
 		"shunters": _shunter_inspector(entity)
+		"railGroundTask":
+			_coupling_details(entity)
+			_detail("Operation owner",entity.get("ownerId",""))
+		"railPossessions":
+			_detail("Work boundary", "E%s–E%s, S%s"%[entity.get("from",0),entity.get("to",0),entity.get("z",0)])
+			_detail("State","Released" if entity.get("released",false) else "Closed for physical work")
+			_detail("Original steel",", ".join(entity.get("assetIds",[])))
+			if not entity.get("released",false):_button(inspector_body,"Reopen completed rail section",func() -> void:_send("rail_possession_release",{"id":str(entity.id)}))
+		"railServiceCrew":
+			_detail("Employer","Supplier railway service")
+			_detail("Locomotive",entity.get("locomotiveId",""))
+			_detail("Operation",entity.get("ownerId",""))
+			_detail("State",entity.get("status",""))
+			_coupling_details(entity.get("task",{}))
 		"railReturns":
 			_detail("Phase",entity.get("phase",""))
 			_detail("Supplier engine",entity.get("locomotiveId",""))
+			_coupling_details(entity.get("coupling",{}))
+			_detail("Pickup waiting","%.1f min · %s"%[float(entity.get("waitingSeconds",0))/60,_money(entity.get("waitingCost",0))])
 			_detail("Deliveries",", ".join(entity.get("orderIds",[])))
 			_detail("Cars",", ".join(entity.get("carIds",[])))
 			_detail("State",entity.get("status",entity.get("blockedBy","")))
@@ -966,6 +995,11 @@ func _render_inspector() -> void:
 			_detail("Footprint","%s × %s m"%[entity.get("w",1),entity.get("d",1)])
 			_detail("Utilities","Connected" if entity.get("connected",false) else "Connection required")
 			_detail("Source",entity.get("source",""))
+			if entity.get("kind")=="engineShed":
+				_detail("Rail parking bay",entity.get("parkingLocationId",""))
+				_detail("Structural components",entity.get("componentIds",[]).size())
+				var shed_engine: OptionButton = _entity_option(inspector_body,"shunters","Choose owned locomotive…")
+				_button(inspector_body,"Assign shed and park locomotive",func() -> void:_send("engine_shed_park",{"buildingId":str(entity.id),"shunterId":_selection(shed_engine)}))
 			_button(inspector_body,"Recover / remove building",func() -> void: _send("remove_building",{"id":selected_id}))
 		"zones":
 			_detail("Footprint","%s × %s m"%[entity.get("w",1),entity.get("d",1)])
@@ -1056,6 +1090,10 @@ func _worker_inspector(worker: Dictionary) -> void:
 	for pair: Array in [["Role","role"],["Duty","duty"],["Current action","status"],["Shift action","shiftPhase"],["Vehicle","vehicle"],["Work","job"],["Delivery","deliveryOrder"],["Support machine","assistingEquipment"]]: _detail(pair[0],worker.get(pair[1],"—"))
 	_detail("Hours","%.1f h"%float(worker.get("hours",0)))
 	_detail("Hourly wage",_money(worker.get("wage",0)))
+	_detail("Railway qualification","Qualified" if worker.get("role")=="railDriver" or worker.get("railQualified",false) else "Not recorded")
+	_detail("Rail assignment",worker.get("railAssignment",""))
+	if worker.get("role")=="operator" and not worker.get("railQualified",false):
+		_button(inspector_body,"Verify railway license · $180",func() -> void:_send("rail_qualification",{"workerId":id}))
 	var schedule: Dictionary = worker.get("schedule",{})
 	var start: SpinBox = _number(inspector_body,"Shift start hour",float(schedule.get("start",7)),0,23.99,0.25)
 	var end: SpinBox = _number(inspector_body,"Shift end hour",float(schedule.get("end",17)),0,23.99,0.25)
@@ -1296,7 +1334,7 @@ func _freight_cars() -> Array[Dictionary]:
 func _car_remaining_mass(car: Dictionary) -> float:
 	var total: float = 0
 	for line: Dictionary in car.get("manifest",[]):
-		total+=maxf(0,float(line.get("qty",0))-float(line.get("arrived",0)))*float(catalog.get(line.get("item",""),{}).get("mass",0))
+		total+=maxf(0,float(line.get("qty",0))-float(line.get("arrived",0)))*(0.84 if line.get("item")=="bulkDiesel" else 1.0 if line.get("item")=="bulkWater" else float(catalog.get(line.get("item",""),{}).get("mass",0)))
 	return total
 
 func _reception_name(id: Variant) -> String:
@@ -1309,7 +1347,7 @@ func _reception_option(parent: Node,current: String = "") -> OptionButton:
 	option.add_item("Automatic · fit train on receiving siding")
 	option.set_item_metadata(0,"")
 	for location: Dictionary in _records("railLocations"):
-		if location.get("trackId")!="BOOTSTRAP-SIDING" or location.get("route","straight")!="straight" or location.get("kind","") not in ["unloading","transfer"]:continue
+		if location.get("kind","") not in ["unloading","transfer"]:continue
 		option.add_item("%s · %s · %s m"%[location.get("name",location.id),location.id,location.get("length",0)])
 		option.set_item_metadata(option.item_count-1,str(location.id))
 		if str(location.id)==current:option.selected=option.item_count-1
@@ -1359,6 +1397,7 @@ func _rail_freight_controls(order: Dictionary) -> void:
 	_detail("Receiving point",_reception_name(freight.get("receptionLocationId","")))
 	_detail("Stockyard",freight.get("storageZoneId","Not selected"))
 	_detail("Unloading", "Requested" if freight.get("unloadRequested",true) else "Awaiting your instruction")
+	_coupling_details(freight.get("coupling",{}))
 	var terminal: bool = str(order.get("status","")) in ["done","canceled","departing"]
 	var locked: bool = str(order.get("status",""))!="ordered"
 	var reception: OptionButton = _reception_option(inspector_body,str(freight.get("receptionLocationId","")))
@@ -1378,11 +1417,13 @@ func _rail_freight_controls(order: Dictionary) -> void:
 		if selected.size()!=freight.get("cars",[]).size():args["carIds"]=selected
 		_send("begin_rail_unloading",args))
 	start.disabled=str(order.get("status",""))!="unloading" or bool(freight.get("unloadRequested",true)) or str(freight.get("storageZoneId","")).is_empty()
+	for car: Dictionary in freight.get("cars",[]):
+		if car.get("kind")=="tanker":start.disabled=true;start.tooltip_text="Tanker liquid requires transfer equipment; it cannot be lifted into a stockyard."
 	var pause_unloading: Button = _button(inspector_body,"Pause unloading after current lift",func() -> void: _send("pause_rail_unloading",{"orderId":id}))
 	pause_unloading.disabled=terminal or not bool(freight.get("unloadRequested",false)) and not order.has("unload")
 	pause_unloading.tooltip_text="The current lift finishes safely, then no new cargo is picked up. Pause before moving cars with your shunter."
-	start.tooltip_text="Wait until the train is stopped and select and apply a physical stockyard first. Owned equipment and an operator handle unloading."
-	_note(inspector_body,"Apply the stockyard, select the cars, and start unloading. Finish an active lift before shunting. Supplier reception uses the original siding; the shunter can transfer cars to connected named tracks.")
+	start.tooltip_text="Tanker liquid requires transfer equipment; it cannot be lifted into a stockyard." if order.get("item","") in ["bulkWater","bulkDiesel"] else "Wait until the train is stopped and select and apply a physical stockyard first. Owned equipment and an operator handle unloading."
+	_note(inspector_body,"Apply the stockyard, select the cars, and start unloading. Finish an active lift before shunting. Supplier trains can use connected named receiving intervals that fit the complete train. The shunter transfers cars between named tracks.")
 	var release: Button = _button(inspector_body,"Release supplier locomotive",func() -> void: _send("rail_detach",{"orderId":id}))
 	release.disabled=terminal or str(order.get("status",""))!="unloading" or bool(freight.get("detached",false)) or order.has("unload") or freight.has("movement")
 	release.tooltip_text="The stopped train needs a clear completed siding exit. The engine uncouples and leaves; the loaded cars remain on site."
@@ -1392,7 +1433,10 @@ func _rail_freight_controls(order: Dictionary) -> void:
 	var shunt: Button = _button(inspector_body,"Shunt selected cars",func() -> void: _send("rail_shunt",{"orderId":id,"carIds":_selected_freight_cars(order),"shunterId":_selection(shunter),"railLocationId":_selection(target)}))
 	var update_actions: Callable = func() -> void:
 		var no_cars: bool = _selected_freight_cars(order).is_empty()
-		start.disabled=str(order.get("status",""))!="unloading" or bool(freight.get("unloadRequested",true)) or str(freight.get("storageZoneId","")).is_empty() or no_cars or freight.has("movement")
+		var tanker_selected: bool = false
+		for car: Dictionary in freight.get("cars",[]):
+			if car.get("kind")=="tanker" and str(car.id) in _selected_freight_cars(order):tanker_selected=true
+		start.disabled=str(order.get("status",""))!="unloading" or bool(freight.get("unloadRequested",true)) or str(freight.get("storageZoneId","")).is_empty() or no_cars or freight.has("movement") or tanker_selected
 		shunt.disabled=terminal or not bool(freight.get("detached",false)) or str(freight.get("locomotivePhase","attached"))!="gone" or order.has("unload") or bool(freight.get("unloadRequested",false)) or freight.has("movement") or no_cars or _selection(shunter).is_empty() or _selection(target).is_empty()
 	shunter.item_selected.connect(func(_index: int) -> void:
 		freight_shunt_choices[id]={"shunterId":_selection(shunter),"railLocationId":_selection(target)}
@@ -1405,7 +1449,7 @@ func _rail_freight_controls(order: Dictionary) -> void:
 	shunt.tooltip_text="Release the supplier engine, assign an on-duty shunter driver, and choose connected clear track long enough for the selected cars. Turnouts are set for the movement."
 	var collect: Button = _button(inspector_body,"Request collection of empty cars",func() -> void: _return_train_form(id))
 	collect.disabled=terminal or not bool(freight.get("detached",false)) or _car_order_remaining_mass(order)>0
-	collect.tooltip_text="Return the empty cars to the receiving siding, then request a supplier engine to collect them."
+	collect.tooltip_text="Assemble the empty cars at a connected named return point, then request a supplier engine to collect them."
 	for car: Dictionary in freight.get("cars",[]):
 		_button(inspector_body,"Inspect "+str(car.id),func() -> void: _user_entity(str(car.id)))
 
@@ -1415,6 +1459,14 @@ func _freight_car_inspector(car: Dictionary) -> void:
 	_detail("Receiving point",_reception_name(car.get("receptionLocationId","")))
 	_detail("Stockyard",car.get("storageZoneId","Not selected"))
 	_detail("Car length","%.1f m"%float(car.get("length",0)))
+	_detail("Car type",car.get("kind","flatcar"))
+	_detail("Coupled to",", ".join(car.get("coupledTo",[])))
+	_detail("Handbrake","Set" if car.get("handbrake",false) else "Released")
+	_detail("Brake hose","Connected" if car.get("brakeHoseConnected",false) else "Disconnected")
+	if car.has("tank"):
+		_detail("Contained liquid",_name(str(car.tank.get("product",""))))
+		_detail("Tank contents","%s / %s L"%[car.tank.get("liters",0),car.tank.get("capacity",0)])
+		_note(inspector_body,"Tanker liquid stays inside the car during reception and shunting. Pumps and fluid transfer are separate chemical-plant work; a forklift cannot unload liquid.")
 	_detail("Ordered mass",_mass(float(car.get("mass",0))))
 	_detail("Remaining mass",_mass(_car_remaining_mass(car)))
 	for line: Dictionary in car.get("manifest",[]):
@@ -1487,22 +1539,25 @@ func _rail_dialog(title: String,size: Vector2i) -> Dictionary:
 	return {"window":window,"body":body,"footer":footer}
 
 func _yard_access_form() -> void:
-	var dialog: Dictionary = _rail_dialog("Factory yard access switch",Vector2i(580,300))
+	var dialog: Dictionary = _rail_dialog("Factory yard access switch",Vector2i(660,410))
 	var body: VBoxContainer = dialog.body
-	_note(body,"Add an internal diverging switch to the original receiving siding. Build factory tracks from its new branch; the separate far-end siding exit lets supplier locomotives leave onto the main line. Plan both connections before receiving a train.")
+	_note(body,"A yard access switch replaces a 20 m section of the inherited siding. Prepare its local possession, manually recover the four original panels into storage, then build the turnout. Rail arrivals whose routes cross the work section wait until it is reopened.")
 	var east: SpinBox = _number(body,"Switch start · east coordinate (m)",80,50,100,5)
-	_note(body,"The switch starts on the siding at S5 and its branch ends 20 m farther east at S10. With the default E80 start, extend your factory track from E100, S10. The service checks track clearance. Normal play requires materials and construction; Creative installs it immediately.")
-	_button(body,"Plan yard access switch",func() -> void:
-		_send("rail_access_plan",{"x":east.value})
-		dialog.window.queue_free())
+	_note(body,"The switch starts at S5 and the branch ends 20 m farther east at S10. With E80, extend factory track from E100, S10. This does not automatically remove any existing rail; manual recovery comes first.")
+	_button(body,"1 · Prepare siding work possession",func() -> void:_send("rail_access_prepare",{"x":east.value});dialog.window.queue_free())
+	_button(body,"2 · Open Railway / recover original panels",func() -> void:_switch_tab("Railway");dialog.window.queue_free())
+	_button(body,"3 · Plan yard access switch",func() -> void:_send("rail_access_plan",{"x":east.value});dialog.window.queue_free())
+	for possession: Dictionary in _records("railPossessions"):
+		if possession.get("released",false) or possession.get("kind")!="sidingAccess":continue
+		_button(body,"Reopen completed siding · "+str(possession.id),func() -> void:_send("rail_possession_release",{"id":str(possession.id)});dialog.window.queue_free())
 	dialog.window.popup_centered()
 
 func _shunter_order_form() -> void:
 	var dialog: Dictionary = _rail_dialog("Order owned diesel shunter",Vector2i(540,330))
 	var body: VBoxContainer = dialog.body
-	_note(body,"Buy a 32-ton diesel shunting locomotive for $68,000 plus $240 rail delivery. It is delivered by rail onto the original siding. Keep its reception track clear. An equipment operator must be on duty and assigned as driver for later movements.")
+	_note(body,"Buy a 32-ton diesel shunting locomotive for $68,000 plus $240 rail delivery. It is delivered by rail onto the original siding. Keep its reception track clear. Hire a Qualified railway driver in Purchase / hire, or record a licensed equipment operator’s railway qualification from their inspector. The assigned driver must be on duty.")
 	_label(body,"Driver (optional on ordering)")
-	var driver: OptionButton = _entity_option(body,"workers","Assign driver later…","",true)
+	var driver: OptionButton = _entity_option(body,"workers","Assign driver later…","",false,true)
 	_label(body,"Delivery point")
 	var reception: OptionButton = _reception_option(body)
 	_button(body,"Order shunter",func() -> void:
@@ -1518,14 +1573,24 @@ func _shunter_inspector(shunter: Dictionary) -> void:
 	_detail("Ownership","Owned diesel shunting locomotive")
 	_detail("State",shunter.get("status",""))
 	_detail("Phase",shunter.get("phase","parked"))
+	_detail("Control","MANUAL · release to accept delegated jobs" if shunter.get("manualControl",false) else "Automatic / delegated")
+	_detail("Mass / purchase","32,000 kg · $68,000 + $240 rail delivery")
+	_detail("Home shed",shunter.get("shedId","Not assigned"))
+	_coupling_details(shunter.get("coupling",{}))
+	_coupling_details(shunter.get("handover",{}))
 	_detail("Named location",_reception_name(shunter.get("locationId","")))
 	if shunter.get("movement",{}).has("blockedBy"):_detail("Route blocked by",shunter.movement.blockedBy)
 	_detail("Driver",shunter.get("driverId","Unassigned"))
 	_detail("Fuel","%.1f / %s L"%[float(shunter.get("fuel",0)),shunter.get("tank",0)])
 	_detail("Fuel consumed","%.1f L"%float(shunter.get("used",0)))
+	if shunter.has("refueling"):
+		_detail("Fuel barrel",shunter.refueling.get("barrelId",""))
+		_detail("Fuel handler",shunter.refueling.get("workerId",""))
+		_detail("Refueling step",shunter.refueling.get("phase",""))
+		_detail("Diesel in can","%.1f L"%float(shunter.refueling.get("carried",0)))
 	_detail("Assigned delivery",shunter.get("orderId",""))
 	if shunter.has("blockedBy"):_detail("Waiting for",shunter.blockedBy)
-	var driver: OptionButton = _entity_option(inspector_body,"workers","No assigned driver",str(shunter.get("driverId","")),true)
+	var driver: OptionButton = _entity_option(inspector_body,"workers","No assigned driver",str(shunter.get("driverId","")),false,true)
 	_button(inspector_body,"Apply shunter driver",func() -> void: _send("shunter_driver",{"shunterId":id,"workerId":_selection(driver)}))
 	var location: OptionButton = _shunting_location_option(inspector_body)
 	var park: Button = _button(inspector_body,"Drive shunter to named location",func() -> void: _send("shunter_park",{"shunterId":id,"railLocationId":_selection(location)}))
@@ -1533,12 +1598,22 @@ func _shunter_inspector(shunter: Dictionary) -> void:
 	location.item_selected.connect(func(_index: int) -> void:park.disabled=_selection(location).is_empty() or str(shunter.get("phase","parked"))!="parked")
 	var refuel: Button = _button(inspector_body,"Refuel stopped shunter",func() -> void: _send("shunter_refuel",{"shunterId":id}))
 	refuel.disabled=str(shunter.get("phase","parked"))!="parked"
-	_note(inspector_body,"For car movements, open the delivery inspector, select cars, this shunter, and a named destination. Parking moves only the locomotive. To refuel, park within 8 m of a diesel barrel and assign a driver. Refueling uses that physical stock and requires a stopped locomotive.")
+	var driving: HBoxContainer = HBoxContainer.new()
+	inspector_body.add_child(driving)
+	var forward: Button = _button(driving,"Forward 5 m",func() -> void:_send("shunter_drive",{"shunterId":id,"distance":5}))
+	var reverse: Button = _button(driving,"Reverse 5 m",func() -> void:_send("shunter_drive",{"shunterId":id,"distance":-5}))
+	forward.disabled=str(shunter.get("phase","parked"))!="parked" or shunter.has("refueling")
+	reverse.disabled=forward.disabled
+	var release_control: Button = _button(inspector_body,"Release manual control",func() -> void:_send("shunter_release",{"shunterId":id}))
+	release_control.disabled=not bool(shunter.get("manualControl",false)) or str(shunter.get("phase","parked"))!="parked"
+	if shunter.has("parkingLocationId"):
+		_button(inspector_body,"Return to assigned engine shed",func() -> void:_send("shunter_park",{"shunterId":id,"railLocationId":shunter.parkingLocationId}))
+	_note(inspector_body,"Manual forward / reverse moves follow the actual rails with the driver aboard and obey buffers, people, vehicles and reservations. Release manual control before a delegated job. For cars, select this shunter in the delivery inspector. Refueling uses a driver carrying a 20 L can from a barrel within 8 m; finish refueling before dispatch.")
 
 func _return_train_form(preselected: String = "") -> void:
 	var dialog: Dictionary = _rail_dialog("Collect empty return train",Vector2i(600,460))
 	var body: VBoxContainer = dialog.body
-	_note(body,"First use your shunter to bring the empty cars together on the original receiving siding. Select the empty deliveries to return in one train. A supplier locomotive will come to couple and collect them. Loaded cars cannot be returned.")
+	_note(body,"First use your shunter to bring the empty cars together at a connected named return point near the main line. Select the empty deliveries to return in one train. A supplier locomotive will come to couple and collect them. Loaded cars cannot be returned.")
 	var choices: Array[CheckBox] = []
 	for order: Dictionary in _records("orders"):
 		if not order.has("railFreight") or str(order.get("status",""))!="unloading" or not bool(order.railFreight.get("detached",false)) or _car_order_remaining_mass(order)>0:continue
@@ -1552,7 +1627,7 @@ func _return_train_form(preselected: String = "") -> void:
 		check.button_pressed=str(order.id)==preselected
 		body.add_child(check);choices.append(check)
 	if choices.is_empty():_note(body,"No stopped empty detached deliveries are available for collection yet.")
-	_label(body,"Collection point on original siding")
+	_label(body,"Connected collection point")
 	var reception: OptionButton = _reception_option(body)
 	var request: Button = _button(body,"Request mainline locomotive",func() -> void:
 		var ids: Array[String] = []
@@ -1585,24 +1660,31 @@ func _build_rail_help() -> void:
 		var label: Label = _note(body,paragraph)
 		label.add_theme_font_size_override("font_size",14)
 		label.custom_minimum_size.x=500
-	_label(body,"One rail movement runs at a time. This version handles flatcars and empty returns. Tankers, direct shunter driving and an engine shed remain further work. Coupling and external service crew steps are timed schematic operations.")
+	_label(body,"Railway work is physical: qualified drivers, ground crew, fuel, car brakes, actual routes and shared-section reservations. Independent routes can operate concurrently.")
 
 func _rail_help_paragraphs() -> Array[String]:
 	return [
-		"Build yard access and the receiving-track exit first. In Railway, click + Yard access switch to add a branch inside the original siding. The default switch starts at E80, S5 and opens a factory branch at E100, S10. Use the rail tools to extend that branch to your loading, unloading, and parking tracks. This access switch is separate from the mainline exit, which continues the siding back onto the main line. The new panels are built physically; replacing the inherited twenty-meter siding section is schematic for now and does not recover that original steel into stock.  In Railway, click Build siding exit to plan the additional track and switch connecting the far end of the original siding back to the main line. In normal play, supply the listed rail materials and complete the construction work. Creative completes the layout immediately. The exit must be complete and clear before a supplier locomotive can leave its cars behind.",
-		"Receive a train. Open Purchase / hire, choose Rail, and enter all the material quantities for the batch. The preview shows the car count and train length. Supplier trains arrive on BOOTSTRAP-SIDING, at Automatic reception or a named Receiving point on that siding. Keep the receiving interval clear of the yard access switch. With the default E80 switch, the receiving-point form suggests offset 30 m, centered at E55, and length 40 m, which fits a one-car train. Adjust its length to fit the complete incoming train within the clear track. The whole incoming train must fit. Select the point before approach begins; track names elsewhere are destinations for your shunter.",
-		"Release the mainline locomotive. Once the train has stopped, open its delivery from Deliveries or select one of its cars in Railway. Click Release supplier locomotive. The engine uncouples and drives out through the completed siding exit, leaving its cars on site. Its state appears in the delivery inspector. Wait until it has left before beginning a shunting movement.",
-		"Buy a shunter and assign a driver. Let the supplier locomotive leave first so the receiving track has room, then in Railway click + Shunter. The locomotive is delivered onto the original siding and stays as owned equipment. Select it in the Owned shunters register and assign an equipment operator as its driver. The worker must be on duty. Its inspector shows fuel, status, and any waiting reason. To refuel, park the locomotive within 8 meters of a diesel barrel and use Refuel stopped shunter with a driver assigned. Keep the track clear for delivery and for its approach to freight cars.",
-		"Name the places you want to serve. Select an installed rail panel and click Designate named rail location, or use + Named location in Railway. Give the location a clear name and enough usable track length for the cars you want to put there. Locations may span connected panels. A connected path, sufficient length, and an unobstructed track are required; naming disconnected track does not make a route.",
-		"Move loaded or empty cars. Open the delivery inspector, check the cars you want to move, choose the shunter and a named destination, and click Shunt selected cars. Select a connected block of cars from one train for each movement. The locomotive approaches, couples, transfers the selected cars over the rails, uncouples, and becomes available again. Follow the movement and any waiting reason in the delivery inspector.",
-		"Unload into a physical stockyard. Create a stockyard in Yard. Open the delivery inspector, choose and apply its Unloading stockyard, check the cars to unload, and click Start unloading. Owned equipment, an operator, and a ground helper handle the cargo physically. You may change the stockyard between lifts. Click Pause unloading after current lift before moving a car; the machine finishes its current lift safely and stops accepting new ones. A full or inaccessible yard produces a waiting reason.",
-		"Send empty cars away. Use the shunter to assemble the empty cars back on the original receiving siding, then park the shunter clear of the pickup route. In Railway, click Collect empty cars, check the empty deliveries you want returned together, choose a named point on that siding if desired, and request collection. A supplier locomotive arrives, couples to the empty cars, and takes the return train out onto the main line. Loaded cars cannot be returned by this control.",
-		"Inspect the railway records. The freight-car table shows each car's current named location and remaining cargo, with links to its delivery and stockyard. Owned shunters have clickable driver IDs and status. Delivery controls show whether the supplier locomotive is attached, leaving, gone, or collecting empty cars. If a movement is blocked, inspect its waiting reason and keep the intended route and destination clear.",
-		"Edit installed rails from Railway. Select a completed panel in Installed track, then Review this panel recovery or Review whole curve/turnout. The review lists recovered materials and their identities, attached stops, automatic stockyard destinations and operational constraints before you submit. Normal recovery creates work: a worker unfastens and rigs the panel; equipment lifts and carries it to physical stockyard storage. Open the linked recovery work to assign equipment or inspect its waiting reason. Creative recovery completes immediately, but still needs space. Plans that have not been built are canceled from Work rather than recovered.",
-		"Replace straight track with a switch. Recover the conflicting installed panels first, wait for the physical work to finish in normal mode, and place the switch at the newly exposed endpoint. Rail infrastructure must be clear of trains, reserved movements, named rail locations and conflicting work. The protected public main line and inherited receiving siding cannot be recovered through ordinary editing.",
-		"Manage buffer stops in Railway with Buffer stops / editing. It shows installed, available and incoming stops; purchase buffer stops directly there and choose a real open endpoint to review installation. Normal installation needs delivered stock, equipment, an operator and a ground worker. Select an installed stop to Review buffer recovery; recovered stops retain their identities in a 2 × 2 m stockyard footprint. Creative placement and recovery are instant. Rail extensions relocate their affected stop once for the connected work; a stop made redundant by connecting track is recovered. A stop mounts on existing track and does not add five meters of steel. Stops still block rail movements until physically removed.",
-		"Test layouts with Creative. Toggle Creative in the Yard toolbar and use Pave, building tools, and rail tools to complete placements immediately. Straight rail, 90° curve, Diverging switch, and Converging switch are separate tools. Buffer stops belong at open ends and must be removed where a train needs to pass. Recover installed panels from their inspector to make room for replacement switches.",
-		"Rail layouts can form loops. Matching open endpoints must meet facing in opposite directions. Crossing rails do not create a junction; use turnouts for branches and joins. A loop can provide an engine runaround, while actual movements still require a connected clear path and sufficient track for the consist. Supplier reception and collection remain on the original siding; owned shunting serves the rest of your connected network."
+		"Commission the reception loop. In Railway, open Mainline connection and prepare the protected work possession. Public rail arrivals pause. The four inherited 5 m panels are now real, individually selectable rails. Manually recover them into a stockyard, plan and build the siding exit, then explicitly reopen the completed section. Creative makes recovery and construction instant but still preserves the original material and requires reopening.",
+		"Build factory access. Open + Yard access switch, choose its start and prepare its local possession. Recover its four original panels manually before planning the switch. At the default E80, S5 position, its factory branch ends at E100, S10. Extend connected tracks from there and reopen the siding after the switch is complete. The ordinary rail tools never automatically remove straight panels: recover a panel first when replacing it with a switch.",
+		"Name receiving and working tracks. Select installed rail and designate a named unloading, transfer, loading or parking interval. Its centered usable length must fit on continuous track without guessing a route through a fork. Any connected unloading or transfer point can receive a supplier train if the complete locomotive and cars fit. Build and name parallel receiving tracks to serve several trains.",
+		"Order a multi-car train. In Purchase / hire choose Rail and enter the batch. The preview shows payload, car count and train length. Choose the named receiving point before the approach starts. Automatic reception uses the original siding. A train waits with an explicit reason if its chosen track is occupied, too short, disconnected or under possession. Your choice is preserved while waiting.",
+		"Use independent routes together. Trains and shunters reserve their actual swept track corridor, including the locomotive and cars, before moving. Separate routes can operate together. Shared approaches, crossing paths and switch fouling areas wait for the current movement to clear. A switch cannot change beneath rolling stock. A queue or route blocker appears in its linked order or locomotive inspector.",
+		"Release the supplier locomotive. Once stopped, open the delivery and click Release supplier locomotive. The railway service crew physically alights, walks to the coupler, secures the car brakes, disconnects the hose and coupling, and returns clear. Only then does the locomotive drive out along a connected exit. The freight cars and their cargo stay on site; supplier idle charges stop after the engine leaves.",
+		"Hire a railway driver. In Purchase / hire order Qualified railway driver; several workers share one crew bus. Their Worker # ID, wage, attendance and shift remain in Workers. You may verify an existing licensed equipment operator’s railway qualification in their inspector for $180. An ordinary equipment-operator role alone does not authorize locomotive driving. Assign an available qualified worker in the shunter inspector.",
+		"Buy and operate a shunter. + Shunter orders a 32-ton owned diesel locomotive for $68,000 plus $240 rail delivery. The supplier driver brings it over installed track and hands it over. Your assigned driver walks to the cab and boards before movement. They finish an active safe movement at shift end, then leave the cab and follow the usual commute. A resting, off-shift or busy driver blocks new dispatch with a useful reason.",
+		"Move cars. Release the supplier engine and wait until it has gone. In the delivery inspector select an exposed connected block of cars, a shunter and a named destination, then Shunt selected cars. The qualified driver approaches, carries out the physical ground coupling and brake work, boards, moves the consist, secures the cars and uncouples. Cars retain IDs, contained cargo, mass, brakes and locations throughout interrupted or saved operations. Build a runaround where the locomotive needs to reach the other end.",
+		"Drive the locomotive directly. Forward 5 m and Reverse 5 m in its inspector move an uncoupled shunter in its cab-facing direction along installed rails. The same driver, fuel, buffer, collision and reservation rules apply. MANUAL stays visible after stopping. Click Release manual control before sending a delegated parking or shunting job.",
+		"Refuel without teleporting fuel. Park within 8 m of a diesel barrel and select Refuel stopped shunter. Its qualified driver alights, walks to the barrel, fills a 20 L can, carries it to the filler and pours it before fetching another can. Barrel, carried fuel and locomotive fuel remain separately accounted. Clear the walking route if a blocked-refueling warning appears. Finish refueling before dispatch.",
+		"Build an engine shed. Purchase its delivered kit and use Engine shed in Yard over at least 14 m of straight internal track, aligned with the doors. Normal work prepares foundations beside the track, installs anchors, columns, frames, walls, roof sections and roller doors with equipment and crew. Creative completes it instantly. Select the finished shed, choose the locomotive and Assign shed and park locomotive; its saved bay becomes the home location. Return to assigned engine shed uses a real clear rail movement.",
+		"Receive and shunt tankers. + Tanker train orders process water or bulk diesel, 1–30,000 L per car, in a multi-car train. The form shows payload, tare, train length and cost. Select a connected receiving interval, release the supplier locomotive and shunt the cars to a named transfer point as usual. The rounded tank, valves and car ID are physical assets. Contents remain in each tanker. Pumps, piping and fluid transfer are the next separate chemical-plant systems; a forklift cannot unload a tanker and a loaded tanker cannot be returned as empty.",
+		"Unload flatcars. Choose and apply an Unloading stockyard in the delivery inspector, select cars and Start unloading. Owned equipment, an operator and helper physically handle the cargo. Pause unloading after current lift before moving cars. A full or inaccessible stockyard produces a linked waiting reason. Track occupancy remains real while cars are unloaded.",
+		"Send empty cars away. Use the shunter to assemble empty supplier cars at a connected named return point near the main line, park clear, then Collect empty cars in Railway. The supplier pickup engine approaches, its service crew connects the cars, tests hoses and releases brakes, then hauls the empty train onto the main line. Pickup service and waiting time appear in Costs and the return-train inspector. Loaded or reserved cars cannot be collected. Orders, car IDs and manifests remain available as history.",
+		"Review linked records. Cars show their delivery, current location, cargo or liquid contents, couplings, hoses and handbrakes. Engines show driver, mode, fuel, home shed, current ground crew and route blocker. Coupling steps identify their assigned worker and cars. Click these IDs to inspect them; Activity filters warnings from ordinary information. Saves preserve operations, reservations, queues and completed physical steps.",
+		"Edit installed rails from Railway. Select a completed panel in Installed track, then Review this panel recovery or Review whole curve/turnout. The review lists recovered materials and identities, attached stops, automatic stockyard destinations and constraints. Normal recovery creates work: a worker unfastens and rigs the panel; equipment lifts and carries it to physical stockyard storage. Open the linked work to assign equipment or inspect its waiting reason. Creative recovery completes immediately but still needs space. Plans that have not been built are canceled from Work rather than recovered.",
+		"Replace straight track with a switch. Recover the conflicting panels first, wait for physical work to finish in normal mode, then place the switch at the newly exposed endpoint. Keep infrastructure clear of trains, reserved movements, named locations and conflicting work. Inherited public mainline and siding steel requires the explicit protected possession described above. If you cancel that replacement, straight panels may restore the possessed gap before reopening.",
+		"Manage buffer stops in Railway with Buffer stops / editing. Purchase delivered stops and choose a completed open endpoint to review installation. Normal installation needs stock, equipment, an operator and a ground worker. Select an installed stop to Review buffer recovery; recovered stops retain their IDs in a 2 × 2 m storage footprint. Creative installation and recovery are instant. Rail extensions relocate the affected stop once for the connected work; connecting track recovers redundant stops. A stop mounts on existing track and does not add five meters of steel. Stops still block rail movements until physically removed.",
+		"Test layouts with Creative. Toggle Creative in the Yard toolbar to place paving, buildings and rail immediately. Straight rail, 90° curve, Diverging switch and Converging switch have separate tools. Recover installed panels through their inspector to make room for replacement switches. Work possessions must still be explicitly reopened after the track is complete.",
+		"Rail layouts can form loops. Matching open endpoints must meet facing in opposite directions. Crossing rails alone do not create a junction; use turnouts for branches and joins. A loop can provide an engine runaround. Supplier reception and collection can use connected named tracks; each real route and interval must fit the complete consist and remain clear."
 	]
 
 func _buffer_records() -> Array:
@@ -1770,7 +1852,7 @@ func _rail_location_form(entity: Dictionary) -> void:
 	_label(body,"Track "+track_id)
 	var offset: SpinBox = _number(body,"Offset (m)",float(entity.get("offset",0)),0,100 if track_id=="BOOTSTRAP-SIDING" else 10000,0.1)
 	var length: SpinBox = _number(body,"Centered usable length (m)",float(entity.get("length",5)),1,100 if track_id=="BOOTSTRAP-SIDING" else 200,0.5)
-	_note(body,"Locations on BOOTSTRAP-SIDING can receive rail batches when their usable length fits the complete train. Other connected tracks can be served by your owned shunter. The position and length must fit the referenced physical track.")
+	_note(body,"Any connected unloading or transfer interval may receive a supplier train if the whole train fits and a clear route exists. Name separate parallel tracks for simultaneous reception. Shared sections and switches remain reserved until clear.")
 	_button(body,"Save designation",func() -> void:
 		var location: Dictionary = {"name":name.text,"kind":purpose.get_item_text(purpose.selected),"trackId":track_id,"route":route.get_item_text(route.selected),"offset":offset.value,"length":length.value}
 		if entity.has("trackId"): location.id=entity.id
@@ -1989,3 +2071,50 @@ func show_tab(value: String) -> void:
 func _user_entity(id: String) -> void:
 	show_entity(id)
 	entity_selected.emit(id)
+
+func _coupling_details(task: Dictionary) -> void:
+	if task.is_empty():return
+	_detail("Ground operation",task.get("id",""))
+	_detail("Assigned crew",task.get("workerId",""))
+	_detail("Ground step",task.get("status",task.get("phase","")))
+	_detail("Locomotive",task.get("locomotiveId",""))
+	_detail("Consist",", ".join(task.get("carIds",[])))
+
+func _mainline_exit_form() -> void:
+	var dialog: Dictionary = _rail_dialog("Commission the mainline connection",Vector2i(660,500))
+	var body: VBoxContainer = dialog.body
+	_note(body,"Take a protected work possession first. Public rail arrivals pause while this mainline section is under construction. Four original 5 m panels become individual recoverable rails; manually recover them into a stockyard, then build the connection. No steel disappears.")
+	_button(body,"1 · Prepare mainline work possession",func() -> void:_send("rail_exit_prepare");dialog.window.queue_free())
+	_button(body,"2 · Open Railway to recover original panels",func() -> void:_switch_tab("Railway");dialog.window.queue_free())
+	_button(body,"3 · Plan / build the siding exit",func() -> void:_send("rail_exit_plan");dialog.window.queue_free())
+	for possession: Dictionary in _records("railPossessions"):
+		if possession.get("released",false):continue
+		_note(body,"%s · %s · E%s–E%s, S%s · original panels: %s"%[possession.id,possession.kind,possession.get("from",0),possession.get("to",0),possession.get("z",0),", ".join(possession.get("assetIds",[]))])
+		_button(body,"Reopen completed track · "+str(possession.id),func() -> void:_send("rail_possession_release",{"id":str(possession.id)});dialog.window.queue_free())
+	_note(body,"Reopening checks completed physical continuity and clearance. The yard access switch has its own local possession and the same manual recovery workflow. Creative recovery and construction are instant, but the possession must still be explicitly reopened.")
+	dialog.window.popup_centered()
+
+func _tanker_order_form() -> void:
+	var dialog: Dictionary = _rail_dialog("Order loaded tanker cars",Vector2i(610,490))
+	var body: VBoxContainer = dialog.body
+	_note(body,"Leased tankers arrive in one supplier train, each with its own ID, brakes, contents and mass. Liquid stays inside while cars are shunted. Pumping will arrive with the chemical-plant transfer equipment.")
+	var product: OptionButton = _option(body,["Process water","Bulk diesel"])
+	var liters: SpinBox = _number(body,"Liters per car · capacity 30,000 L",20000,1,30000,1)
+	var cars: SpinBox = _number(body,"Tankers in this train",1,1,10,1)
+	var reception: OptionButton = _reception_option(body)
+	var summary: Label = _note(body,"")
+	var refresh: Callable = func() -> void:
+		var density: float = 1.0 if product.selected==0 else 0.84
+		var price: float = 0.015 if product.selected==0 else 1.35
+		var amount: float = liters.value*cars.value
+		summary.text="%s L · %s payload + %s tare · %.1f m train · %s including car service and rail delivery"%[_comma(int(amount)),_mass(amount*density),_mass(cars.value*20000),26.1+(cars.value-1)*17.6,_money(amount*price+cars.value*160+240)]
+	product.item_selected.connect(func(_i: int) -> void:refresh.call())
+	liters.value_changed.connect(func(_v: float) -> void:refresh.call())
+	cars.value_changed.connect(func(_v: float) -> void:refresh.call())
+	refresh.call()
+	_button(dialog.footer,"Order tanker train",func() -> void:
+		var args: Dictionary = {"product":"bulkWater" if product.selected==0 else "bulkDiesel","litersPerCar":int(liters.value),"carCount":int(cars.value)}
+		if not _selection(reception).is_empty():args["railLocationId"]=_selection(reception)
+		_send("tanker_order",args)
+		dialog.window.queue_free())
+	dialog.window.popup_centered()

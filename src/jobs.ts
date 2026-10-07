@@ -280,7 +280,7 @@ export function equipmentCanDoJob(e: Equipment, j: Job, s?: State): boolean {
       : undefined);
   return (
     (!j.railRecovery || e.kind === 'excavator') &&
-    (!['rail', 'shed'].includes(j.kind) ||
+    (!['rail', 'shed', 'engineShed'].includes(j.kind) ||
       (j.kind === 'rail' && j.railStageOnly) ||
       e.kind === 'excavator') &&
     !(j.kind === 'remove' && s && !item) &&
@@ -412,7 +412,7 @@ export function setJobEquipment(s: State, workId: string, equipmentId?: string):
     if (!e) return 'Equipment no longer exists.';
     const impossible = leaves.find((j) => !equipmentCanDoJob(e, { ...j, railStageOnly: false }, s));
     if (impossible)
-      return `${equipmentId} cannot perform ${label(impossible.kind)}; ${impossible.kind === 'shed' ? 'shed erection requires an excavator' : impossible.kind === 'rail' ? 'rail laying requires an excavator' : 'the load must fit its lift capacity'}.`;
+      return `${equipmentId} cannot perform ${label(impossible.kind)}; ${['shed', 'engineShed'].includes(impossible.kind) ? 'shed erection requires an excavator' : impossible.kind === 'rail' ? 'rail laying requires an excavator' : 'the load must fit its lift capacity'}.`;
   }
   work.preferredEquipment = equipmentId;
   if (!('kind' in work) && equipmentId) {

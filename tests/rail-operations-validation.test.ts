@@ -1,3 +1,4 @@
+import { commissionExit, commissionAccess, prepareExitSteel } from './support/rail';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as S from '../src/sim';
@@ -16,13 +17,14 @@ function fixtures() {
   const s = S.createState();
   s.creative = true;
   assert.equal(S.addZone(s, { x: 200, z: 100, w: 3, d: 3 }), '');
-  assert.equal(S.planMainlineExit(s).error, '');
+  assert.equal(commissionExit(s).error, '');
   S.purchaseBatch(s, [{ item: 'slab', qty: 8 }], 'rail');
   tickUntil(s, () => s.orders[0].status === 'unloading');
   assert.equal(detachRailFreight(s, s.orders[0].id), undefined);
   const uncoupling = clone(s);
   tickUntil(s, () => s.orders[0].railFreight!.locomotivePhase === 'gone');
   seedHandlingResources(s);
+  s.workers[0].railQualified=true;
   assert.equal(orderShunter(s, { driverId: s.workers[0].id }).error, undefined);
   const ordered = clone(s);
   tickUntil(s, () => s.shunters![0].phase === 'delivering');
@@ -31,6 +33,7 @@ function fixtures() {
   const parked = clone(s);
   // Use a balanced empty ledger to isolate return-record validation from the
   // unrelated unloading equipment simulation exercised by rail-operations.test.
+  s.railServiceCrew=s.railServiceCrew?.filter(c=>!s.shunters?.some(e=>e.id===c.ownerId));
   s.shunters = [];
   const o = s.orders[0];
   o.arrived = o.qty;
@@ -122,10 +125,10 @@ test('detached car, locomotive phases and unloading selections preserve physical
   rejects(
     examples.uncoupling,
     (s) => (s.orders[0].railFreight.locomotivePhase = 'gone'),
-    /still reserves rail/,
+    /still reserves rail|inconsistent freight locomotive release/,
   );
   rejects(
-    examples.uncoupling,
+    examples.parked,
     (s) => delete s.orders[0].railFreight.cars[0].anchor,
     /no physical track/,
   );

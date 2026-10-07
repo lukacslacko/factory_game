@@ -232,15 +232,19 @@ static func _buffer(parent:Node3D,b:Batch,p:Vector3,dark:Material,steel:Material
 	b.box(p+Vector3(-0.09,1.08,0),Vector3(0.19,0.35,2.0),red)
 	b.box(p+Vector3(-0.21,1.08,0),Vector3(0.08,0.19,0.60),dark)
 
-static func _flatcar(parent:Node3D,b:Batch,p:Vector3,rail:Array,dark:Material,steel:Material,wood:Material,bolts:Material,loaded:bool=true,length:float=11.0,include_bogies:bool=true,identification:String="FLAT 014 · 40 t")->void:
+static func _flatcar(parent:Node3D,b:Batch,p:Vector3,rail:Array,dark:Material,steel:Material,wood:Material,bolts:Material,loaded:bool=true,length:float=11.0,include_bogies:bool=true,identification:String="FLAT 014 · 40 t",tanker_frame:bool=false)->void:
 	var wagon := G.mat("5c6a53",0.71,0.40)
 	var tire := G.mat("343b3c",0.68,0.6)
-	b.box(p+Vector3(0,1.10,0),Vector3(length,0.24,2.75),wagon)
+	b.box(p+Vector3(0,1.10,0),Vector3(length,0.24,.35 if tanker_frame else 2.75),wagon)
 	for z in [-1.37,1.37]:
 		b.box(p+Vector3(0,1.275,z),Vector3(length,0.17,0.07),steel)
 		b.box(p+Vector3(0,0.92,z),Vector3(length-.3,0.08,0.04),dark)
-	for i in range(int((length-.3)/.25)+1):
-		b.box(p+Vector3(-length*.5+.15+i*0.25,1.245,0),Vector3(0.235,0.11,2.65),wood)
+	if tanker_frame:
+		for x in [-5.5,-4.7,0.,4.7,5.5]:b.box(p+Vector3(x,1.10,0),Vector3(.25,.24,2.6),steel)
+		for end in [-1,1]:b.box(p+Vector3(end*(length*.5-.7),1.245,0),Vector3(1.4,.11,2.65),dark)
+	else:
+		for i in range(int((length-.3)/.25)+1):
+			b.box(p+Vector3(-length*.5+.15+i*0.25,1.245,0),Vector3(0.235,0.11,2.65),wood)
 	if include_bogies:
 		for truck_x in [-(length*.5-2.5),length*.5-2.5]:
 			b.box(p+Vector3(truck_x,0.76,0),Vector3(1.85,0.16,1.75),dark)

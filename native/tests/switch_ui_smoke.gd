@@ -54,7 +54,7 @@ func _run()->void:
 	_check((ui.rail_tool_buttons["railConverging"] as Button).button_pressed and not (ui.rail_tool_buttons["railTurnout"] as Button).button_pressed,"Selected switch tool has a visible active state")
 	_check(ui.tool_label.text.begins_with("Converging switch"),"Construction banner clearly names the selected switch direction")
 	ui.show_tab("Railway")
-	_check(ui.tables.size()==8 and ui.tables[2].rows.size()==2 and ui.tables[3].rows.size()==2,"Railway register lists actual endpoints and independent buffers")
+	_check(ui.tables.size()==9 and ui.tables[2].rows.size()==2 and ui.tables[3].rows.size()==2,"Railway register lists actual endpoints and independent buffers")
 	var endpoints:Control=ui.tables[2]
 	var endpoint_item:TreeItem=endpoints.tree.get_root().get_first_child().get_next()
 	endpoint_item.select(0)

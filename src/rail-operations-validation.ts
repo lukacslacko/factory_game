@@ -1,6 +1,8 @@
 /** Validate native railway operations without importing simulation mutations. */
 import type { State } from './types';
 import { routingEdges, sampleRailRoute } from './rail-routing';
+import { railCouplingValidationProblem } from './rail-coupling-validation';
+import { isRailQualified } from './rail-driver';
 
 const finite = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
 const nonnegative = (v: unknown): v is number => finite(v) && v >= 0 && v < 1e9;
@@ -24,6 +26,23 @@ export function railOperationsValidationProblem(s: State, ids: Set<string>): str
     returns: any = s.railReturns === undefined ? [] : s.railReturns;
   if (!Array.isArray(shunters) || shunters.length > 32) return 'invalid shunter register';
   if (!Array.isArray(returns) || returns.length > 150000) return 'invalid return train register';
+  if (s.railPossessions !== undefined) {
+    if (!Array.isArray(s.railPossessions) || s.railPossessions.length > 16) return 'invalid railway possession register';
+    const spans: [number, number, number][] = [];
+    const history = new Set([
+      ...s.rails.map(r => r.id), ...s.stacks.flatMap(t => t.railAssetIds || []),
+      ...s.jobs.flatMap(j => [j.assetId, ...(j.railAssetIds || []), j.railRecovery?.railId]),
+    ]);
+    for (const p of s.railPossessions) {
+      if (!p || !/^POSSESSION-[0-9]+$/.test(p.id) || ids.has(p.id) ||
+        !['mainlineExit', 'sidingAccess'].includes(p.kind) || !finite(p.from) || !finite(p.to) || p.to - p.from !== 20 ||
+        (p.kind === 'mainlineExit' ? p.from !== 125 || p.z !== 0 : p.from < 30 || p.from > 100 || p.from % 5 !== 0 || p.z !== 5) ||
+        !uniqueStrings(p.assetIds, 4) || p.assetIds.length !== 4 || p.assetIds.some(asset => !/^RAIL-[0-9]+$/.test(asset) || !history.has(asset)) ||
+        (p.released !== undefined && typeof p.released !== 'boolean') ||
+        spans.some(([from, to, z]) => z === p.z && p.from < to && p.to > from)) return 'invalid railway work possession';
+      ids.add(p.id); spans.push([p.from, p.to, p.z]);
+    }
+  }
   const edges = new Map(routingEdges(s).map((e) => [`${e.trackId}:${e.path.route}`, e.path]));
   const identity = (v: any, prefix: string) => {
     if (typeof v !== 'string' || !new RegExp(`^${prefix}-[0-9]+$`).test(v) || ids.has(v))
@@ -58,6 +77,7 @@ export function railOperationsValidationProblem(s: State, ids: Set<string>): str
         (!finite(m.couplerOffset) ||
           Math.abs(m.couplerOffset) < 13.4 - 0.001 ||
           Math.abs(m.couplerOffset) > 20000)) ||
+      [m.reservedBefore, m.reservedAfter].some(v => v !== undefined && (!nonnegative(v) || v > 20000)) ||
       !uniqueStrings(m.tracks, 150000) ||
       !m.tracks.length ||
       !Array.isArray(m.segments) ||
@@ -219,9 +239,14 @@ export function railOperationsValidationProblem(s: State, ids: Set<string>): str
           e.approachQueue.some((m: any) => !movement(m)))) ||
       (e.direction !== undefined && ![-1, 1].includes(e.direction)) ||
       (e.driverPhase !== undefined &&
-        !['walking', 'boarding', 'aboard', 'switch'].includes(e.driverPhase))
+        !['walking', 'boarding', 'aboard', 'switch'].includes(e.driverPhase)) ||
+      (e.manualControl !== undefined && typeof e.manualControl !== 'boolean')
     )
       return 'invalid owned shunter';
+    if ((e.mass !== undefined && (!nonnegative(e.mass) || e.mass < 1000 || e.mass > 200000)) ||
+      (e.purchasePrice !== undefined && !nonnegative(e.purchasePrice)) ||
+      (e.deliveryCost !== undefined && !nonnegative(e.deliveryCost)) ||
+      (e.deliveryService !== undefined && e.deliveryService !== 'rail')) return 'invalid shunter procurement record';
     if (e.anchor !== undefined && !anchor(e.anchor))
       return 'missing or invalid shunter track anchor';
     if (!supportedPose(e, e.bogies) || (e.anchor && !anchoredPose(e, e.anchor, 0.5)))
@@ -253,7 +278,7 @@ export function railOperationsValidationProblem(s: State, ids: Set<string>): str
       const w = s.workers.find((w) => w.id === e.driverId);
       if (
         !w ||
-        w.role !== 'operator' ||
+        !isRailQualified(w) ||
         drivers.has(w.id) ||
         (w.vehicle !== undefined && w.vehicle !== e.id) ||
         (w.railAssignment !== undefined && w.railAssignment !== e.id)
@@ -263,6 +288,22 @@ export function railOperationsValidationProblem(s: State, ids: Set<string>): str
       drivers.add(w.id);
     }
     if (e.driverPhase !== undefined && !e.driverId) return 'shunter driver phase has no driver';
+    if (e.refueling !== undefined) {
+      const f = e.refueling, w = s.workers.find(w => w.id === f?.workerId),
+        barrel = s.stacks.find(t => t.id === f?.barrelId && t.item === 'diesel' && t.qty > 0);
+      if (!f || !barrel || !w || w.id !== e.driverId || !isRailQualified(w) ||
+        w.railAssignment !== e.id || w.vehicle !== undefined || e.phase !== 'parked' ||
+        e.movement || e.haul || e.carIds?.length ||
+        !['approach-engine', 'alighting', 'to-barrel', 'fill-can', 'to-engine', 'pour', 'return'].includes(f.phase) ||
+        !nonnegative(f.clock) || !nonnegative(f.carried) || f.carried > 20.001 ||
+        !nonnegative(f.delivered) || f.delivered > e.tank + 0.001 ||
+        (['approach-engine', 'alighting', 'to-barrel', 'fill-can', 'return'].includes(f.phase) && f.carried > 0.001) ||
+        (f.blockedSince !== undefined && (!nonnegative(f.blockedSince) || f.blockedSince > s.elapsed + 0.1)) ||
+        (f.warned !== undefined && typeof f.warned !== 'boolean') ||
+        (f.retryAt !== undefined && !nonnegative(f.retryAt)) ||
+        shunters.some((other: any) => other.id !== e.id && other.refueling?.barrelId === f.barrelId))
+        return 'invalid physical shunter refueling';
+    }
     if (e.orderId !== undefined && !s.orders.some((o) => o.id === e.orderId && o.railFreight))
       return 'missing shunter freight order';
     if (e.carIds !== undefined) {
@@ -351,15 +392,21 @@ export function railOperationsValidationProblem(s: State, ids: Set<string>): str
       !optionalClock(f.idleClock)
     )
       return 'invalid detached freight locomotive';
+    if (f.departureReverse !== undefined && typeof f.departureReverse !== 'boolean')
+      return 'invalid supplier departure direction';
+    if (f.arrivalRailMove !== undefined && !movement(f.arrivalRailMove, false))
+      return 'invalid supplier arrival history';
     if (f.locomotivePose && !supportedPose(f.locomotivePose, f.locomotiveBogies))
       return 'supplier locomotive bogies do not support its body';
     if (
       (f.detached && !['uncoupling', 'leaving', 'gone'].includes(f.locomotivePhase || '')) ||
-      (!f.detached && f.locomotivePhase !== undefined && f.locomotivePhase !== 'attached')
+      (!f.detached && f.locomotivePhase !== undefined && !['attached', 'uncoupling'].includes(f.locomotivePhase))
     )
       return 'inconsistent freight locomotive release';
     if (f.incomingRailMove !== undefined && !movement(f.incomingRailMove, o.status !== 'done'))
       return 'invalid reserved supplier approach';
+    if (f.receptionAnchor !== undefined && !anchor(f.receptionAnchor, o.status !== 'done' && !o.carrierDeparted))
+      return 'invalid supplier reception anchor';
     if (f.movement !== undefined && !movement(f.movement, o.status !== 'done'))
       return 'invalid supplier locomotive movement';
     if (f.movement && f.locomotivePose && !movingPose(f.locomotivePose, f.movement))
@@ -402,7 +449,7 @@ export function railOperationsValidationProblem(s: State, ids: Set<string>): str
         return 'freight car pose is inconsistent with rail position';
       if (f.detached && (!c.pose || !c.anchor || !c.bogies))
         return 'detached freight car has no physical track position';
-      if (c.returned && (!f.detached || c.manifest.some((l) => l.arrived !== l.qty)))
+      if (c.returned && ((!f.detached && !(o.carrierDeparted && ['departing','done'].includes(o.status))) || c.manifest.some((l) => l.arrived !== l.qty)))
         return 'loaded or attached freight car marked returned';
       if (
         c.locationId !== undefined &&
@@ -418,4 +465,5 @@ export function railOperationsValidationProblem(s: State, ids: Set<string>): str
         return 'missing freight car group';
     }
   }
+  return railCouplingValidationProblem(s, ids);
 }

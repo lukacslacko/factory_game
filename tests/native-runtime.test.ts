@@ -699,3 +699,50 @@ test('native buffer editing explains missing resources, recovers instantly in Cr
     'Creative installation should reuse the recovered owned stop',
   );
 });
+
+test('native railway program dispatch preserves manual steel recovery, qualifications, controls, tanker contents and shed bays', async (t) => {
+  const host = await launch(); t.after(() => host.close()); const c=host.client;
+  await c.ok('new_game',{mode:'empty'}); await c.ok('pause',{paused:true});await c.ok('creative',{enabled:true});
+  await c.ok('zone',{rect:{x:160,z:80,w:18,d:18},name:'Recovered original steel'});
+  assert.equal((await c.request('rail_exit_plan')).ok,false);
+  await c.ok('rail_exit_prepare');
+  let s=JSON.parse((await c.ok('export')).json);
+  const possession=s.railPossessions[0]; assert.equal(possession.assetIds.length,4);
+  assert.equal((await c.request('rail_exit_plan')).ok,false,'Preparation must not automatically remove straight steel');
+  for(const id of possession.assetIds)await c.ok('remove_rail',{id,scope:'panel'});
+  await c.ok('rail_exit_plan'); await c.ok('rail_possession_release',{id:possession.id});
+  s=Sim.load((await c.ok('export')).json);
+  assert.equal(s.railPossessions![0].released,true);assert.equal(s.stacks.filter((q:any)=>q.item==='rail').reduce((n:number,q:any)=>n+q.qty,0),4);
+  const quote=await c.ok('tanker_preview',{product:'bulkDiesel',litersPerCar:20000,carCount:2});
+  assert.equal(quote.totalMass,73600);assert.equal(quote.price,54560);assert.equal(quote.trainLength,43.7);
+  const tanker=await c.ok('tanker_order',{product:'bulkDiesel',litersPerCar:20000,carCount:2});
+  const inspected=await c.ok('inspect',{id:tanker.id});assert.equal(inspected.entity.railFreight.cars.length,2);
+  const liquid=await c.ok('sql',{sql:'SELECT kind, liquid, liters, capacity_liters FROM freight_cars;'});
+  assert.deepEqual(liquid[0].values.map((r:any)=>r.slice(0,4)),[['tanker','bulkDiesel',20000,30000],['tanker','bulkDiesel',20000,30000]]);
+  await c.ok('purchase_batch',{lines:[{item:'railDriver',qty:3}],mode:'road'});
+  s=JSON.parse((await c.ok('export')).json);const bus=s.orders.find((q:any)=>q.item==='railDriver');assert.equal(bus.qty,3);assert.equal(bus.mode,'road');
+  const fixture=Sim.createState();fixture.paused=true;const machine=seedHandlingResources(fixture,'forklift');
+  const driver=fixture.workers[0];driver.x=100;driver.z=7;
+  const {orderShunter}=await import('../src/rail-operations');assert.equal(orderShunter(fixture).error,undefined);
+  const engine=fixture.shunters![0];Object.assign(engine,{phase:'parked',x:100,z:5,yaw:0,anchor:{trackId:'BOOTSTRAP-SIDING',route:'straight',offset:75}});fixture.equipment=[];
+  await c.ok('import',{json:Sim.save(fixture)});
+  assert.equal((await c.request('shunter_driver',{shunterId:engine.id,workerId:driver.id})).ok,false);
+  await c.ok('rail_qualification',{workerId:driver.id});await c.ok('shunter_driver',{shunterId:engine.id,workerId:driver.id});
+  await c.ok('shunter_drive',{shunterId:engine.id,distance:5});
+  const reservations=await c.ok('tables',{table:'railReservations'});assert.equal(reservations[0].owner,engine.id);
+  s=JSON.parse((await c.ok('export')).json);assert.equal(s.shunters[0].manualControl,true);assert.equal(s.shunters[0].phase,'parking');
+  assert.equal((await c.request('shunter_release',{shunterId:engine.id})).ok,false,'Release waits for a safe stop');
+  // Isolate the already-stopped checkpoint to test mode release and physical fuel dispatch.
+  s.shunters[0].phase='parked';delete s.shunters[0].movement;s.shunters[0].fuel=300;
+  s.stacks.push({id:'STK-99991',item:'diesel',qty:1,reserved:0,liters:200,x:100,z:9,w:1,d:1,source:'opening'});s.next=100000;
+  await c.ok('import',{json:JSON.stringify(s)});await c.ok('shunter_release',{shunterId:engine.id});await c.ok('shunter_refuel',{shunterId:engine.id});
+  s=JSON.parse((await c.ok('export')).json);assert.equal(s.shunters[0].fuel,300);assert.equal(s.shunters[0].refueling.workerId,driver.id);assert.equal(s.stacks[0].liters,200);
+  assert.equal((await c.request('shunter_driver',{shunterId:engine.id,workerId:''})).ok,false,'A physical fuel handler cannot be orphaned by driver reassignment');
+  // The engine shed command uses the actual native plan path and keeps original track assets.
+  const shed=Sim.createState();shed.paused=true;shed.creative=true;
+  for(let section=0;section<6;section++){const piece={layout:'curve' as const,origin:{x:125,z:5},heading:0 as const,hand:1 as const,section};const g=trackGeometry(piece);shed.rails.push({id:Sim.id(shed,'rail'),...g.rect,rotation:0,length:g.length,item:'railCurve',track:piece});}
+  for(let z=25;z<60;z+=5){const piece=trackSections('straight',{x:145,z},1)[0];const g=trackGeometry(piece);shed.rails.push({id:Sim.id(shed,'rail'),...g.rect,rotation:1,length:g.length,item:'rail',track:piece});}
+  await c.ok('import',{json:Sim.save(shed)});await c.ok('plan',{kind:'engineShed',x:142,z:33,rotation:0});
+  s=JSON.parse((await c.ok('export')).json);assert.equal(s.buildings[0].kind,'engineShed');assert.equal(s.rails.length,shed.rails.length);assert.equal(s.railLocations[0].id,s.buildings[0].parkingLocationId);
+  await c.ok('save');assert.equal(Sim.load(await fs.readFile(path.join(host.dir,'yard.json'),'utf8')).buildings[0].kind,'engineShed');
+});

@@ -89,7 +89,7 @@ func _run()->void:
 	var help:String="\n".join(ui._rail_help_paragraphs())
 	_check(help.contains("worker unfastens") and help.contains("stockyard storage"),"Help explains physical recovery instead of instant material deletion")
 	_check(help.contains("Replace straight track with a switch") and help.contains("newly exposed endpoint"),"Help describes the requested replacement workflow")
-	_check(help.contains("Rail layouts can form loops") and help.contains("opposite directions") and help.contains("Supplier reception and collection remain on the original siding"),"Loop help distinguishes physical endpoint connections from the available supplier reception")
+	_check(help.contains("Rail layouts can form loops") and help.contains("opposite directions") and help.contains("Supplier reception and collection can use connected named tracks"),"Loop help distinguishes physical endpoint connections from the available supplier reception")
 	_check(help.contains("Stops still block rail movements") and help.contains("does not add five meters"),"Editing help describes the real stop model and rail safety")
 	_check(help.contains("Plans that have not been built are canceled from Work"),"Help distinguishes completed infrastructure recovery from canceling a plan")
 	ui._rail_edit_review({"operation":"recover_rail","id":"RAIL-9001","scope":"panel"})
@@ -119,7 +119,7 @@ func _run()->void:
 	if order_button:order_button.pressed.emit()
 	_check(actions.back()=={"action":"purchase_batch","args":{"lines":[{"item":"bufferStop","qty":1}],"mode":"road"}},"Buffer purchasing sends the selected real catalog asset in a carrier batch")
 	ui.show_tab("Railway")
-	_check(ui.tables.size()==8,"Railway presents installed stops, incoming/stock assets, and their physical work in one workspace")
+	_check(ui.tables.size()==9,"Railway presents installed stops, incoming/stock assets, and their physical work in one workspace")
 	var world:=RecoveryWorld.new();root.add_child(world)
 	var carried:Dictionary={"state":{"jobs":[{"id":"JOB-9201","kind":"remove","item":"railCurve","status":"doing","railRecovery":{"railId":"RAIL-9201"}}]},"render":{"railWork":[{"jobId":"JOB-9201","phase":"stage-travel","configuredHand":-1,"panel":{"x":135,"z":20,"y":.65,"yaw":0,"state":"carried"}}]}}
 	world.sync_snapshot(carried)

@@ -132,7 +132,7 @@ test('named reception interval and storage target are atomic, with no relocation
   tickUntil(s, () => o.status === 'unloading', 500);
   assert.ok(o.vehicle.x > 75);
   assert.equal(o.arrived, 0);
-  assert.match(o.note, /Start unloading|receiving berth/);
+  assert.match(o.note, /Start unloading|receiving berth|receiving track/);
   assert.equal(configureRailFreight(s, o.id, { storageZoneId: s.zones[0].id }), undefined);
   assert.equal(o.railFreight!.receptionLocationId, 'RLOC-100');
   assert.match(configureRailFreight(s, o.id, { railLocationId: '' })!, /before.*approaching/);

@@ -9,7 +9,7 @@ import type {
   Worker,
 } from './types';
 import type { RailWorkAPI } from './railwork';
-import { shedComponentPose, shedPostPoints } from './shed-geometry';
+import { shedComponentPose, shedPostPoints, shedPartLimits, shedPartSize } from './shed-geometry';
 import { angleDelta, localPoint, mixAngle, smoothstep, turn } from './motion';
 import { center, dist, segmentClear } from './path';
 import {
@@ -23,7 +23,7 @@ import {
   walkRoute,
 } from './traffic';
 
-const limits = { post: 6, beam: 3, roof: 4, wall: 2, brace: 1 } as const;
+import { engineShedComponentIds, engineShedParkingLocation } from './engine-shed';
 const countKey = {
   post: 'posts',
   beam: 'beams',
@@ -51,9 +51,12 @@ const travelHeight = (kind: ShedPartKind) =>
   ['post', 'wall', 'brace'].includes(kind) ? 2.35 : 1.25;
 const storedHeight = (kind: ShedPartKind) =>
   kind === 'post' ? 2.15 : ['wall', 'brace'].includes(kind) ? 2 : kind === 'beam' ? 0.6 : 0.35;
-const toolPoint = (s: State, e: Equipment, kind: ShedPartKind): RailWorkPose => ({
+const toolPoint = (s: State, e: Equipment, kind: ShedPartKind, j?: Job): RailWorkPose => ({
   ...localPoint(e, e.reach || 3.2, 0),
-  y: surface(s, e) + travelHeight(kind),
+  y:
+    surface(s, e) +
+    travelHeight(kind) +
+    (j?.kind === 'engineShed' && ['post', 'wall'].includes(kind) ? 0.6 : 0),
   yaw: (e.yaw || 0) + (['beam', 'wall', 'brace'].includes(kind) ? Math.PI / 2 : 0),
 });
 function loadEnvelope(
@@ -61,18 +64,7 @@ function loadEnvelope(
   e: Equipment,
   part: NonNullable<ShedAssembly['part']>,
 ): NonNullable<Equipment['assemblyLoad']> {
-  const w = j.rotation % 2 ? j.d : j.w,
-    d = j.rotation % 2 ? j.w : j.d;
-  const size =
-    part.kind === 'post'
-      ? [0.16, 0.16]
-      : part.kind === 'beam'
-        ? [w, 0.2]
-        : part.kind === 'roof'
-          ? [w / 4, d + 0.45]
-          : part.kind === 'wall'
-            ? [w / 2, 0.08]
-            : [w, 0.1];
+  const size = shedPartSize(j, part.kind, part.index);
   return {
     job: j.id,
     kind: part.kind,
@@ -251,7 +243,7 @@ function walkToWork(
         dist(target, part.to) < 0.01 &&
         personTouchesBox(
           point,
-          { ...part.to, length: (j.rotation % 2 ? j.d : j.w) / 2, width: 0.08 },
+          { ...part.to, length: shedPartSize(j, 'wall', part.index)[0], width: 0.12 },
           0.65,
         )
       )
@@ -275,10 +267,16 @@ function selectPart(s: State, j: Job, api: RailWorkAPI) {
     : ['post', 'beam', 'roof', 'wall', 'brace'];
   for (const kind of kinds) {
     const count = h[countKey[kind]];
-    if (h.recovering ? count > 0 : count < limits[kind]) {
+    if (h.recovering ? count > 0 : count < shedPartLimits(j)[kind]) {
       const index = h.recovering ? count - 1 : count;
       const target = shedComponentPose(j, kind, index);
-      const stored = { ...h.kitPose, y: surface(s, h.kitPose) + storedHeight(kind) };
+      const stored = {
+        ...h.kitPose,
+        y:
+          surface(s, h.kitPose) +
+          storedHeight(kind) +
+          (j.kind === 'engineShed' && ['post', 'wall'].includes(kind) ? 0.6 : 0),
+      };
       const from = h.recovering ? target : stored;
       const to = h.recovering ? stored : target;
       h.part = { kind, index, pose: copy(from), from: copy(from), to: copy(to) };
@@ -294,21 +292,25 @@ function selectPart(s: State, j: Job, api: RailWorkAPI) {
   h.part = undefined;
   s.buildings.push({
     id: j.assetId || api.id(s, 'building'),
-    kind: 'shed',
+    kind: j.kind as 'shed' | 'engineShed',
     x: j.x,
     z: j.z,
     w: j.w,
     d: j.d,
     rotation: j.rotation,
-    name: 'Equipment shed',
+    name: j.kind === 'engineShed' ? 'Engine shed' : 'Equipment shed',
+    ...(j.kind === 'engineShed' ? { componentIds: h.componentIds } : {}),
     source: j.id,
     connected: true,
   });
+  if (j.kind === 'engineShed') engineShedParkingLocation(s, s.buildings.at(-1)!.id);
   api.event(
     s,
     'Work',
     j.id,
-    'Shed anchors, six columns, three roof frames, four roof sections, back wall panels and bracing fastened.',
+    j.kind === 'engineShed'
+      ? 'Engine shed foundations, six columns, three frames, eight roof sections, four side walls and two raised roller doors fastened; connected locomotive bay ready.'
+      : 'Shed anchors, six columns, three roof frames, four roof sections, back wall panels and bracing fastened.',
   );
   api.complete(s, j);
 }
@@ -317,18 +319,25 @@ function packedCancellation(s: State, j: Job, api: RailWorkAPI) {
   const rotated = Math.abs(Math.sin(h.kitPose.yaw)) > 0.5;
   s.stacks.push({
     id: api.id(s, 'stack'),
-    item: 'shed',
+    item: j.item || 'shed',
     qty: 1,
     reserved: 0,
-    x: h.kitPose.x - (rotated ? 1 : 2),
-    z: h.kitPose.z - (rotated ? 2 : 1),
-    w: rotated ? 2 : 4,
-    d: rotated ? 4 : 2,
+    x: h.kitPose.x - (rotated ? (j.kind === 'engineShed' ? 1.5 : 1) : 2),
+    z: h.kitPose.z - (rotated ? 2 : j.kind === 'engineShed' ? 1.5 : 1),
+    w: rotated ? (j.kind === 'engineShed' ? 3 : 2) : 4,
+    d: rotated ? 4 : j.kind === 'engineShed' ? 3 : 2,
     yaw: h.kitPose.yaw,
     source: j.id,
     assetId: j.assetId,
   });
-  api.movement(s, 'shed', 1, j.id, s.stacks.at(-1)!.id, 'Canceled shed disassembled and packed');
+  api.movement(
+    s,
+    j.item || 'shed',
+    1,
+    j.id,
+    s.stacks.at(-1)!.id,
+    'Canceled shed disassembled and packed',
+  );
   h.phase = 'complete';
   h.part = undefined;
   api.release(s, j);
@@ -340,7 +349,7 @@ function packedCancellation(s: State, j: Job, api: RailWorkAPI) {
 
 /** A kit has one owner throughout assembly; every visible component needs travel, rigging, a lift and fastening. */
 export function tickShedConstruction(s: State, j: Job, dt: number, api: RailWorkAPI): boolean {
-  if (j.kind !== 'shed') return false;
+  if (!['shed', 'engineShed'].includes(j.kind)) return false;
   const e = s.equipment.find((q) => q.id === j.equipment);
   const w = s.workers.find((q) => q.id === j.worker);
   const op = s.workers.find((q) => q.id === j.operator);
@@ -352,7 +361,9 @@ export function tickShedConstruction(s: State, j: Job, dt: number, api: RailWork
       y: surface(s, e) + (e.lift || 0.4),
       yaw: (e.yaw || 0) + Math.PI / 2,
     };
+    if (j.kind === 'engineShed' && !j.assetId) j.assetId = api.id(s, 'building');
     j.shedAssembly = {
+      ...(j.kind === 'engineShed' ? { componentIds: engineShedComponentIds(j.assetId!) } : {}),
       phase: 'stage',
       clock: 0,
       anchors: 0,
@@ -372,7 +383,7 @@ export function tickShedConstruction(s: State, j: Job, dt: number, api: RailWork
   j.reason = '';
   op.status = labels[h.phase];
   if (e.path.length) {
-    if (h.part?.carried) h.part.pose = toolPoint(s, e, h.part.kind);
+    if (h.part?.carried) h.part.pose = toolPoint(s, e, h.part.kind, j);
     op.status = h.recovering
       ? 'Returning shed components to the bundle'
       : 'Driving shed components';
@@ -410,18 +421,25 @@ export function tickShedConstruction(s: State, j: Job, dt: number, api: RailWork
       const stackId = api.id(s, 'stack');
       s.stacks.push({
         id: stackId,
-        item: 'shed',
+        item: j.item || 'shed',
         qty: 1,
         reserved: 0,
-        x: h.kitPose.x - (rotated ? 1 : 2),
-        z: h.kitPose.z - (rotated ? 2 : 1),
-        w: rotated ? 2 : 4,
-        d: rotated ? 4 : 2,
+        x: h.kitPose.x - (rotated ? (j.kind === 'engineShed' ? 1.5 : 1) : 2),
+        z: h.kitPose.z - (rotated ? 2 : j.kind === 'engineShed' ? 1.5 : 1),
+        w: rotated ? (j.kind === 'engineShed' ? 3 : 2) : 4,
+        d: rotated ? 4 : j.kind === 'engineShed' ? 3 : 2,
         yaw: h.kitPose.yaw,
         source: j.id,
         assetId: j.assetId,
       });
-      api.movement(s, 'shed', 1, e.id, stackId, 'Legacy forklift staged shed kit for erection');
+      api.movement(
+        s,
+        j.item || 'shed',
+        1,
+        e.id,
+        stackId,
+        'Legacy forklift staged shed kit for erection',
+      );
       j.delivered = false;
       j.shedAssembly = undefined;
       api.release(s, j);
@@ -431,7 +449,7 @@ export function tickShedConstruction(s: State, j: Job, dt: number, api: RailWork
       s.revision++;
       return true;
     }
-    api.movement(s, 'shed', 1, e.id, j.id, 'Shed kit unpacked at site');
+    api.movement(s, j.item || 'shed', 1, e.id, j.id, 'Shed kit unpacked at site');
     api.event(
       s,
       'Work',
@@ -473,7 +491,9 @@ export function tickShedConstruction(s: State, j: Job, dt: number, api: RailWork
       h.anchors += h.recovering ? -1 : 1;
       h.clock = 0;
       h.workerPoint = undefined;
-      j.progress = (h.anchors + h.posts + h.beams + h.roofSheets + h.wallPanels + h.braces) / 22;
+      j.progress =
+        (h.anchors + h.posts + h.beams + h.roofSheets + h.wallPanels + h.braces) /
+        (j.kind === 'engineShed' ? 29 : 22);
       s.revision++;
     }
     return true;
@@ -539,7 +559,7 @@ export function tickShedConstruction(s: State, j: Job, dt: number, api: RailWork
     h.clock += dt;
     e.work = 1;
     e.lift = travelHeight(part.kind);
-    interpolate(part.pose, part.from, toolPoint(s, e, part.kind), h.clock / 3);
+    interpolate(part.pose, part.from, toolPoint(s, e, part.kind, j), h.clock / 3);
     e.assemblyLoad = loadEnvelope(j, e, part);
     if (h.clock >= 3) {
       if (h.recovering) h[countKey[part.kind]]--;
@@ -549,10 +569,10 @@ export function tickShedConstruction(s: State, j: Job, dt: number, api: RailWork
     return true;
   }
   if (h.phase === 'carry') {
-    part.pose = toolPoint(s, e, part.kind);
+    part.pose = toolPoint(s, e, part.kind, j);
     e.assemblyLoad = loadEnvelope(j, e, part);
     if (!align(s, j, e, w, part.to, dt, api)) return true;
-    part.pose = toolPoint(s, e, part.kind);
+    part.pose = toolPoint(s, e, part.kind, j);
     part.from = copy(part.pose);
     transition(s, j, 'lower');
     return true;
@@ -596,7 +616,9 @@ export function tickShedConstruction(s: State, j: Job, dt: number, api: RailWork
       : part.kind === 'post'
         ? 0
         : part.kind === 'wall'
-          ? 2.7
+          ? j.kind === 'engineShed' && part.index >= 4
+            ? 4.5
+            : 2.7
           : part.kind === 'brace'
             ? 2.8
             : Math.max(0, part.to.y - 1.1);
@@ -624,7 +646,9 @@ export function tickShedConstruction(s: State, j: Job, dt: number, api: RailWork
     if (h.clock >= 2 * climb + 3) {
       w.y = 0;
       if (!h.recovering) h[countKey[part.kind]]++;
-      j.progress = (h.anchors + h.posts + h.beams + h.roofSheets + h.wallPanels + h.braces) / 22;
+      j.progress =
+        (h.anchors + h.posts + h.beams + h.roofSheets + h.wallPanels + h.braces) /
+        (j.kind === 'engineShed' ? 29 : 22);
       h.part = undefined;
       const top =
         part.kind === 'post'
@@ -639,7 +663,7 @@ export function tickShedConstruction(s: State, j: Job, dt: number, api: RailWork
         s,
         'Work',
         j.id,
-        `${h.recovering ? 'Recovered' : 'Fastened'} shed ${part.kind} ${part.index + 1}.`,
+        `${h.recovering ? 'Recovered' : 'Fastened'} ${j.kind === 'engineShed' ? 'engine shed' : 'shed'} ${part.kind} ${part.index + 1}${h.componentIds ? ' · ' + h.componentIds[`${part.kind}/${part.index}`] : ''}.`,
       );
       transition(s, j, 'withdraw');
     }

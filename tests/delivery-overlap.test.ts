@@ -41,7 +41,7 @@ for (const mode of ['road', 'rail'] as const) {
       s.equipment.find((e) => e.id === eid)!.deliveryOrder === oid,
       'Site machine stays assigned to its parcel',
     );
-    const distance = o.drive!.distance;
+    const distance = o.drive!.distance, departurePoint = { ...o.vehicle };
     tickUntil(s, () => !!s.orders.find((o) => o.id === oid)?.carrierDeparted, 900);
     o = s.orders.find((o) => o.id === oid)!;
     assert.ok(
@@ -49,9 +49,10 @@ for (const mode of ['road', 'rail'] as const) {
       'Exited transport still retains the unfinished site placement',
     );
     assert.ok(
-      mode === 'rail' ? o.drive!.distance < distance : o.drive!.distance > distance,
+      mode === 'rail' ? dist(o.vehicle, departurePoint) > 100 : o.drive!.distance > distance,
       'Actual carrier moves independently',
     );
+    if(mode==='rail') {assert.equal(o.railFreight!.departureReverse,true);assert.ok(o.railFreight!.cars.every(c=>c.returned));assert.equal(o.railFreight!.movement,undefined);}
     assert.ok(carrierRects(s).length === 0, 'Exited carrier no longer occupies physical ground');
     const total = S.totals(s, 'slab');
     assert.equal(total.delivered, total.stored + total.cargo + total.installed);
