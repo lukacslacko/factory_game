@@ -2,7 +2,7 @@
 
 ## Native game
 
-The playable Godot migration uses the approved Concept C art and a separate local simulation process. Open **Plant 01.app** in the surrounding `outputs/` folder, or double-click **Open Plant 01.command** for development. No browser is required. [Download the Mac app](https://github.com/lukacslacko/factory_game/releases/tag/v0.21.0). See [native game instructions](native/README.md) and [migration notes](docs/native-migration.md). The browser game and static visual proof remain available below.
+The playable Godot migration uses the approved Concept C art and a separate local simulation process. Open **Plant 01.app** in the surrounding `outputs/` folder, or double-click **Open Plant 01.command** for development. No browser is required. [Download the Mac app](https://github.com/lukacslacko/factory_game/releases/tag/v0.21.1). See [native game instructions](native/README.md) and [migration notes](docs/native-migration.md). The browser game and static visual proof remain available below.
 
 
 A playable first version of the fantasy chemistry plant game. Build and operate the construction yard before chemical production arrives: hire a crew, receive physical materials, move equipment, pave ground, extend track, and assemble a small base.
@@ -17,7 +17,11 @@ Select installed track in Yard or Railway, then **Recover this rail panel**. Cur
 
 To insert a switch, recover the straight panels across its 20-meter footprint and build a turnout from the exposed end. Its through exit can reconnect to surviving downstream track. In Creative, rail recovery places the reusable components directly into finite stockyard storage; missing capacity refuses the entire edit. Completed endpoints can close loops when their positions and opposing tangents match; crossing rails alone do not connect. **Railway → Rail help** explains these controls.
 
-## Rail operations — native v0.21.0
+## Rail editing — native v0.21.1
+
+Select installed track in **Railway** to review recovery of one panel or its whole curve/turnout assembly. The review lists material identities, storage destinations and constraints before submission. **Buffer stops / editing** brings purchasing, endpoint installation, recovery, stock and outstanding work into the same workflow. Normal mode uses real equipment and crew; Creative recovery is immediate and preserves material in finite stockyard storage. Connecting turnouts recover redundant stops, and secured stops continue to block trains. See the [rail walkthrough](docs/rail-operations.md).
+
+## Rail operations — native v0.21.1
 
 Receive a multi-car supplier train, release its mainline locomotive through a second siding connection, and move selected loaded or empty cars between connected named locations with an owned diesel shunter and driver. Choose a physical stockyard for unloading, assemble empty cars on the original siding, and request a mainline locomotive to collect the return train. The cars retain their IDs and manifests throughout these operations. **Railway → Rail management help** explains the controls in game; the [rail operations walkthrough](docs/rail-operations.md) describes the complete setup and return sequence.
 
@@ -35,7 +39,7 @@ An independent [Godot visual study](native-proof/README.md) recreates the concep
 
 ## Browser legacy game
 
-The private game Site is **https://plant-01-starter-yard.lukacslacko.chatgpt.site**. The browser deployment remains **0.18.0**; the native release is **0.21.0**. Browser deployment status is recorded in `docs/publishing.md`. Sign in with the account that owns the Site. Local and hosted browser saves are separate; use Export save / Import save to transfer a yard.
+The private game Site is **https://plant-01-starter-yard.lukacslacko.chatgpt.site**. The browser deployment remains **0.18.0**; the native release is **0.21.1**. Browser deployment status is recorded in `docs/publishing.md`. Sign in with the account that owns the Site. Local and hosted browser saves are separate; use Export save / Import save to transfer a yard.
 
 On this Mac, double-click **Start Plant 01.command**. It starts the included local server and opens the game at **http://127.0.0.1:4173/**. Keep its Terminal window open while playing; Control-C stops the server.
 

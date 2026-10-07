@@ -38,6 +38,9 @@ const main = (x: number) => ({
   offset: x + 260,
 });
 const close = (a: number, b: number) => assert.ok(Math.abs(a - b) < 0.01, `${a} ≈ ${b}`);
+function addRecoveryStockyard(s: ReturnType<typeof createState>) {
+  assert.equal(addZone(s, { x: 150, z: 40, w: 14, d: 14 }), '');
+}
 
 test('routing uses the physical original switch and never jumps between parallel centerlines', () => {
   const s = createState(),
@@ -83,11 +86,14 @@ test('mainline exit is commissioned as seven real panels and does not bypass con
 test('Creative east exit makes an actual through route, removes the stop from the running track and survives reload', () => {
   const s = createState();
   setCreativeMode(s, true);
+  addRecoveryStockyard(s);
   const result = planMainlineExit(s);
   assert.equal(result.error, '');
   assert.equal(s.rails.length, 7);
   assert.ok(result.jobs.every((j) => j.status === 'done'));
-  assert.ok(bufferAssets(s).every((b) => !b.secured || b.z !== 5));
+  assert.equal(bufferAssets(s).length, 0);
+  assert.deepEqual(s.stacks.filter(t => t.item === 'bufferStop').map(t => [t.assetId, t.qty]),
+    [['BUFFER-001', 1]]);
   const route = railRoute(s, siding(50), main(180))!;
   assert.ok(route);
   assert.ok(route.points.some((p) => p.x > 125 && p.x < 145 && p.z > 0 && p.z < 5));
@@ -137,7 +143,8 @@ test('parked consist intervals extend over real joints and retain segment anchor
   assert.equal(anchorAtRailRoute(s, interval, interval.length)!.trackId, 'BOOTSTRAP-SIDING');
   assert.equal(railInterval(s, siding(90), 5, 20), undefined);
   setCreativeMode(s, true);
-  planMainlineExit(s);
+  addRecoveryStockyard(s);
+  assert.equal(planMainlineExit(s).error, '');
   const extended = railInterval(s, siding(95), 5, 50)!;
   assert.ok(extended);
   assert.equal(extended.segments.at(-1)!.trackId, 'BOOTSTRAP-MAINLINE');
@@ -216,6 +223,7 @@ test('exact endpoint anchors enter and leave neighboring matching rails without 
 test('factory access switch preserves both mainline exit and a buildable connected factory branch', () => {
   const s = createState();
   setCreativeMode(s, true);
+  addRecoveryStockyard(s);
   const access = planSidingAccess(s);
   assert.equal(access.error, '');
   assert.equal(access.jobs.length, 7);
@@ -349,6 +357,7 @@ test('recovering the commissioned exit leaves a mainline gap instead of restorin
   const s = createState();
   assert.equal(mainlineExitCommissioned(s), false);
   setCreativeMode(s, true);
+  addRecoveryStockyard(s);
   assert.equal(planMainlineExit(s).error, '');
   assert.equal(mainlineExitCommissioned(s), true);
   const continuous = railRoute(s, main(120), main(170));

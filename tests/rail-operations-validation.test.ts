@@ -15,6 +15,7 @@ const clone = (s: State): State => JSON.parse(JSON.stringify(s));
 function fixtures() {
   const s = S.createState();
   s.creative = true;
+  assert.equal(S.addZone(s, { x: 200, z: 100, w: 3, d: 3 }), '');
   assert.equal(S.planMainlineExit(s).error, '');
   S.purchaseBatch(s, [{ item: 'slab', qty: 8 }], 'rail');
   tickUntil(s, () => s.orders[0].status === 'unloading');

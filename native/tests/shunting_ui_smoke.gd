@@ -43,7 +43,7 @@ func _run() -> void:
 	ui.command.connect(func(action: String,args: Dictionary) -> void:actions.append({"action":action,"args":args}))
 	ui.update_snapshot(fixture);ui.receive_reply({"action":"continue","ok":true});ui.show_tab("Railway")
 	await process_frame;await process_frame
-	_check(ui.tables.size()==6,"Railway shows owned locomotives beside freight and track registers")
+	_check(ui.tables.size()==8,"Railway shows owned locomotives beside freight and track registers")
 	_check(ui.tables[5].get_global_rect().end.y<=ui.register_panel.get_global_rect().end.y,"The final shunter table fits the 810-pixel information panel")
 	_check(ui.tables[5].rows[0].cells[0]=="SHUNTER-9001","Owned shunter ID is shown in the real table")
 	_check(ui.tables[5].row_id_pattern.search("SHUNTER-9001")!=null and ui.tables[5].row_id_pattern.search("RETURN-9001")!=null,"Owned engine and return-train IDs are recognized as navigable")

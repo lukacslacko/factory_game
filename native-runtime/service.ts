@@ -49,6 +49,7 @@ import {
 import { query, SQL_EXAMPLES, csv } from '../src/reports';
 import { DiagnosticRecorder } from '../src/diagnostics';
 import { renderState } from './render';
+import { railEditPreview } from './rail-edit-preview';
 import type { State, Rect, BuildKind, EquipmentWorkRole, EquipmentActivity } from '../src/types';
 
 const flags = Object.fromEntries(
@@ -314,6 +315,7 @@ const readonly = new Set([
   'hello',
   'ping',
   'rail_preview',
+  'rail_edit_preview',
   'rail_location_anchor',
   'inspect',
   'tables',
@@ -509,6 +511,8 @@ async function dispatch(action: string, a: any) {
       return {};
     case 'rail_preview':
       return railPreview(a);
+    case 'rail_edit_preview':
+      return railEditPreview(state, a);
     case 'plan_rail': {
       const p = railPreview(a);
       check(p.error);

@@ -596,3 +596,106 @@ test('native recovery command stores installed steel and exposes both ends of a 
   assert.equal(preview.heading, 2);
   assert.equal(preview.error, '');
 });
+
+test('native rail editing previews are read-only and match the committed Creative recovery', async (t) => {
+  const host = await launch();
+  t.after(() => host.close());
+  const c = host.client,
+    s = Sim.createState();
+  s.paused = true;
+  Sim.setCreativeMode(s, true);
+  s.zones.push({ id: Sim.id(s, 'zone'), name: 'Recovery yard', x: 40, z: 35, w: 30, d: 20 });
+  assert.equal(Sim.planRailLayout(s, 'straight', { x: 125, z: 5 }).error, '');
+  await c.ok('import', { json: Sim.save(s) });
+  const before = await c.ok('export');
+  const preview = await c.ok('rail_edit_preview', {
+    operation: 'recover_rail',
+    id: s.rails[0].id,
+    scope: 'panel',
+  });
+  assert.equal(preview.mode, 'creative');
+  assert.equal(preview.constraint, '');
+  assert.equal(preview.storageError, '');
+  assert.deepEqual(preview.materials.map((m: any) => [m.item, m.qty]).sort(), [
+    ['bufferStop', 1],
+    ['rail', 1],
+  ]);
+  assert.equal(preview.destinations.length, 2);
+  assert(preview.destinations.every((d: any) => d.zoneId === s.zones[0].id));
+  assert.deepEqual(
+    await c.ok('export'),
+    before,
+    'Preview must not change IDs, jobs, stock, or the event ledger',
+  );
+  await c.ok('remove_rail', { id: s.rails[0].id, scope: 'panel' });
+  await c.ok('save');
+  const recovered = Sim.load(await fs.readFile(path.join(host.dir, 'yard.json'), 'utf8'));
+  for (const destination of preview.destinations) {
+    const stock = recovered.stacks.find(
+      (q) => q.assetId === destination.assetId || q.railAssetIds?.includes(destination.assetId),
+    );
+    assert(stock, destination.assetId);
+    assert.equal(stock.x, destination.x);
+    assert.equal(stock.z, destination.z);
+  }
+  assert.equal(recovered.rails.length, 0);
+  assert.equal(
+    (await c.request('rail_edit_preview', { operation: 'delete_everything', id: 'BUFFER-001' })).ok,
+    false,
+  );
+  assert.equal(
+    (
+      await c.request('rail_edit_preview', {
+        operation: 'recover_rail',
+        id: 'none',
+        scope: 'unknown',
+      })
+    ).ok,
+    false,
+  );
+});
+
+test('native buffer editing explains missing resources, recovers instantly in Creative, and rejects full storage', async (t) => {
+  const host = await launch();
+  t.after(() => host.close());
+  const c = host.client,
+    s = Sim.createState();
+  s.paused = true;
+  await c.ok('import', { json: Sim.save(s) });
+  const normal = await c.ok('rail_edit_preview', { operation: 'recover_buffer', id: 'BUFFER-001' });
+  assert.equal(normal.mode, 'physical');
+  assert.equal(normal.constraint, '');
+  assert.match(normal.storageError, /stockyard|storage/i);
+  assert(normal.warnings.some((w: string) => /operator/i.test(w)));
+  assert(normal.warnings.some((w: string) => /machine/i.test(w)));
+  await c.ok('creative', { enabled: true });
+  const full = await c.ok('rail_edit_preview', { operation: 'recover_buffer', id: 'BUFFER-001' });
+  assert.match(full.constraint, /stockyard|storage/i);
+  assert.equal((await c.request('remove_buffer', { id: 'BUFFER-001' })).ok, false);
+  s.creative = true;
+  s.zones.push({ id: Sim.id(s, 'zone'), name: 'Stop storage', x: 40, z: 35, w: 10, d: 10 });
+  await c.ok('import', { json: Sim.save(s) });
+  const preview = await c.ok('rail_edit_preview', {
+    operation: 'recover_buffer',
+    id: 'BUFFER-001',
+  });
+  assert.equal(preview.constraint, '');
+  assert.equal(preview.destinations.length, 1);
+  await c.ok('remove_buffer', { id: 'BUFFER-001' });
+  await c.ok('save');
+  const saved = Sim.load(await fs.readFile(path.join(host.dir, 'yard.json'), 'utf8'));
+  assert.equal(saved.buffers?.length, 0);
+  assert.equal(saved.stacks.find((q) => q.assetId === 'BUFFER-001')?.qty, 1);
+  assert(saved.jobs.every((j) => j.status === 'done' || j.status === 'canceled'));
+  const install = await c.ok('rail_edit_preview', { operation: 'install_buffer', x: 125, z: 5 });
+  assert.equal(install.availableStops, 1);
+  assert.equal(install.constraint, '');
+  await c.ok('plan_buffer', { x: 125, z: 5 });
+  await c.ok('save');
+  const installed = Sim.load(await fs.readFile(path.join(host.dir, 'yard.json'), 'utf8'));
+  assert.equal(
+    installed.buffers?.[0].id,
+    'BUFFER-001',
+    'Creative installation should reuse the recovered owned stop',
+  );
+});

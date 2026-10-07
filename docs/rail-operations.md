@@ -1,4 +1,4 @@
-# Rail operations — native v0.21.0
+# Rail operations — native v0.21.1
 
 Rail freight now has two stages: a supplier locomotive brings the train to the original receiving siding, then your owned shunter moves its cars around the factory. The supplier can leave while the cars remain. After unloading, assemble the empty cars on that siding and request a locomotive to collect them. These controls are in the native game; the hosted browser remains v0.18.0.
 
@@ -27,3 +27,18 @@ Click **Railway → Collect empty cars**, check the empty deliveries you want re
 Only one rail movement runs at a time. This release handles flatcar goods, selected-car shunting and empty returns; it does not include tanker operation, direct manual shunter driving or an engine shed. Supplier coupling, uncoupling and brake work are timed schematic service-crew steps. To refuel a shunter, park within 8 meters of a diesel barrel, assign a driver and click **Refuel stopped shunter**. Diesel is deducted from that barrel and added immediately to the tank; physical fuel carrying and pumping for locomotives are further work.
 
 If a movement waits, open its delivery or shunter inspector and inspect the linked obstruction. Clear the track, destination, buffer stop or another vehicle before retrying. A named point alone cannot bypass physical clearance. Save files retain cars, manifests, locomotives, assignments and movements, so you can stop and resume a yard without losing its railway records. The same walkthrough is available as simple paragraphs through **Railway → Rail management help**.
+
+
+## Editing rails and buffer stops
+
+Open **Railway** and select a completed panel in **Installed track**. Its inspector distinguishes the selected panel from the remaining panels in its curve or turnout assembly. Choose **Review this panel recovery…** or **Review whole curve/turnout…**. The review lists the actual material types, quantities, weights and identities, including attached stops. It shows automatic stockyard destinations and any blocking constraint before you submit the edit. Preview destinations are not reservations; normal work rechecks capacity and access when handling the material.
+
+In normal play, **Plan physical recovery** creates work for your crew and lifting equipment. A worker unfastens and rigs the material, the machine lifts and carries it to storage, and attached stops are recovered before their supporting rail. Open the linked work order to assign equipment and follow progress. Trains, reserved movements, named locations and conflicting work can prevent recovery. Cancel unbuilt plans through **Work**; recover completed infrastructure through its inspector.
+
+Use **Railway → Buffer stops / editing** for the installed, available and incoming stop counts, a focused purchase form, and installation at real completed open endpoints. Select an installed stop in Railway or the yard and choose **Review buffer recovery…**. Stops occupy a finite 2 × 2 meter stockyard slot and keep their identities when recovered and reinstalled. Purchases bring material to the site; installation is separate physical work. The review explains missing stock, workers, equipment or storage. The Railway register links stop stock, incoming orders and active stop work.
+
+Creative uses the same review but offers **Install instantly** or **Recover instantly**. Recovery is immediate and still requires finite stockyard capacity; an impossible edit changes nothing. Installing a stop reuses available recovered stock before supplying a new Creative asset. Track extensions move their incoming stop to an open end. Connecting track, including either turnout tail, recovers redundant stops into storage; ordinary construction performs that recovery physically. Secured stops continue to block train routes until removed.
+
+### Buffer-stop representation decision (#40)
+
+A stop is mounted rail infrastructure with its own stable identity and a shared placement/inspection/recovery workflow. It does not contribute extra track length. We evaluated treating it as a five-meter straight panel with a stop in its middle. That would add or replace steel, shift the stopping plane by half a panel, change usable dock lengths, and complicate recovery of existing track and active connected construction. Keeping the mount and supporting steel as separate accounted assets preserves those physical meanings. Panel recovery includes its attached stops, and the common editing review presents both together. This resolves the lifecycle inconsistency without silently changing track geometry or allowing trains through secured stops.

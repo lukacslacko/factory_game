@@ -4,6 +4,7 @@ import * as S from '../src/sim.ts';
 import { bufferAssets } from '../src/buffers.ts';
 import { staticObstacleRects } from '../src/traffic.ts';
 import { seedHandlingResources, tickUntil } from './support/yard.ts';
+import { orderShunter } from '../src/rail-operations.ts';
 
 function yard() {
   const s = S.createState();
@@ -176,4 +177,46 @@ test('canceling buffer recovery retains its physical stop and permits later rein
     s.stacks.filter((t) => t.item === 'bufferStop').reduce((n, t) => n + t.qty, 0),
     1,
   );
+});
+
+test('normal mounting rechecks newly occupied rail before lowering and before fastening the stop', () => {
+  const s = yard();
+  assert.equal(S.removeBufferStop(s, 'BUFFER-001'), '');
+  tickUntil(s, () => s.jobs.at(-1)?.status === 'done', 1600);
+  const j = S.planBufferStop(s, { x: 125, z: 5 }).job!;
+  tickUntil(s, () => j.handling?.phase === 'lower', 1600);
+  assert.equal(orderShunter(s).error, undefined);
+  const e = s.shunters![0];
+  const occupy = () =>
+    Object.assign(e, {
+      phase: 'parked',
+      x: 124,
+      z: 5,
+      yaw: 0,
+      anchor: { trackId: 'BOOTSTRAP-SIDING', route: 'straight', offset: 99 },
+    });
+  const clear = () =>
+    Object.assign(e, {
+      x: 80,
+      anchor: { trackId: 'BOOTSTRAP-SIDING', route: 'straight', offset: 55 },
+    });
+  occupy();
+  const beforeLower = j.handling!.clock;
+  S.tick(s, 1);
+  assert.equal(j.handling!.phase, 'lower');
+  assert.equal(j.handling!.clock, beforeLower);
+  assert.ok(j.reason.includes(e.id), j.reason);
+  assert.equal(bufferAssets(s).length, 0);
+  assert.doesNotThrow(() => S.load(S.save(s)));
+  clear();
+  tickUntil(s, () => j.handling?.phase === 'settle', 1600);
+  occupy();
+  const beforeClamps = j.handling!.clock;
+  S.tick(s, 1);
+  assert.equal(j.handling!.clock, beforeClamps);
+  assert.equal(bufferAssets(s).length, 0);
+  assert.ok(j.reason.includes(e.id), j.reason);
+  clear();
+  tickUntil(s, () => j.status === 'done', 1600);
+  assert.equal(bufferAssets(s)[0].id, 'BUFFER-001');
 });

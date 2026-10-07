@@ -80,6 +80,11 @@ var release_control_button: Button
 var group_expansion: Dictionary = {}
 var rail_tool_buttons: Dictionary = {}
 var buffer_endpoint_window: Window
+var buffer_summary_label: Label
+var rail_edit_window: Window
+var rail_edit_body: VBoxContainer
+var rail_edit_footer: HBoxContainer
+var rail_edit_request: Dictionary = {}
 var purchase_reception: OptionButton
 var purchase_stockyard: OptionButton
 var purchase_rail_controls: VBoxContainer
@@ -537,6 +542,11 @@ func receive_reply(message: Dictionary) -> void:
 		if message.has("message"): status_label.text=str(message.message)
 		elif message.has("action"): status_label.text="%s updated"%str(message.action).replace("_"," ")
 	else: show_error(str(message.get("error","Action could not be completed.")))
+	if message.get("action")=="rail_edit_preview" and is_instance_valid(rail_edit_window):
+		if bool(message.get("ok",false)):_show_rail_edit_preview(message.get("result",{}))
+		else:
+			_clear(rail_edit_body)
+			_note(rail_edit_body,str(message.get("error","Preview unavailable. Close and try again.")))
 	if message.get("action")=="purchase_preview" and is_instance_valid(purchase_total):
 		var preview: Dictionary = message.get("result",{})
 		var price: float = 0.0
@@ -629,14 +639,17 @@ func _build_register() -> void:
 			_button(rail_operations,"Build siding exit",func() -> void: _send("rail_exit_plan"))
 			_button(rail_operations,"+ Shunter",_shunter_order_form)
 			_button(rail_operations,"Collect empty cars",func() -> void: _return_train_form())
-			_button(rail_operations,"+ Buffer stop",func() -> void: _buffer_endpoint_form())
+			_button(rail_operations,"Buffer stops / editing",func() -> void: _buffer_endpoint_form())
+			buffer_summary_label=_note(register_body,_buffer_summary()+" Select installed track to review panel or assembly recovery. Plans remain in Work until built.")
 			_table(register_body,"Named locations",["ID","Name","Purpose","Track","Offset m","Length m","Status"])
 			_table(register_body,"Installed track",["ID","Piece","Position","Length m","Route","Group"])
 			_table(register_body,"Open track endpoints · select one to install a buffer stop",["ID","Track","Route","Position","Buffer / reservation"])
-			_table(register_body,"Buffer stops",["ID","Position","Secured","Carried","Source"])
+			_table(register_body,"Installed buffer stops · select to review recovery",["ID","Position","Secured","Carried","Source"])
 			_table(register_body,"Rail freight cars · select a car to inspect its linked delivery and manifest",["Car","Train / order","Reception","Ordered mass","Remaining mass","Storage","Status"])
 			# Keep the rail operations registers compact.
 			_table(register_body,"Owned shunters · select to assign a driver",["ID","Name","Driver","Position","Fuel L","State","Waiting / assignment"])
+			_table(register_body,"Buffer stop stock and incoming orders · select an ID to inspect",["ID","State","Quantity","Destination / position","Source"])
+			_table(register_body,"Buffer-stop work · select for assignment and waiting reasons",["ID","Operation","Status","Destination","Worker","Equipment","Waiting / step"])
 			for table: Control in tables:table.tree.custom_minimum_size.y=44
 		"Materials":
 			_table(register_body,"Inventory",["Material","Delivered","Incoming","Stored","Reserved","In transit","Installed","Construction","Mass stored"])
@@ -700,7 +713,20 @@ func _refresh_register() -> void:
 			_set_table(4,rows); rows=[]
 			for shunter: Dictionary in _records("shunters"):
 				rows.append(_row(str(shunter.id),[shunter.id,shunter.get("name","Diesel shunter"),shunter.get("driverId","Unassigned"),_position(shunter),"%.1f / %s"%[float(shunter.get("fuel",0)),shunter.get("tank",0)],shunter.get("status",""),shunter.get("blockedBy",shunter.get("orderId",""))]))
-			_set_table(5,rows)
+			_set_table(5,rows); rows=[]
+			if is_instance_valid(buffer_summary_label):buffer_summary_label.text=_buffer_summary()+" Select installed track to review panel or assembly recovery. Plans remain in Work until built."
+			for stock: Dictionary in _records("stacks"):
+				if stock.get("item")=="bufferStop" and int(stock.get("qty",0))>0:rows.append(_row(str(stock.id),[stock.id,"Stored · %s reserved"%stock.get("reserved",0),stock.get("qty",0),_position(stock),stock.get("source","")]))
+			for order: Dictionary in _records("orders"):
+				var quantity: int = 0
+				for manifest: Dictionary in order.get("manifest",[{"item":order.get("item",""),"qty":order.get("qty",0),"arrived":order.get("arrived",0)}]):
+					if manifest.get("item")=="bufferStop":quantity+=int(manifest.get("qty",0))-int(manifest.get("arrived",0))
+				if quantity>0:rows.append(_row(str(order.id),[order.id,order.get("status","Ordered"),quantity,order.get("railFreight",{}).get("storageZoneId","Receiving · storage assigned on unloading"),order.get("mode","")]))
+			_set_table(6,rows);rows=[]
+			for work: Dictionary in _records("jobs"):
+				if work.get("item")=="bufferStop" or work.get("kind")=="bufferStop":
+					rows.append(_row(str(work.id),[work.id,"Recover" if work.get("kind")=="remove" else "Install",work.get("status",""),work.get("target",_position(work.get("bufferTarget",work))),work.get("worker",""),work.get("equipment",""),work.get("reason",work.get("phase",""))]))
+			_set_table(7,rows)
 		"Materials":
 			for value: Dictionary in metadata.get("inventory",[]):
 				var key: String = str(value.get("item",""))
@@ -973,15 +999,17 @@ func _render_inspector() -> void:
 			_detail("Carried","Yes" if entity.get("carried",false) else "No")
 			_detail("Source",entity.get("source",""))
 			_note(inspector_body,"A crew unfastens the stop, then owned equipment carries it to physical storage. Rail work also relocates its affected endpoint stop.")
-			var remove: Button = _button(inspector_body,"Remove and store buffer stop",func() -> void: _send("remove_buffer",{"id":selected_id}))
-			remove.disabled=bool(entity.get("carried",false)) or not bool(entity.get("secured",false))
+			var remove: Button = _button(inspector_body,"Review buffer recovery…",func() -> void: _rail_edit_review({"operation":"recover_buffer","id":selected_id}))
+			remove.disabled=bool(entity.get("carried",false))
 		"railEndpoint":
 			_detail("Track",entity.get("panelId",entity.get("trackId","")))
 			_detail("Route",entity.get("route","straight"))
 			_detail("Buffer / work",entity.get("occupiedBy",""))
-			var install: Button = _button(inspector_body,"Install buffer stop here",func() -> void: _send("plan_buffer",{"x":float(entity.x),"z":float(entity.z)}))
+			var install: Button = _button(inspector_body,"Review buffer installation…",func() -> void: _rail_edit_review({"operation":"install_buffer","x":float(entity.x),"z":float(entity.z)}))
 			install.disabled=not str(entity.get("occupiedBy","")).is_empty()
-			_note(inspector_body,"Order a buffer stop first. Equipment brings the actual stop here and a worker fastens it to the rails.")
+			_note(inspector_body,_buffer_summary())
+			_button(inspector_body,"Purchase buffer stops…",func() -> void: _purchase_buffer_form())
+			_note(inspector_body,"The review checks the real open endpoint. Normal work needs a delivered stop, lifting machine, operator and ground worker. Creative installs immediately.")
 		_:
 			for key: String in entity:
 				if key!="id": _detail(key,entity[key])
@@ -1002,17 +1030,19 @@ func _rail_recovery_controls(rail: Dictionary) -> void:
 			if str(installed.get("track",{}).get("groupId",""))==group_id:
 				members+=1
 				if not _pending_rail_recovery(str(installed.id)).is_empty():assembly_pending=true
+	_detail("Selection","One installed panel · %s"%_name(str(rail.get("item","rail"))))
+	if members>1:_detail("Assembly","%d installed panels · %s"%[members,group_id])
 	var pending: Dictionary = _pending_rail_recovery(rail_id)
 	if not pending.is_empty():
 		_detail("Recovery work",pending.id)
 		_detail("Recovery state",pending.get("reason","") if not str(pending.get("reason","")).is_empty() else pending.get("phase",pending.get("status","")))
 		var recovery_id: String = str(pending.id)
 		_button(inspector_body,"Open recovery work",func() -> void: _user_entity(recovery_id))
-	var recover: Button = _button(inspector_body,"Recover this rail panel",func() -> void: _send("remove_rail",{"id":rail_id,"scope":"panel"}))
+	var recover: Button = _button(inspector_body,"Review this panel recovery…",func() -> void: _rail_edit_review({"operation":"recover_rail","id":rail_id,"scope":"panel"}))
 	recover.disabled=not pending.is_empty()
 	if members>1:
 		var assembly: String = "turnout" if str(track.get("layout",""))=="turnout" else "curve" if str(track.get("layout",""))=="curve" else "assembly"
-		var recover_assembly: Button = _button(inspector_body,"Recover whole %s (%d panels)"%[assembly,members],func() -> void: _send("remove_rail",{"id":rail_id,"scope":"assembly"}))
+		var recover_assembly: Button = _button(inspector_body,"Review whole %s (%d panels)…"%[assembly,members],func() -> void: _rail_edit_review({"operation":"recover_rail","id":rail_id,"scope":"assembly"}))
 		recover_assembly.disabled=assembly_pending
 	_note(inspector_body,"Recovery is a work order: a worker unfastens each panel, then equipment lifts and carries it to physical stockyard storage. Attached buffer stops are recovered first. Track must be clear of trains and active construction. In Creative, recovery is immediate.")
 
@@ -1442,15 +1472,19 @@ func _rail_dialog(title: String,size: Vector2i) -> Dictionary:
 	margin.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	for side: String in ["left","right","top","bottom"]:margin.add_theme_constant_override("margin_"+side,12)
 	window.add_child(margin)
+	var layout: VBoxContainer = VBoxContainer.new()
+	margin.add_child(layout)
 	var scroll: ScrollContainer = ScrollContainer.new()
 	scroll.size_flags_vertical=Control.SIZE_EXPAND_FILL
 	scroll.horizontal_scroll_mode=ScrollContainer.SCROLL_MODE_DISABLED
-	margin.add_child(scroll)
+	layout.add_child(scroll)
 	var body: VBoxContainer = VBoxContainer.new()
 	body.size_flags_horizontal=Control.SIZE_EXPAND_FILL
 	scroll.add_child(body)
+	var footer: HBoxContainer = HBoxContainer.new()
+	layout.add_child(footer)
 	window.close_requested.connect(window.queue_free)
-	return {"window":window,"body":body}
+	return {"window":window,"body":body,"footer":footer}
 
 func _yard_access_form() -> void:
 	var dialog: Dictionary = _rail_dialog("Factory yard access switch",Vector2i(580,300))
@@ -1564,6 +1598,9 @@ func _rail_help_paragraphs() -> Array[String]:
 		"Unload into a physical stockyard. Create a stockyard in Yard. Open the delivery inspector, choose and apply its Unloading stockyard, check the cars to unload, and click Start unloading. Owned equipment, an operator, and a ground helper handle the cargo physically. You may change the stockyard between lifts. Click Pause unloading after current lift before moving a car; the machine finishes its current lift safely and stops accepting new ones. A full or inaccessible yard produces a waiting reason.",
 		"Send empty cars away. Use the shunter to assemble the empty cars back on the original receiving siding, then park the shunter clear of the pickup route. In Railway, click Collect empty cars, check the empty deliveries you want returned together, choose a named point on that siding if desired, and request collection. A supplier locomotive arrives, couples to the empty cars, and takes the return train out onto the main line. Loaded cars cannot be returned by this control.",
 		"Inspect the railway records. The freight-car table shows each car's current named location and remaining cargo, with links to its delivery and stockyard. Owned shunters have clickable driver IDs and status. Delivery controls show whether the supplier locomotive is attached, leaving, gone, or collecting empty cars. If a movement is blocked, inspect its waiting reason and keep the intended route and destination clear.",
+		"Edit installed rails from Railway. Select a completed panel in Installed track, then Review this panel recovery or Review whole curve/turnout. The review lists recovered materials and their identities, attached stops, automatic stockyard destinations and operational constraints before you submit. Normal recovery creates work: a worker unfastens and rigs the panel; equipment lifts and carries it to physical stockyard storage. Open the linked recovery work to assign equipment or inspect its waiting reason. Creative recovery completes immediately, but still needs space. Plans that have not been built are canceled from Work rather than recovered.",
+		"Replace straight track with a switch. Recover the conflicting installed panels first, wait for the physical work to finish in normal mode, and place the switch at the newly exposed endpoint. Rail infrastructure must be clear of trains, reserved movements, named rail locations and conflicting work. The protected public main line and inherited receiving siding cannot be recovered through ordinary editing.",
+		"Manage buffer stops in Railway with Buffer stops / editing. It shows installed, available and incoming stops; purchase buffer stops directly there and choose a real open endpoint to review installation. Normal installation needs delivered stock, equipment, an operator and a ground worker. Select an installed stop to Review buffer recovery; recovered stops retain their identities in a 2 × 2 m stockyard footprint. Creative placement and recovery are instant. Rail extensions relocate their affected stop once for the connected work; a stop made redundant by connecting track is recovered. A stop mounts on existing track and does not add five meters of steel. Stops still block rail movements until physically removed.",
 		"Test layouts with Creative. Toggle Creative in the Yard toolbar and use Pave, building tools, and rail tools to complete placements immediately. Straight rail, 90° curve, Diverging switch, and Converging switch are separate tools. Buffer stops belong at open ends and must be removed where a train needs to pass. Recover installed panels from their inspector to make room for replacement switches.",
 		"Rail layouts can form loops. Matching open endpoints must meet facing in opposite directions. Crossing rails do not create a junction; use turnouts for branches and joins. A loop can provide an engine runaround, while actual movements still require a connected clear path and sufficient track for the consist. Supplier reception and collection remain on the original siding; owned shunting serves the rest of your connected network."
 	]
@@ -1577,39 +1614,127 @@ func _buffer_records() -> Array:
 	record["id"]=str(record.get("id","BUFFER-001"))
 	return [record]
 
+func _dismiss_rail_window(window: Window) -> void:
+	if is_instance_valid(window):
+		window.hide()
+		window.queue_free()
+
+func _buffer_summary() -> String:
+	var available: int = 0
+	var incoming: int = 0
+	for stock: Dictionary in _records("stacks"):
+		if stock.get("item")=="bufferStop":available+=int(stock.get("qty",0))-int(stock.get("reserved",0))
+	for order: Dictionary in _records("orders"):
+		for line: Dictionary in order.get("manifest",[{"item":order.get("item",""),"qty":order.get("qty",0),"arrived":order.get("arrived",0)}]):
+			if line.get("item")=="bufferStop":incoming+=int(line.get("qty",0))-int(line.get("arrived",0))
+	var installed: int = 0
+	var loose: int = 0
+	for stop: Dictionary in _buffer_records():
+		if bool(stop.get("carried",false)):continue
+		if bool(stop.get("secured",true)):installed+=1
+		else:loose+=1
+	return "Buffer stops: %d installed · %d available in stock · %d incoming."%[installed,available,incoming]+(" %d loose awaiting recovery."%loose if loose>0 else "")
+
 func _buffer_endpoint_form(track_id: String = "") -> void:
 	var endpoints: Array = []
 	for endpoint: Dictionary in metadata.get("render",{}).get("railOpenEndpoints",[]):
-		if not str(endpoint.get("occupiedBy","")).is_empty():continue
 		if not track_id.is_empty() and track_id not in [str(endpoint.get("trackId","")),str(endpoint.get("panelId",""))]:continue
 		endpoints.append(endpoint)
+	if is_instance_valid(buffer_endpoint_window):_dismiss_rail_window(buffer_endpoint_window)
+	var dialog: Dictionary = _rail_dialog("Rail editing · buffer stops",Vector2i(660,400))
+	buffer_endpoint_window=dialog.window
+	var body: VBoxContainer = dialog.body
+	_note(body,_buffer_summary())
+	_note(body,"%s. Stops mount on a completed open track end; they do not add a rail panel. Select installed track or a stop in Railway to review recovery. Extend rails using the rail tools; the crew relocates the affected stop during the connected work."%("CREATIVE: placement and recovery are immediate; recovery still needs finite stockyard space" if bool(state.get("creative",false)) else "PHYSICAL: a delivered stop, lifting machine, operator and ground worker are required"))
 	if endpoints.is_empty():
-		show_error("No unoccupied open track endpoint is available here. Select another track or remove its existing buffer first.")
-		return
-	if is_instance_valid(buffer_endpoint_window):buffer_endpoint_window.queue_free()
-	var window: Window = Window.new()
-	buffer_endpoint_window=window
-	window.title="Install railway buffer stop"
-	window.size=Vector2i(560,220)
-	window.theme=screen.theme
-	window.transient=true
-	window.exclusive=true
-	window.close_requested.connect(window.queue_free)
-	add_child(window)
-	var body: VBoxContainer = VBoxContainer.new()
-	body.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	body.offset_left=12;body.offset_top=12;body.offset_right=-12;body.offset_bottom=-12
-	window.add_child(body)
-	_note(body,"Choose an actual open rail endpoint. An owned machine and worker will carry and fasten an available buffer stop.")
-	var choices: Array = []
-	for endpoint: Dictionary in endpoints:choices.append("%s · %s · %s"%[endpoint.get("panelId",endpoint.get("trackId","")),endpoint.get("route","straight"),_position(endpoint)])
-	var option: OptionButton = _option(body,choices)
-	_button(body,"Plan buffer installation",func() -> void:
-		var endpoint: Dictionary = endpoints[option.selected]
-		_send("plan_buffer",{"x":float(endpoint.x),"z":float(endpoint.z)})
-		window.queue_free())
-	_button(body,"Purchase buffer stops…",func() -> void: window.queue_free(); _open_purchase())
-	window.popup_centered()
+		_note(body,"No open endpoint is available for this selection. Complete or extend track first. You can still order stops or recover installed infrastructure.")
+	else:
+		var choices: Array = []
+		for endpoint: Dictionary in endpoints:choices.append("%s · %s · %s%s"%[endpoint.get("panelId",endpoint.get("trackId","")),endpoint.get("route","straight"),_position(endpoint)," · "+str(endpoint.occupiedBy) if not str(endpoint.get("occupiedBy","")).is_empty() else " · Open"])
+		var option: OptionButton = _option(body,choices)
+		_button(body,"Review endpoint installation…",func() -> void:
+			var endpoint: Dictionary = endpoints[option.selected]
+			_dismiss_rail_window(buffer_endpoint_window)
+			_rail_edit_review({"operation":"install_buffer","x":float(endpoint.x),"z":float(endpoint.z)}))
+	_button(body,"Purchase buffer stops…",func() -> void: _dismiss_rail_window(buffer_endpoint_window); _purchase_buffer_form())
+	_button(body,"View installed stops, stock and work",func() -> void: _dismiss_rail_window(buffer_endpoint_window); _switch_tab("Railway"))
+	_button(body,"Rail editing help",func() -> void: _dismiss_rail_window(buffer_endpoint_window); _switch_tab("Help"))
+	buffer_endpoint_window.popup_centered()
+
+func _purchase_buffer_form() -> void:
+	var dialog: Dictionary = _rail_dialog("Purchase buffer stops",Vector2i(560,300))
+	var body: VBoxContainer = dialog.body
+	_note(body,_buffer_summary())
+	_note(body,"Delivered clamp-on stop · 850 kg · 2 × 2 m storage footprint. Buying supplies the asset; install it at an open endpoint from Railway after delivery.")
+	var quantity: SpinBox = _number(body,"Buffer stop quantity",1,1,9999)
+	var mode: OptionButton = _option(body,["Road truck","Rail freight"])
+	var total: Label = _note(body,"")
+	var update: Callable = func() -> void:
+		total.text="%d stops · %s · %s before freight"%[int(quantity.value),_mass(quantity.value*float(catalog.bufferStop.get("mass",850))),_money(quantity.value*float(catalog.bufferStop.get("price",1250)))]
+	quantity.value_changed.connect(func(_value: float) -> void:update.call())
+	update.call()
+	_button(body,"Order buffer stops",func() -> void:
+		quantity.apply()
+		_send("purchase_batch",{"lines":[{"item":"bufferStop","qty":int(quantity.value)}],"mode":"rail" if mode.selected==1 else "road"})
+		_dismiss_rail_window(dialog.window))
+	_button(body,"Cancel",func() -> void:_dismiss_rail_window(dialog.window))
+	dialog.window.popup_centered()
+
+func _rail_edit_review(request: Dictionary) -> void:
+	if is_instance_valid(rail_edit_window):_dismiss_rail_window(rail_edit_window)
+	rail_edit_request=request.duplicate(true)
+	var dialog: Dictionary = _rail_dialog("Review rail infrastructure edit",Vector2i(680,530))
+	rail_edit_window=dialog.window;rail_edit_body=dialog.body;rail_edit_footer=dialog.footer
+	_note(rail_edit_body,"Checking installed assets, operational constraints and physical storage…")
+	_button(rail_edit_footer,"Cancel",func() -> void:_dismiss_rail_window(rail_edit_window))
+	rail_edit_window.popup_centered()
+	_send("rail_edit_preview",request)
+
+func _show_rail_edit_preview(preview: Dictionary) -> void:
+	# Replies for an older selection must not enable a different edit.
+	for key: String in ["operation","id","scope"]:
+		if rail_edit_request.has(key) and str(preview.get(key,""))!=str(rail_edit_request[key]):return
+	if rail_edit_request.get("operation")=="install_buffer":
+		if preview.get("endpoint",{})!={"x":rail_edit_request.x,"z":rail_edit_request.z}:return
+	_clear(rail_edit_body)
+	_clear(rail_edit_footer)
+	var creative: bool = preview.get("mode")=="creative"
+	var installing: bool = preview.get("operation")=="install_buffer"
+	_label(rail_edit_body,"CREATIVE · IMMEDIATE EDIT" if creative else "PHYSICAL · WORK ORDER")
+	_note(rail_edit_body,"%s · %s"%["Install buffer stop" if installing else "Recover buffer stop" if preview.get("operation")=="recover_buffer" else "Recover "+str(preview.get("scope","panel")),_position(preview.endpoint) if installing else preview.get("id","")])
+	for material: Dictionary in preview.get("materials",[]):
+		_note(rail_edit_body,"%s × %s · %s"%[material.get("qty",0),_name(str(material.get("item",""))),_mass(float(material.get("qty",0))*float(material.get("unitMass",0)))])
+		var identities: HFlowContainer = HFlowContainer.new()
+		rail_edit_body.add_child(identities)
+		for asset: String in material.get("assetIds",[]):
+			_button(identities,"Inspect "+asset,func() -> void:_user_entity(asset))
+	_label(rail_edit_body,"SOURCE" if installing else "STORAGE DESTINATION · AUTOMATIC")
+	if installing:_note(rail_edit_body,"%s available · %s incoming. Creative reuses available stock or supplies a stop instantly; physical work uses delivered stock."%[preview.get("availableStops",0),preview.get("incomingStops",0)])
+	for source: Dictionary in preview.get("sources",[]):
+		_button(rail_edit_body,"Inspect available stock "+str(source.get("stockId","")),func() -> void:_user_entity(str(source.get("stockId",""))))
+	for destination: Dictionary in preview.get("destinations",[]):
+		_note(rail_edit_body,"%s → %s · %s · %s × %s m"%[destination.get("assetId",""),destination.get("zoneId","Stockyard"),_position(destination),destination.get("w",0),destination.get("d",0)])
+		var zone_id: String = str(destination.get("zoneId",""))
+		if not zone_id.is_empty():_button(rail_edit_body,"Inspect stockyard "+zone_id,func() -> void:_user_entity(zone_id))
+	if not installing and preview.get("destinations",[]).is_empty():_note(rail_edit_body,"Resolve the blocking constraint to check storage." if not str(preview.get("constraint","")).is_empty() else "No finite storage destination is currently available.")
+	var constraint: String = str(preview.get("constraint",""))
+	var storage_error: String = str(preview.get("storageError",""))
+	if not constraint.is_empty():_note(rail_edit_body,"BLOCKED: "+constraint)
+	if not storage_error.is_empty():_note(rail_edit_body,"STORAGE: "+storage_error)
+	for warning: String in preview.get("warnings",[]):_note(rail_edit_body,warning)
+	for job_id: String in preview.get("pendingJobs",[]):_button(rail_edit_body,"Open existing work "+job_id,func() -> void:_user_entity(job_id))
+	_note(rail_edit_body,"Workers unfasten and rig recovered material, then equipment carries it into storage. Attached stops are recovered first. Existing material identities are retained. A train, reserved movement, active construction, or named location may prevent recovery. Constraints are checked again when submitted." if not creative else "This edit takes effect immediately. Recovered identities and material stay in physical stockyard storage. Operational safety and finite capacity still apply.")
+	var submit: Button = _button(rail_edit_footer,"Install instantly" if creative and installing else "Recover instantly" if creative else "Plan physical installation" if installing else "Plan physical recovery",func() -> void:
+		var request: Dictionary = rail_edit_request.duplicate(true)
+		if request.operation=="recover_rail":_send("remove_rail",{"id":request.id,"scope":request.get("scope","panel")})
+		elif request.operation=="recover_buffer":_send("remove_buffer",{"id":request.id})
+		else:_send("plan_buffer",{"x":request.x,"z":request.z})
+		_dismiss_rail_window(rail_edit_window)
+		_switch_tab("Railway"))
+	submit.disabled=not constraint.is_empty() or creative and not storage_error.is_empty()
+	if installing and not creative:_button(rail_edit_footer,"Purchase buffer stops…",func() -> void:_dismiss_rail_window(rail_edit_window);_purchase_buffer_form())
+	_button(rail_edit_footer,"Refresh preview",func() -> void:_rail_edit_review(rail_edit_request))
+	_button(rail_edit_footer,"Cancel",func() -> void:_dismiss_rail_window(rail_edit_window))
 
 func _new_rail_location() -> void:
 	var track: Dictionary = {}

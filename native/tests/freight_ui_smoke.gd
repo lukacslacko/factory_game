@@ -35,7 +35,7 @@ func _run()->void:
 	await process_frame
 	await process_frame
 	_check(ui.tables[4].get_global_rect().end.y<=ui.register_panel.get_global_rect().end.y,"All five freight/track registers remain inside the actual information panel")
-	_check(ui.tables.size()==6,"Railway adds freight cars and owned shunters while retaining existing four registers")
+	_check(ui.tables.size()==8,"Railway retains freight cars and shunters and includes buffer stock and physical work")
 	_check(ui.tables[4].rows.size()==2,"Both cars of one supplier train appear individually")
 	_check(ui.tables[4].rows[0].cells[2]=="Receiving East","Car records show the named reception instead of an opaque ID")
 	_check(ui.tables[4].rows[0].cells[4]=="24.08 t","Remaining car mass reflects its actual unloaded quantity")

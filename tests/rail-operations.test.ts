@@ -18,6 +18,7 @@ const tick = (s: import('../src/types').State, p: () => boolean, seconds = 1200)
 function received() {
   const s = S.createState();
   s.creative = true;
+  assert.equal(S.addZone(s, { x: 200, z: 100, w: 3, d: 3 }), '');
   assert.equal(S.planMainlineExit(s).error, '');
   assert.equal(mainlineExitReady(s), true);
   S.purchaseBatch(s, [{ item: 'slab', qty: 8 }], 'rail');
@@ -78,6 +79,8 @@ test('detached empty cars stay until mainline pickup, move continuously and retu
     o = s.orders[0];
   seedHandlingResources(s, 'forklift');
   S.addZone(s, { x: 24, z: 26, w: 12, d: 12 });
+  // Keep ordinary unloading in its intended nearby yard; the remote stop bay is finite salvage storage.
+  s.zones.unshift(s.zones.pop()!);
   assert.equal(detachRailFreight(s, o.id), undefined);
   tick(s, () => o.railFreight!.locomotivePhase === 'gone');
   assert.equal(requestRailUnloading(s, o.id), undefined);
@@ -189,6 +192,7 @@ test('a driver boards and a shunter pulls selected loaded cars to a named point 
 test('complete factory workflow pulls loaded cars onto a branch, unloads, pushes empties back and collects them', () => {
   const s = S.createState();
   s.creative = true;
+  assert.equal(S.addZone(s, { x: 200, z: 100, w: 3, d: 3 }), '');
   assert.equal(S.planSidingAccess(s).error, '');
   assert.equal(S.planMainlineExit(s).error, '');
   for (let x = 100; x < 185; x += 5)
@@ -220,6 +224,8 @@ test('complete factory workflow pulls loaded cars onto a branch, unloads, pushes
   const reception = s.railLocations!.at(-1)!;
   seedHandlingResources(s, 'forklift');
   S.addZone(s, { x: 145, z: 24, w: 12, d: 12 });
+  // Keep ordinary unloading in its intended nearby yard; the remote stop bay is finite salvage storage.
+  s.zones.unshift(s.zones.pop()!);
   S.purchaseBatch(s, [{ item: 'slab', qty: 4 }], 'rail');
   const o = s.orders[0];
   tick(s, () => o.status === 'unloading');
@@ -317,9 +323,12 @@ test('split car selections keep stock ledgers independent and empty batches coup
 test('multi-car selected unloading can finish later cargo before earlier cargo and reload safely', () => {
   const s = S.createState();
   s.creative = true;
-  S.planMainlineExit(s);
+  assert.equal(S.addZone(s, { x: 200, z: 100, w: 3, d: 3 }), '');
+  assert.equal(S.planMainlineExit(s).error, '');
   seedHandlingResources(s, 'forklift');
   S.addZone(s, { x: 24, z: 26, w: 18, d: 18 });
+  // Keep ordinary unloading in its intended nearby yard; the remote stop bay is finite salvage storage.
+  s.zones.unshift(s.zones.pop()!);
   S.purchaseBatch(
     s,
     [

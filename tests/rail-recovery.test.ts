@@ -130,6 +130,8 @@ test('recovered straight rails can be replaced with a real turnout joining the d
 test('real completed rail geometry accepts a closed loop and retains connectivity after save/load', () => {
   let s = S.createState();
   S.setCreativeMode(s, true);
+  // Closing the loop recovers its last terminal stop into finite storage.
+  assert.equal(S.addZone(s, { x: 160, z: 40, w: 4, d: 4 }), '');
   const build = (
     layout: 'curve' | 'straight' | 'turnout',
     x: number,
@@ -154,6 +156,7 @@ test('real completed rail geometry accepts a closed loop and retains connectivit
   for (let x = 65; x < 105; x += 5) build('straight', x, 60, 0);
   s = S.load(S.save(s));
   const network = trackNetwork(s);
+  assert.equal(s.stacks.find((t) => t.item === 'bufferStop')?.assetId, 'BUFFER-001');
   assert(network.panels.every((p) => p.connected));
   // Mainline is externally connected to the seed, leaving a cycle in factory panel joints.
   assert(network.joints.length >= network.panels.length - 1);

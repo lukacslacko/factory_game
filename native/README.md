@@ -2,11 +2,11 @@
 
 The existing factory simulation now runs in a local Node.js service, with Godot rendering the approved Concept C yard and providing native controls. The service owns simulation time and file persistence, so gameplay can continue while the window is unfocused. No web page, Chrome process, web server, or Internet connection is needed to play.
 
-Native v0.21.0 includes supplier locomotive handoff, owned shunting, selected-car unloading and empty return trains. The original browser application and static visual proof remain available for comparison. Existing portable JSON saves can be imported; importing preserves the current yard as a backup.
+Native v0.21.1 includes unified rail editing and buffer-stop recovery, supplier locomotive handoff, owned shunting, selected-car unloading and empty return trains. The original browser application and static visual proof remain available for comparison. Existing portable JSON saves can be imported; importing preserves the current yard as a backup.
 
 ## Download or open on this Mac
 
-[Download the Apple Silicon Mac app](https://github.com/lukacslacko/factory_game/releases/tag/v0.21.0), unzip it, and open **Plant 01.app**. This checkpoint targets macOS 14 or newer.
+[Download the Apple Silicon Mac app](https://github.com/lukacslacko/factory_game/releases/tag/v0.21.1), unzip it, and open **Plant 01.app**. This checkpoint targets macOS 14 or newer.
 
 Open the **Plant 01.app** built beside the repository in `outputs/`. It includes the Godot runner, Node runtime, simulation, terrain maps, and license notices. It is a local app for this Mac, not a notarized public release.
 
@@ -172,3 +172,10 @@ Recovered rails fill compatible partial stockyard stacks before allocating anoth
 ## Keyboard focus — v0.20.9
 
 Camera keys and game shortcuts pause while a text editor or popup dialog is active, including the named railway location form. Close the dialog to resume WASD panning and Q/E orbiting. Text fields in the registers and SQL editor also keep typing separate from game controls.
+
+
+## Rail editing — v0.21.1
+
+Select **Railway → Installed track** and use **Review this panel recovery…** or the whole curve/turnout option. Inspect recovered identities, mass, automatic storage destinations and constraints before creating physical work or an immediate Creative edit. Select **Buffer stops / editing** for stop counts, focused purchasing and open-end installation; select an installed stop to review recovery. Stock, orders and active stop jobs are linked in Railway. The in-game rail management help and [rail operations walkthrough](../docs/rail-operations.md) describe the complete workflow.
+
+Stops mount on existing track; they do not add a five-meter panel. Creative removal is immediate with finite storage and identity-preserving reuse. Normal work still unfastens, rigs, lifts and stores them. Connecting track recovers redundant stops, including a turnout's diverging end, while secured stops remain real route obstructions.

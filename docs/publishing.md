@@ -176,3 +176,10 @@ Keep the browser deployment at 0.18.0. Native movements are serialized; this che
 Final verification: 530/530 sequential regressions; both builds; 107 new native UI/renderer/bridge checks; packaged GPU/bridge integration at 8.63 seconds and sampled 400.6 MB. Install and reopen the same tested build, preserving the paused private save byte for byte and retaining the previous application. Publish source and the self-contained Mac archive to v0.21.0; no browser deployment.
 
 The last driver availability/shift-end guard is verified by 26 focused regressions after the complete suite, both rebuilt TypeScript bundles, 47 authenticated native checks, and the final packaged GPU run (8.63 seconds, sampled 400.6 MB). The published build includes this guard.
+
+
+## Native rail editing and buffer recovery — v0.21.1
+
+Publish Apple Silicon Mac build 214 with the shared rail editing workflow and buffer-stop lifecycle fixes for #38 and #40. Panel/assembly recovery and stop installation/recovery have a read-only review listing real identities, material masses, finite stockyard destinations and operational constraints. Railway includes focused stop purchasing and stock/order/work links; in-game help explains normal work versus Creative edits. Exact turnout connections recover redundant stops, Creative recovery is immediate and atomic, recovered stops are reused, and occupied or reserved rail is protected during handling. Mounted stops retain their geometry and train-stopping behavior instead of adding fictitious straight panels.
+
+Final verification: 548/548 sequential simulation/native-host regressions, both builds, 222 native UI/focus/authenticated bridge assertions, inspected GPU review capture, and the exact packaged GPU/bridge check (8.68 seconds, sampled 401.3 MB). Preserve the closed private yard unchanged and retain the previous application as a private temporary backup before installation. Publish source and the self-contained Mac archive to v0.21.1. Browser hosting remains v0.18.0; private saves, logs, test fixtures and captures are excluded from the package.

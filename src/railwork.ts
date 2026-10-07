@@ -26,6 +26,7 @@ import {
 } from './rail-staging';
 import {
   claimRailBatchBuffer,
+  railBatchGroup,
   railBatchContinues,
   railBatchSafeEnd,
   releaseRailBatchBuffer,
@@ -2380,6 +2381,10 @@ export function tickRailWork(s: State, j: Job, dt: number, api: RailWorkAPI): bo
             recovery.id,
             `Recover ${b.id} into stock: the new rail joins an existing track.`,
           );
+          // Ownership passes to the real recovery job. Keeping an unsecured
+          // shared batch pose here would reserve this surplus stop forever.
+          const batch = railBatchGroup(s, j);
+          if (batch?.railBuffer?.pose.id === b.id) batch.railBuffer = undefined;
           r.buffer = undefined;
           finish(s, j, api);
         } else if (r.buffer) transition(s, j, 'buffer-retrieve');

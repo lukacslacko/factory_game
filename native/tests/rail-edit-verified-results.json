@@ -1,0 +1,32 @@
+{
+  "version": "0.21.1",
+  "build": 214,
+  "issues": [
+    38,
+    40
+  ],
+  "simulationTests": {
+    "passed": 548,
+    "failed": 0,
+    "seconds": 313.943310208,
+    "nodeHeapLimitMB": 384
+  },
+  "nativeAssertions": {
+    "recoveryUI": 49,
+    "switchBufferUI": 62,
+    "shuntingUI": 37,
+    "freightUI": 26,
+    "keyboardFocus": 13,
+    "authenticatedUIBridge": 35
+  },
+  "gpuPackage": {
+    "name": "v0211-packaged-gpu-final",
+    "elapsed_seconds": 8.68,
+    "peak_resident_bytes": 401260544,
+    "returncode": 0,
+    "stopped_reason": null
+  },
+  "privateSaveModified": false,
+  "browserStarted": false,
+  "middleMountedStraightPanelProposal": "Evaluated; keep separate mounted stop identity to preserve track length, stopping plane and inventory of supporting steel."
+}

@@ -1,4 +1,10 @@
-import { bufferAssets, bufferSource, ensureBuffers } from './buffers';
+import {
+  bufferAssets,
+  bufferSource,
+  ensureBuffers,
+  bufferRecoveryConflict,
+  bufferPlacementConflict,
+} from './buffers';
 import { MATERIALS } from './catalog';
 import { overlap } from './path';
 import type {
@@ -713,6 +719,13 @@ function releaseMachine(
 function settle(s: State, j: Job, w: Worker, dt: number, api: RailWorkAPI) {
   const h = j.handling!,
     target = targetPoint(j);
+  if (j.kind === 'bufferStop' && !j.cancel) {
+    const conflict = bufferPlacementConflict(s, j.bufferTarget!);
+    if (conflict) {
+      j.reason = conflict;
+      return true;
+    }
+  }
   if (!walkToSlab(s, j, undefined, w, target, api)) return true;
   if (!turn(w, facing(w, target), dt, 2)) return true;
   w.status =
@@ -916,6 +929,13 @@ function tickHandling(s: State, j: Job, dt: number, api: RailWorkAPI) {
       phase(s, j, 'lower');
     }
   } else if (h.phase === 'lower') {
+    if (j.kind === 'bufferStop') {
+      const conflict = bufferPlacementConflict(s, j.bufferTarget!);
+      if (conflict) {
+        j.reason = conflict;
+        return true;
+      }
+    }
     if (!safeWorker(s, j, e, w, api, target)) {
       tools(s, e, h);
       return true;
@@ -1009,6 +1029,13 @@ function pickup(s: State, j: Job, e: Equipment, api: RailWorkAPI) {
   const h = j.handling!,
     stack = sourceStack(s, j, h.sourceId)!;
   if (recoveryBuffer(j)) {
+    // A locomotive may have entered/reserved the rail since this crew was
+    // assigned. The mounted stop remains a real train barrier until safe lift.
+    const conflict = bufferRecoveryConflict(s, j.target!, j.id);
+    if (conflict) {
+      j.reason = conflict;
+      return;
+    }
     const b = bufferAssets(s).find((b) => b.id === j.target)!;
     j.assetId = b.id;
     s.buffers = ensureBuffers(s).filter((b) => b.id !== j.target);

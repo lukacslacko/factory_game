@@ -1,5 +1,14 @@
 import { appendRailLayers, takeRailLayers, recoveryStackCandidates } from './rail-stock';
-import { bufferAssets, bufferAt, ensureBuffers, openBufferEndpoint, bufferSource } from './buffers';
+import {
+  bufferAssets,
+  bufferAt,
+  ensureBuffers,
+  openBufferEndpoint,
+  bufferSource,
+  bufferRecoveryConflict,
+  bufferPlacementConflict,
+  railConnectionBufferBlockers,
+} from './buffers';
 import {
   trackGeometry,
   trackSections,
@@ -9,9 +18,10 @@ import {
   railCells,
   railFootprint,
   trackOpenPorts,
+  trackNetwork,
   sidingAccessSpans,
 } from './track';
-import type { TrackPiece } from './track';
+import type { TrackPiece, TrackPort } from './track';
 import {
   assignTurnoutOperation,
   queueTurnoutOperation,
@@ -105,6 +115,7 @@ import type {
   BuildKind,
   Stack,
   JobGroup,
+  BufferStop,
 } from './types';
 import {
   MATERIALS,
@@ -694,9 +705,15 @@ function completeCreativePlacement(s: State, jobs: Job[]) {
         ...(j.track ? { track: { ...j.track, origin: { ...j.track.origin } } } : {}),
       });
     } else if (j.kind === 'bufferStop' && j.bufferTarget) {
+      const stock = s.stacks.find((t) => t.item === 'bufferStop' && t.qty - t.reserved >= 1),
+        assetId = stock?.assetId || id(s, 'buffer');
+      if (stock) {
+        stock.qty--;
+        movement(s, 'bufferStop', 1, stock.id, j.id, 'Recovered buffer reused in Creative mode');
+      }
       ensureBuffers(s).push({
         ...j.bufferTarget,
-        id: id(s, 'buffer'),
+        id: assetId,
         y: 0.2,
         secured: true,
         carried: false,
@@ -836,8 +853,21 @@ export function validRailLayout(
     Math.abs(origin.z) >= 10000
   )
     return 'Choose a grid-aligned track endpoint and direction.';
-  const sidingAccess = layout === 'turnout' && !flow && origin.z === 5 && heading === 0 && hand === 1 && origin.x >= 30 && origin.x <= 100;
-  const mainlineExit = layout === 'turnout' && flow === 'converging' && origin.x === 125 && origin.z === 0 && heading === 0 && hand === 1;
+  const sidingAccess =
+    layout === 'turnout' &&
+    !flow &&
+    origin.z === 5 &&
+    heading === 0 &&
+    hand === 1 &&
+    origin.x >= 30 &&
+    origin.x <= 100;
+  const mainlineExit =
+    layout === 'turnout' &&
+    flow === 'converging' &&
+    origin.x === 125 &&
+    origin.z === 0 &&
+    heading === 0 &&
+    hand === 1;
   const pieces = railLayoutPieces(layout, origin, heading, hand, flow),
     geometries = pieces.map(trackGeometry);
   // Legal connections are exact opposing rail ports, including both incoming
@@ -845,10 +875,14 @@ export function validRailLayout(
   const external = trackMacroPorts(pieces[0]);
   const ports = trackOpenPorts(s, !s.creative, false);
   const entries = external.filter((p) => p.end === 'entry');
-  if (!entries.every((entry) =>
-    (mainlineExit && entry.x === 125 && entry.z === 0) ||
-    (sidingAccess && entry.x === origin.x && entry.z === 5) ||
-    ports.some((port) => portsConnect(port, entry, 0.02, 0.02))))
+  if (
+    !entries.every(
+      (entry) =>
+        (mainlineExit && entry.x === 125 && entry.z === 0) ||
+        (sidingAccess && entry.x === origin.x && entry.z === 5) ||
+        ports.some((port) => portsConnect(port, entry, 0.02, 0.02)),
+    )
+  )
     return flow === 'converging'
       ? 'A converging switch requires two parallel open track endpoints, 5 m apart, facing the same direction.'
       : 'Connect to an open track endpoint facing the indicated direction. Use Rail end to start at the siding.';
@@ -860,8 +894,10 @@ export function validRailLayout(
   ];
   for (const p of cells) {
     const cell = { ...p, w: 1, d: 1 };
-    if ((p.x < -12 || p.x + 1 > 220 || p.z < 4 || p.z + 1 > 110) &&
-      !(mainlineExit && p.x >= 125 && p.x + 1 <= 145 && p.z >= -1 && p.z + 1 <= 6))
+    if (
+      (p.x < -12 || p.x + 1 > 220 || p.z < 4 || p.z + 1 > 110) &&
+      !(mainlineExit && p.x >= 125 && p.x + 1 <= 145 && p.z >= -1 && p.z + 1 <= 6)
+    )
       return 'Track extends outside the buildable yard or into the protected transport corridor.';
     if (p.x < -3 && p.z < 25) return 'Keep the crossing and receiving access lane clear.';
     if (s.buildings.some((b) => overlap(b, cell))) return 'A structure occupies the track bed.';
@@ -905,6 +941,10 @@ export function planRailLayout(
   if (error) return { jobs: [], error };
   const pieces = railLayoutPieces(layout, origin, heading, hand, flow),
     geometries = pieces.map(trackGeometry);
+  // Preflight an entire instant edit. Connected stops must go to real finite
+  // storage, never be left loose beside a joint or vanish after placement.
+  const creativeBuffers = s.creative ? creativeLayoutBufferEdits(s, pieces) : undefined;
+  if (creativeBuffers?.error) return { jobs: [], error: creativeBuffers.error };
   const minX = Math.min(...geometries.map((g) => g.rect.x)),
     minZ = Math.min(...geometries.map((g) => g.rect.z));
   const rect = {
@@ -955,23 +995,19 @@ export function planRailLayout(
   });
   groupConnectedRailWork(s);
   if (s.creative) {
-    // Preserve buffer identities, moving an incoming stop to the new open end.
-    // Extra stops after a convergence remain parked beside the old joint.
-    const ports = trackMacroPorts(canonical);
-    const incoming = ports.filter((p) => p.end === 'entry');
-    const touched = ensureBuffers(s).filter(
-      (b) => !b.carried && incoming.some((p) => dist(b, p) < 0.15),
-    );
     completeCreativePlacement(s, jobs);
-    const exits = ports.filter(
-      (p) => p.end === 'exit' && openBufferEndpoint(s, p) && !bufferAt(s, p),
-    );
-    touched.forEach((b, index) => {
-      const exit = exits[index];
-      if (exit) Object.assign(b, { x: exit.x, z: exit.z, yaw: exit.yaw, secured: true });
-      else Object.assign(b, { z: b.z + 4, secured: false });
+    for (const transfer of creativeBuffers!.transfers) {
+      const b = ensureBuffers(s).find((b) => b.id === transfer.id)!;
+      Object.assign(b, {
+        x: transfer.port.x,
+        z: transfer.port.z,
+        yaw: transfer.port.yaw,
+        secured: true,
+      });
       if (b.id === 'BUFFER-001') Object.assign(s.buffer, { x: b.x, z: b.z });
-    });
+    }
+    for (const recovery of creativeBuffers!.recoveries)
+      recoverBufferCreative(s, recovery.buffer, recovery.spot, group.id);
   }
   event(
     s,
@@ -1891,6 +1927,8 @@ export function planBufferStop(s: State, endpoint: Point): { job?: Job; error: s
   const port = openBufferEndpoint(s, endpoint);
   if (!port) return { error: 'Choose an open, completed rail endpoint.' };
   if (bufferAt(s, port)) return { error: 'This endpoint already has a buffer stop.' };
+  const conflict = bufferPlacementConflict(s, port);
+  if (conflict) return { error: conflict };
   if (
     s.jobs.some(
       (j) =>
@@ -1918,15 +1956,127 @@ export function planBufferStop(s: State, endpoint: Point): { job?: Job; error: s
   s.revision++;
   return { job: j, error: '' };
 }
+/** Plan finite storage before an instant removal; the asset remains mounted on failure. */
+function creativeBufferStorage(s: State, buffers: BufferStop[]) {
+  const preview = structuredClone(s),
+    spots = new Map<string, Rect>();
+  for (const b of buffers) {
+    const conflict = bufferRecoveryConflict(s, b.id);
+    if (conflict) return { spots, error: conflict };
+    const spot = allocate(preview, 'bufferStop');
+    if (!spot)
+      return {
+        spots,
+        error: `Recovery needs stockyard space for ${b.id}. Enlarge or add a stockyard first.`,
+      };
+    spots.set(b.id, spot);
+    preview.stacks.push({
+      ...spot,
+      id: `recovery-preview-${b.id}`,
+      item: 'bufferStop',
+      qty: 1,
+      reserved: 0,
+      source: b.id,
+      assetId: b.id,
+    });
+  }
+  return { spots, error: '' };
+}
+function recoverBufferCreative(s: State, b: BufferStop, spot: Rect, parentId?: string) {
+  s.buffers = ensureBuffers(s).filter((t) => t.id !== b.id);
+  const stack: Stack = {
+    ...spot,
+    id: id(s, 'stack'),
+    item: 'bufferStop',
+    qty: 1,
+    reserved: 0,
+    source: b.id,
+    assetId: b.id,
+  };
+  s.stacks.push(stack);
+  movement(
+    s,
+    'bufferStop',
+    1,
+    b.id,
+    stack.id,
+    b.source === 'opening' ? 'Opening asset recovered' : 'Buffer stop recovered in Creative mode',
+  );
+  const j =
+    s.jobs.find((q) => q.kind === 'remove' && q.target === b.id && q.status === 'todo') ||
+    newJob(s, 'remove', { x: b.x - 1, z: b.z - 1, w: 2, d: 2 }, 0, b.id, parentId);
+  j.item = 'bufferStop';
+  j.creative = true;
+  j.delivered = true;
+  j.assetId = b.id;
+  j.recoveryStack = { ...stack };
+  complete(s, j);
+}
+function creativeLayoutBufferEdits(s: State, pieces: TrackPiece[]) {
+  const ports = trackMacroPorts(pieces[0]),
+    existingPorts = trackNetwork(s, false).panels.flatMap((p) => p.ports),
+    joints = ports.filter((port) =>
+      existingPorts.some((old) => portsConnect(port, old, 0.02, 0.02)),
+    ),
+    touched = bufferAssets(s).filter(
+      (b) => !b.carried && joints.some((port) => dist(port, b) < 0.15),
+    ),
+    preview = structuredClone(s);
+  for (const [i, piece] of pieces.entries()) {
+    const geometry = trackGeometry(piece);
+    preview.rails.push({
+      ...geometry.rect,
+      id: `buffer-preview-rail-${i}`,
+      rotation: piece.heading % 2,
+      length: geometry.length,
+      item: trackItem(piece),
+      track: piece,
+    });
+  }
+  const available = ports.filter(
+    (port) => port.end === 'exit' && openBufferEndpoint(preview, port) && !bufferAt(s, port),
+  );
+  const transfers: { id: string; port: TrackPort }[] = [];
+  for (const b of touched) {
+    if (!ports.some((p) => p.end === 'entry' && dist(p, b) < 0.15)) continue;
+    const port = available.shift();
+    if (port) transfers.push({ id: b.id, port });
+  }
+  for (const b of touched) {
+    const conflict = bufferRecoveryConflict(s, b.id);
+    if (conflict) return { transfers: [], recoveries: [], error: conflict };
+  }
+  const recovered = touched.filter((b) => !transfers.some((t) => t.id === b.id)),
+    storage = creativeBufferStorage(s, recovered);
+  return {
+    transfers,
+    recoveries: recovered.map((buffer) => ({ buffer, spot: storage.spots.get(buffer.id)! })),
+    error: storage.error,
+  };
+}
 export function removeBufferStop(s: State, bufferId: string): string {
-  if (!bufferAssets(s).some((b) => b.id === bufferId)) return 'Buffer stop not found.';
+  const conflict = bufferRecoveryConflict(s, bufferId);
+  if (conflict) return conflict;
+  if (s.creative) {
+    const b = bufferAssets(s).find((b) => b.id === bufferId)!,
+      storage = creativeBufferStorage(s, [b]);
+    if (storage.error) return storage.error;
+    recoverBufferCreative(s, b, storage.spots.get(b.id)!);
+    return '';
+  }
   if (
-    s.jobs.some((j) => j.status === 'doing' && j.railWork?.buffer?.id === bufferId) ||
-    s.jobGroups?.some((g) => g.railBuffer?.pose.id === bufferId && !g.railBuffer.pose.secured)
+    s.jobs.some(
+      (j) =>
+        j.kind === 'remove' && j.target === bufferId && !['done', 'canceled'].includes(j.status),
+    )
   )
-    return 'The rail crew is handling this buffer. Finish its connected work first.';
+    return 'Recovery already planned.';
+  const b = bufferAssets(s).find((b) => b.id === bufferId)!;
   ensureBuffers(s);
-  return removeBuilding(s, bufferId);
+  const j = newJob(s, 'remove', { x: b.x - 1, z: b.z - 1, w: 2, d: 2 }, 0, b.id);
+  j.item = 'bufferStop';
+  s.revision++;
+  return '';
 }
 /** Recover selected installed steel. No network deletion occurs before the actual lift. */
 export function removeRailInfrastructure(
@@ -1944,6 +2094,13 @@ export function removeRailInfrastructure(
   for (const r of rails) {
     const error = railRecoveryConflict(s, r);
     if (error) return error;
+    const geometry = trackGeometry(r);
+    for (const b of bufferAssets(s).filter(
+      (b) => !b.carried && geometry.ports.some((port) => dist(port, b) < 0.2),
+    )) {
+      const conflict = bufferRecoveryConflict(s, b.id);
+      if (conflict) return conflict;
+    }
     if (
       s.jobs.some(
         (j) => j.railRecovery?.railId === r.id && !['done', 'canceled'].includes(j.status),
@@ -1966,6 +2123,10 @@ export function removeRailInfrastructure(
         { id: r.id, item: r.item || ('rail' as Item) },
       ]) {
         if (creativeSpots.has(asset.id)) continue;
+        if (asset.item === 'bufferStop') {
+          const conflict = bufferRecoveryConflict(s, asset.id);
+          if (conflict) return conflict;
+        }
         const hand = r.track?.hand ?? 1;
         const merge = recoveryStackCandidates(preview, asset.item, hand)[0];
         const spot = merge || allocate(preview, asset.item);
@@ -2004,19 +2165,7 @@ export function removeRailInfrastructure(
     );
     if (s.creative) {
       for (const b of buffers) {
-        ensureBuffers(s);
-        s.buffers = s.buffers!.filter((t) => t.id !== b.id);
-        const stockId = id(s, 'stack');
-        s.stacks.push({
-          ...creativeSpots.get(b.id)!.rect,
-          id: stockId,
-          item: 'bufferStop',
-          qty: 1,
-          reserved: 0,
-          source: b.id,
-          assetId: b.id,
-        });
-        movement(s, 'bufferStop', 1, b.id, stockId, 'Buffer stop recovered in Creative mode');
+        recoverBufferCreative(s, b, creativeSpots.get(b.id)!.rect, group.id);
       }
       const item = r.item || 'rail',
         destination = creativeSpots.get(r.id)!;
@@ -2082,6 +2231,7 @@ export function removeRailInfrastructure(
   return '';
 }
 export function removeBuilding(s: State, bid: string) {
+  if (bufferAssets(s).some((b) => b.id === bid)) return removeBufferStop(s, bid);
   const b = recoveryTarget(s, bid);
   if (!b) return 'Structure or paving not found.';
   if (s.rails.some((r) => r.id === bid)) return removeRailInfrastructure(s, bid);
@@ -2105,6 +2255,8 @@ export function removeBuilding(s: State, bid: string) {
   return '';
 }
 export function recoverAt(s: State, p: Point) {
+  const buffer = bufferAssets(s).find((b) => !b.carried && dist(b, p) < 1.2);
+  if (buffer) return removeBufferStop(s, buffer.id);
   const cell = { x: Math.floor(p.x), z: Math.floor(p.z), w: 1, d: 1 };
   const b = s.buildings.find((b) => overlap(b, cell));
   if (b) return removeBuilding(s, b.id);
@@ -2357,23 +2509,24 @@ function assign(s: State, j: Job) {
       return;
     }
     j.qty = 1;
+    if (j.item === 'bufferStop') {
+      const conflict = bufferRecoveryConflict(s, j.target!, j.id);
+      if (conflict) {
+        j.reason = conflict;
+        return;
+      }
+    }
   }
   if (j.kind === 'bufferStop' && (!j.bufferTarget || !openBufferEndpoint(s, j.bufferTarget))) {
     j.reason = 'The target is no longer an open track endpoint';
     return;
   }
+  if (j.kind === 'bufferStop') {
+    const conflict = bufferPlacementConflict(s, j.bufferTarget!);
+    if (conflict) { j.reason = conflict; return; }
+  }
   if (j.kind === 'rail') {
-    const geometry = trackGeometry(j);
-    const secondaryInputs = j.track?.flow === 'converging' ? trackMacroPorts(j.track).slice(1) : [];
-    const blockers = bufferAssets(s).filter(
-      (b) =>
-        !b.carried &&
-        (secondaryInputs.some((p) => dist(b, p) < 0.15) ||
-          (j.track?.flow === 'converging' && j.track.route === 'branch'
-            ? [...geometry.entries, ...geometry.ends].some((p) => dist(b, p) < 0.15)
-            : dist(b, geometry.entry) > 0.15 &&
-              [...geometry.entries, ...geometry.ends].some((p) => dist(b, p) < 0.15))),
-    );
+    const blockers = railConnectionBufferBlockers(s, j);
     for (const b of blockers) {
       if (
         !s.jobs.some(
@@ -2412,15 +2565,33 @@ function assign(s: State, j: Job) {
       pieces.findIndex((p) => p.section === job.track?.section && p.route === job.track?.route);
     if (ordinal(j) === 0 || (j.track.flow === 'converging' && j.track.section === 3)) {
       const entry = trackGeometry(j).entry,
-        predecessor = trackOpenPorts(s, false, false).find(
-          (p) =>
-            dist(p, entry) < 0.02 &&
-            Math.abs(Math.abs(angleDelta(p.yaw, entry.yaw)) - Math.PI) < 0.02,
-        ) || (j.track.layout === 'turnout' && j.track.origin.x === 145 && j.track.origin.z === 0 &&
-          j.track.heading === 2 && j.track.hand === -1 && j.track.flow === 'converging' &&
-          entry.x === 125 && entry.z === 0 ? { assetId: 'BOOTSTRAP-MAINLINE' } : undefined) ||
-          (j.track.layout === 'turnout' && j.track.origin.z === 5 && j.track.heading === 0 && j.track.hand === 1 && !j.track.flow &&
-            j.track.origin.x >= 30 && j.track.origin.x <= 100 && entry.x === j.track.origin.x && entry.z === 5 ? {assetId:'BOOTSTRAP-SIDING'} : undefined);
+        predecessor =
+          trackOpenPorts(s, false, false).find(
+            (p) =>
+              dist(p, entry) < 0.02 &&
+              Math.abs(Math.abs(angleDelta(p.yaw, entry.yaw)) - Math.PI) < 0.02,
+          ) ||
+          (j.track.layout === 'turnout' &&
+          j.track.origin.x === 145 &&
+          j.track.origin.z === 0 &&
+          j.track.heading === 2 &&
+          j.track.hand === -1 &&
+          j.track.flow === 'converging' &&
+          entry.x === 125 &&
+          entry.z === 0
+            ? { assetId: 'BOOTSTRAP-MAINLINE' }
+            : undefined) ||
+          (j.track.layout === 'turnout' &&
+          j.track.origin.z === 5 &&
+          j.track.heading === 0 &&
+          j.track.hand === 1 &&
+          !j.track.flow &&
+          j.track.origin.x >= 30 &&
+          j.track.origin.x <= 100 &&
+          entry.x === j.track.origin.x &&
+          entry.z === 5
+            ? { assetId: 'BOOTSTRAP-SIDING' }
+            : undefined);
       if (!predecessor) {
         j.reason = 'Waiting for the connecting track work order to finish at this endpoint';
         return;
