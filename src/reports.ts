@@ -1,3 +1,4 @@
+import { electricalNetwork } from './electrical-network';
 import { trackGeometry, trackNetwork } from './track';
 import { bufferAssets } from './buffers';
 import { railLocationPose, railLocationStatus } from './rail-locations';
@@ -15,6 +16,8 @@ import { parkingStatus } from './workforce';
 import { equipmentAssignment, jobRows, automaticEquipmentForWork } from './jobs';
 import { equipmentRole, equipmentActivities, equipmentWorkSummary } from './equipment-roles';
 export const SQL_EXAMPLES = [
+  {name:'Electrical loads',sql:'SELECT id, kind, connected, powered, sourceId, loadKw, reason FROM electrical_consumers;'},
+  {name:'Cable meter trail',sql:'SELECT time, runId, meters, \"from\", \"to\", reason FROM cable_movements ORDER BY time DESC;'},
   {name: 'Paid collections', sql: 'SELECT id, status, phase, massKg, total FROM collections ORDER BY created DESC;'},
   {name: 'Fluid inventory', sql: 'SELECT id, product, liters, capacity FROM process_tanks UNION ALL SELECT id, product, liters, capacity FROM process_lines;'},
   {name: 'Transfer interlocks', sql: 'SELECT id, carId, tankId, hose, flow, transferred, status FROM process_pumps;'},
@@ -69,7 +72,13 @@ export async function query(s: State, sql: string) {
   const db = new SQL.Database();
   const railNetwork = trackNetwork(s);
   const process = processRows(s);
+  const electrical = electricalNetwork(s);
   const tables: Record<string, Record<string, unknown>[]> = {
+    electrical_sources: electrical.sources.map(r=>({...r})),
+    electrical_consumers: electrical.consumers.map(r=>({...r})),
+    electrical_runs: electrical.runs.map(({cells,reservations,...r})=>({...r})),
+    electrical_cells: electrical.runs.flatMap(r=>r.cells.map((c,index)=>({...c,runId:r.id,index,spoil_x:c.spoilRect.x,spoil_z:c.spoilRect.z}))),
+    cable_movements: (s.electrical?.meterLedger||[]).map(r=>({...r})),
     process_tanks: process.tanks.map(r=>({...r})),
     process_pumps: process.pumps.map(r=>({...r})),
     process_lines: process.lines.map(r=>({...r})),
@@ -342,6 +351,11 @@ export async function query(s: State, sql: string) {
       'staging_batch_qty',
     ],
     process_tanks: ['id','product','liters','capacity','x','z','status'],
+    electrical_sources:['id','energized','capacityKw','demandKw','availableKw'],
+    electrical_consumers:['id','kind','connected','powered','sourceId','loadKw','ratedKw','reason'],
+    electrical_runs:['id','jobId','sourceId','targetId','status','phase','length','installedMeters','reason'],
+    electrical_cells:['runId','index','x','z','excavation','backfilled','cableInstalled','soilRemovedM3','spoilM3'],
+    cable_movements:['id','runId','time','meters','from','to','reason'],
     process_pumps: ['id','carId','tankId','hose','enabled','rate','flow','transferred','status'],
     process_lines: ['id','kind','product','liters','capacity','flow','x','z','status'],
     process_valves: ['id','open','operation','status'],

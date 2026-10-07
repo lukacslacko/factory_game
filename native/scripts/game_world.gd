@@ -4,6 +4,7 @@ const Ground=preload("res://scripts/ground.gd")
 const R=preload("res://scripts/rail_yard.gd")
 const Models=preload("res://scripts/game_models.gd")
 const TankerModels=preload("res://scripts/tanker_models.gd")
+const ElectricalModels=preload("res://scripts/electrical_models.gd")
 const ProcessModels=preload("res://scripts/process_models.gd")
 var state:Dictionary={}
 var render:Dictionary={}
@@ -12,6 +13,10 @@ var records:Dictionary={}
 var statics:Dictionary={}
 var static_keys:Dictionary={}
 var plants:Array[Dictionary]=[]
+var terrain:MeshInstance3D
+var terrain_cut_key:String=""
+var electrical_nodes:Dictionary={}
+var electrical_keys:Dictionary={}
 var soil:ShaderMaterial
 var paving:MultiMeshInstance3D
 var paving_key:String=""
@@ -41,8 +46,8 @@ func setup()->void:
 	initialized=true
 	name="ActualSimulationYard"
 	soil=Ground._surface(0,"9a855f","c1ad87")
-	var terrain:=MeshInstance3D.new(); var plane:=PlaneMesh.new(); plane.size=Vector2(760,500)
-	terrain.mesh=plane; terrain.material_override=soil; terrain.position=Vector3(70,0,55)
+	terrain=MeshInstance3D.new();terrain.name="ExcavatableNativeGround"
+	terrain.mesh=ElectricalModels.terrain_mesh([]);terrain.material_override=soil
 	terrain.cast_shadow=GeometryInstance3D.SHADOW_CASTING_SETTING_OFF; add_child(terrain)
 	_corridor()
 	_vegetation()
@@ -117,7 +122,7 @@ func sync_snapshot(message:Dictionary)->void:
 			var cargo_id:=id+"/freight/"+str(slot.get("id",slot.get("index",0)))
 			if int(slot.get("qty",0))<=0:continue
 			live[cargo_id]=true
-			_ensure_load(cargo_id,str(slot.get("item","slab")),int(slot.get("qty",1)),int(slot.get("hand",1)))
+			_ensure_load(cargo_id,str(slot.get("item","slab")),int(slot.get("qty",1)),int(slot.get("hand",1)),false,float(slot.get("cableMeters",50)))
 			var pose:Dictionary=slot.duplicate()
 			if slot.has("carId"):
 				pose["parentRailCarId"]=str(slot.carId)
@@ -126,7 +131,7 @@ func sync_snapshot(message:Dictionary)->void:
 	# Exact physical cargo and intermediate panels are supplied by the same pure simulation.
 	for load in render.get("loads",[]):
 		var id:=str(load.get("id","")); if id.is_empty():continue
-		live[id]=true; _ensure_load(id,str(load.get("item","slab")),int(load.get("qty",1)),int(load.get("hand",1)))
+		live[id]=true; _ensure_load(id,str(load.get("item","slab")),int(load.get("qty",1)),int(load.get("hand",1)),false,float(load.get("cableMeters",50)))
 		_new_pose(id,_attachment_pose(load.get("pose",load),str(load.get("parentEquipmentId","")),bool(load.get("carried",false))))
 	for task in render.get("railWork",[]):
 		var job:Dictionary=_entity(str(task.get("jobId","")),"jobs")
@@ -211,6 +216,7 @@ func sync_snapshot(message:Dictionary)->void:
 	_sync_siding_rail()
 	_sync_statics()
 	_sync_paving()
+	_sync_electrical()
 	_sync_wear()
 	_mask_vegetation()
 	_update_selection()
@@ -234,12 +240,12 @@ func _ensure_wagon(id:String,length:float=16.0,kind:String="flatcar",product:Str
 	var wagon:Node3D=TankerModels.tanker(self,length,id,product) if kind=="tanker" else Models.flatcar(self,length,id if not "/" in id else "FLAT 014 · 40 t");wagon.set_meta("kind","wagon");wagon.set_meta("id",id)
 	models[id]=wagon
 
-func _ensure_load(id:String,item:String,qty:int,hand:int=1,buffer_contact:bool=false)->void:
-	var key:=item+"/"+str(qty)+"/"+str(hand)+"/"+str(buffer_contact)
+func _ensure_load(id:String,item:String,qty:int,hand:int=1,buffer_contact:bool=false,cable_meters:float=50.0)->void:
+	var key:=item+"/"+str(qty)+"/"+str(hand)+"/"+str(buffer_contact)+"/"+str(cable_meters)
 	if models.has(id) and str((models[id] as Node3D).get_meta("load_key",""))==key:return
 	if models.has(id):
 		var old:Node3D=models[id]; remove_child(old); old.queue_free()
-	var model:=Models.buffer(self) if buffer_contact else Models.stock(self,item,qty,hand); model.set_meta("load_key",key); model.set_meta("id",id)
+	var model:=Models.buffer(self) if buffer_contact else Models.stock(self,item,qty,hand,cable_meters); model.set_meta("load_key",key); model.set_meta("id",id)
 	model.set_meta("forward","+X");model.set_meta("cargo_item",item);model.set_meta("cargo_qty",qty); models[id]=model
 
 func _new_pose(id:String,pose:Dictionary)->void:
@@ -318,10 +324,16 @@ func _sync_statics()->void:
 	var planned_tracks:Dictionary={}
 	var process_rows:Dictionary={}
 	for row:Dictionary in render.get("processRows",[]):process_rows[str(row.get("id",""))]=row
-	for data in state.get("buildings",[]):
+	var electrical:Dictionary=render.get("electrical",{})
+	var power_rows:Dictionary={}
+	for row:Dictionary in electrical.get("consumers",[]):power_rows[str(row.id)]=row
+	for row:Dictionary in electrical.get("sources",[]):power_rows[str(row.id)]=row
+	for original in state.get("buildings",[]):
+		var data:Dictionary=original.duplicate()
+		data.merge(power_rows.get(str(data.id),{}),true)
 		var id:=str(data.id); live[id]=true
 		var process:bool=ProcessModels.handles(str(data.get("kind","")))
-		var key:String=JSON.stringify([data.kind,data.x,data.z,data.w,data.d,data.get("rotation",0)]) if process else JSON.stringify(data)
+		var key:String=JSON.stringify([data.kind,data.x,data.z,data.w,data.d,data.get("rotation",0)]) if process or str(data.kind) in ["lamp","power"] else JSON.stringify(data)
 		if static_keys.get(id,"")!=key:
 			_drop_static(id); var model:=Models.building(self,data); statics[id]=model; static_keys[id]=key
 			_register_lamps(id,model)
@@ -329,6 +341,11 @@ func _sync_statics()->void:
 			# Foundations integrate through paving rather than lifting ports on completion.
 			model.position=Vector3(float(data.x)+float(data.w)*.5,0.0 if process else _surface_height(data),float(data.z)+float(data.d)*.5)
 			model.rotation.y=0.0 if str(data.kind)=="processTank" else -float(int(data.get("rotation",0))%(4 if process else 2))*PI*.5
+		if str(data.kind)=="power":ElectricalModels.update_station(statics[id],data)
+		if str(data.kind)=="lamp":
+			(statics[id] as Node3D).set_meta("connected",bool(data.get("connected",false)))
+			for light:OmniLight3D in lamp_nodes.get(id,[]):
+				light.set_meta("connected",bool(data.get("powered",false)));_set_lamp(light)
 		if process:
 			(statics[id] as Node3D).set_meta("inspect_id",id)
 			ProcessModels.update(statics[id],process_rows.get(id,data))
@@ -340,15 +357,16 @@ func _sync_statics()->void:
 	for data in state.get("stacks",[]):
 		var id:=str(data.id); live[id]=true
 		var hidden:bool=int(data.get("qty",0))<=0 and str(data.get("item",""))!="diesel"
+		if not str(data.get("electricalCarriedBy","")).is_empty():hidden=true
 		if collection_lifts.has(id) and int(data.get("qty",0))<=0:hidden=true
 		for work in render.get("construction",[]):
 			if str(work.get("placedStack",""))==id and str(work.get("state",""))=="placed":hidden=true
 		for work in render.get("railWork",[]):
 			if str(work.get("phase",""))=="configure-staged-panel" and str(work.get("panel",{}).get("stackId",""))==id:hidden=true
-		var key:=JSON.stringify([data.get("item"),data.get("qty"),data.get("trackHand"),data.get("baseHeight"),hidden])
+		var key:=JSON.stringify([data.get("item"),data.get("qty"),data.get("trackHand"),data.get("baseHeight"),data.get("cableMeters"),hidden])
 		if static_keys.get(id,"")!=key:
 			_drop_static(id)
-			var model:=Models.stock(self,str(data.item),int(data.get("qty",0)),int(data.get("trackHand",1)))
+			var model:=Models.stock(self,str(data.item),int(data.get("qty",0)),int(data.get("trackHand",1)),float(data.get("cableMeters",50)))
 			statics[id]=model; static_keys[id]=key; model.visible=not hidden
 			if float(data.get("baseHeight",0))>0:
 				var support:float=float(data.baseHeight); var wood:Material=Models.materials().wood
@@ -376,6 +394,7 @@ func _sync_statics()->void:
 			var label:=G.label(group,str(zone.get("name",id)),Vector3(float(zone.x)+float(zone.w)*.5,.018,float(zone.z)+float(zone.d)+.3),32,.010)
 			label.rotation.x=-PI*.5; statics[id]=group; static_keys[id]=key
 	for job in state.get("jobs",[]):
+		if str(job.get("kind",""))=="cableRun":continue
 		if str(job.get("status","")) in ["done","canceled"]:continue
 		var id:=str(job.id)+"/plan"; live[id]=true
 		var geometry:Dictionary=planned_tracks.get(str(job.id),{})
@@ -441,12 +460,14 @@ func _sync_paving()->void:
 
 func _sync_wear()->void:
 	var wear:Dictionary=state.get("groundWear",{})
-	var key:=str(hash(JSON.stringify(wear)))
+	var open_cells:Dictionary={}
+	for cell:Dictionary in render.get("electrical",{}).get("trenches",[]):open_cells[str(int(cell.x))+","+str(int(cell.z))]=true
+	var key:=str(hash(JSON.stringify([wear,open_cells])))
 	if key==wear_key:return
 	wear_key=key
 	var cells:Array=[]
 	for cell in wear:
-		if float(wear[cell])>.15 and not state.get("paving",{}).has(cell):cells.append(cell)
+		if float(wear[cell])>.15 and not state.get("paving",{}).has(cell) and not open_cells.has(cell):cells.append(cell)
 	var mesh:=MultiMesh.new(); mesh.transform_format=MultiMesh.TRANSFORM_3D; mesh.use_colors=true
 	var slab:=PlaneMesh.new(); slab.size=Vector2(.9,.9); mesh.mesh=slab; mesh.instance_count=cells.size()
 	for i in range(cells.size()):
@@ -475,6 +496,8 @@ func pick_ground(point:Vector3)->String:
 	if not best.is_empty():return best
 	for stop in _buffer_records():
 		if statics.has(str(stop.id)) and Vector2(point.x-float(stop.x),point.z-float(stop.z)).length()<1.15:return str(stop.id)
+	for cell:Dictionary in render.get("electrical",{}).get("trenches",[]):
+		if Rect2(float(cell.x),float(cell.z),1,1).has_point(Vector2(point.x,point.z)):return str(cell.runId)
 	for table in ["stacks","buildings","jobs","zones"]:
 		for entity in state.get(table,[]):
 			if table=="jobs" and str(entity.get("status","")) in ["done","canceled"]:continue
@@ -487,6 +510,8 @@ func pick_ground(point:Vector3)->String:
 func entity_position(id:String)->Vector3:
 	for endpoint in render.get("railOpenEndpoints",[]):
 		if str(endpoint.get("id",""))==id:return Vector3(float(endpoint.x),0,float(endpoint.z))
+	for run:Dictionary in render.get("electrical",{}).get("runs",[]):
+		if str(run.id)==id and not run.get("points",[]).is_empty():return Vector3(float(run.points[0].x),0,float(run.points[0].z))
 	if models.has(id):return (models[id] as Node3D).position
 	for entry in render.get("railGeometry",[]):
 		if str(entry.id)==id:
@@ -551,6 +576,8 @@ func _update_selection(rebuild:bool=true)->void:
 				var entity:=_entity(selected,table)
 				if not entity.is_empty():rect={"x":0,"z":0,"w":entity.get("w",1),"d":entity.get("d",1)};break
 		_outline(selection_node,rect,Color("edd68a"),.15)
+		for run:Dictionary in render.get("electrical",{}).get("runs",[]):
+			if selected in [str(run.id),str(run.jobId),str(run.targetId)]:_path_lines(intent_node,run.get("points",[]),Color("d7b95a"),.15,true)
 		for intent in render.get("equipmentIntents",[]):
 			if str(intent.id)!=selected:continue
 			var route:Array=intent.get("route",[])
@@ -713,6 +740,12 @@ func _mask_vegetation()->void:
 			if carrier.has("cars"):
 				for car in carrier.cars:_clear_vehicle_plants(car,float(car.get("length",16.8))-.8,3.0)
 			elif not carrier.get("freight",{}).is_empty():_clear_vehicle_plants(carrier.freight,11.5,3.0)
+	for trench:Dictionary in render.get("electrical",{}).get("trenches",[]):
+		masks[str(int(trench.x))+","+str(int(trench.z))]=true
+		if float(trench.get("spoilM3",0))>.0001:
+			var rect:Dictionary=trench.get("spoilRect",{})
+			for x:int in range(int(rect.get("x",0)),int(rect.get("x",0))+int(rect.get("w",1))):
+				for z:int in range(int(rect.get("z",0)),int(rect.get("z",0))+int(rect.get("d",1))):masks[str(x)+","+str(z)]=true
 	for cell in vegetation_cleared:masks[cell]=true
 	for table in ["buildings","stacks"]:
 		for entity in state.get(table,[]):
@@ -762,6 +795,9 @@ func pick_screen(camera:Camera3D,screen:Vector2)->String:
 		var inverse:=node.global_transform.affine_inverse()
 		var distance:=_ray_aabb(inverse*origin,inverse.basis*direction,bounds)
 		if distance>=0 and distance<closest:closest=distance;selected_entity=owner_id
+	for node:Node3D in electrical_nodes.values():
+		var distance:float=_ray_aabb(origin,direction,_local_model_bounds(node,Transform3D.IDENTITY))
+		if distance>=0 and distance<closest:closest=distance;selected_entity=str(node.get_meta("inspect_id",""))
 	for stop in _buffer_records():
 		var id:=str(stop.id)
 		if not statics.has(id):continue
@@ -949,3 +985,42 @@ func _local_model_bounds(node:Node3D,transform:Transform3D)->AABB:
 			var part:=_local_model_bounds(child,transform*(child as Node3D).transform)
 			if part.size!=Vector3.ZERO:bounds=part if first else bounds.merge(part);first=false
 	return bounds
+
+func _sync_electrical()->void:
+	var electrical:Dictionary=render.get("electrical",{})
+	var cuts:Array=electrical.get("cuts",[])
+	var geometry:Array=[]
+	for cut:Dictionary in cuts:geometry.append([cut.x,cut.z,cut.w,cut.d])
+	var terrain_key:String=JSON.stringify(geometry)
+	if terrain_key!=terrain_cut_key:
+		terrain_cut_key=terrain_key;terrain.mesh=ElectricalModels.terrain_mesh(cuts)
+	var live:Dictionary={}
+	for cell:Dictionary in electrical.get("trenches",[]):
+		var id:String=str(cell.id);live[id]=true
+		var neighbors:Array=[]
+		for cut:Dictionary in cuts:
+			if absf(float(cut.x)-float(cell.x))<2 and absf(float(cut.z)-float(cell.z))<2:neighbors.append([cut.x,cut.z,cut.w,cut.d,snappedf(float(cut.get("depth",0)),.02)])
+		var key:String=JSON.stringify([snappedf(float(cell.depth),.02),snappedf(float(cell.get("spoilM3",0)),.01),cell.get("cableInstalled",false),neighbors])
+		if electrical_keys.get(id,"")!=key:
+			_drop_electrical(id)
+			var root:=Node3D.new();add_child(root);root.name="UndergroundWorks";root.set_meta("inspect_id",str(cell.runId))
+			ElectricalModels.trench(root,cell,cuts);ElectricalModels.spoil(root,cell)
+			electrical_nodes[id]=root;electrical_keys[id]=key
+	for slab:Dictionary in electrical.get("stagedPaving",[]):
+		var id:String=str(slab.id);live[id]=true
+		var key:String=JSON.stringify(slab)
+		if electrical_keys.get(id,"")!=key:
+			_drop_electrical(id);var model:Node3D=Models.stock(self,"slab",1)
+			model.position=Vector3(float(slab.x)+.5,0.,float(slab.z)+.5);model.set_meta("inspect_id",str(slab.runId));electrical_nodes[id]=model;electrical_keys[id]=key
+	for cell:Dictionary in electrical.get("restored",[]):
+		if not bool(cell.get("marker",false)):continue
+		var id:String=str(cell.id);live[id]=true
+		var key:String=JSON.stringify(cell)
+		if electrical_keys.get(id,"")!=key:
+			_drop_electrical(id);electrical_nodes[id]=ElectricalModels.access_marker(self,cell);electrical_nodes[id].set_meta("inspect_id",str(cell.runId));electrical_keys[id]=key
+	for id:String in electrical_nodes.keys():
+		if not live.has(id):_drop_electrical(id)
+func _drop_electrical(id:String)->void:
+	if electrical_nodes.has(id):
+		var old:Node3D=electrical_nodes[id];remove_child(old);old.queue_free();electrical_nodes.erase(id)
+	electrical_keys.erase(id)

@@ -2,6 +2,7 @@ extends RefCounted
 ## Grid-sized process equipment. Physical parts share meshes and materials; live
 ## readings move small indicators without rebuilding the installed asset.
 const G=preload("res://scripts/geometry.gd")
+const Electrical=preload("res://scripts/electrical_models.gd")
 const R=preload("res://scripts/rail_yard.gd")
 const LINE_Y:float=.85
 const KINDS:Array[String]=["processTank","transferPump","processPipe","pipeElbow","pipeTee","processValve","processGauge"]
@@ -124,8 +125,8 @@ static func _pump_part(root:Node3D,batch:RefCounted,component:String)->void:
 		_pipe(root,Vector3(-.77,1.10,-.5),Vector3(-.77,.47,-.5));_pipe(root,Vector3(-.77,.47,-.5),Vector3(-.77,.47,.18))
 		_pipe(root,Vector3(-.77,.47,.18),Vector3(.60,.47,.18));_pipe(root,Vector3(.60,.47,.18),Vector3(.60,.47,-.5));_pipe(root,Vector3(.60,.47,-.5),Vector3(.48,.47,-.5))
 		_port(root,"Hose",Vector3(-1.,1.10,-.5));_port(root,"E",Vector3(1.,LINE_Y,-.5))
-		var status:=G.sphere(root,Vector3(.64,.39,.58),.035,G.mat("67c98a",.3));status.name="RunningLamp"
-		G.beveled_box(root,Vector3(.64,.31,.58),Vector3(.21,.18,.17),_dark())
+		var status:=G.sphere(root,Vector3(.76,.67,.72),.035,G.mat("67c98a",.3));status.name="RunningLamp"
+		Electrical.pump_isolator(root)
 static func _line_part(root:Node3D,batch:RefCounted,kind:String,component:String)->void:
 	if component=="support":
 		var feet:Array=[Vector3(-.29,0,0),Vector3(0,0,-.29)] if kind=="pipeElbow" else [Vector3(-.29,0,0),Vector3(.29,0,0)]
@@ -184,7 +185,9 @@ static func update(root:Node3D,data:Dictionary)->void:
 		if needle:needle.rotation.z=lerpf(PI*.75,-PI*.75,clampf(absf(float(data.get("flow",0)))/maxf(1.,float(data.get("maxFlow",5))),0.,1.))
 	elif kind=="transferPump":
 		var lamp:Node3D=root.get_node_or_null("manifold/RunningLamp")
-		if lamp:lamp.visible=float(data.get("flow",0))>0.000001
+		if lamp:lamp.visible=bool(data.get("powered",false)) and float(data.get("flow",0))>0.000001
+		var isolator:Node3D=root.get_node_or_null("manifold/ElectricalIsolator")
+		if isolator:Electrical.update_isolator(isolator,bool(data.get("powered",false)))
 static func kit(parent:Node3D,kind:String,remaining:Array=[])->Node3D:
 	var root:=Node3D.new();parent.add_child(root);root.name="ProcessCratedKit"
 	var batch:=R.Batch.new();var width:float=3.0 if kind=="processTank" else 1.8 if kind=="transferPump" else .9

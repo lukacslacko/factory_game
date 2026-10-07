@@ -782,3 +782,38 @@ test('native paid collection commands quote, revalidate, preserve history and ex
  const historical=await c.ok('inspect',{id:stack.id});assert.equal(historical.type,'collectedMaterial');assert.equal(historical.entity.collected,12);assert.equal(historical.entity.qty,0);
  const inventory=await c.ok('sql',{sql:"SELECT item, collected, incoming, delivered FROM inventory WHERE item='slab';"});assert.deepEqual(inventory[0].values,[['slab',12,0,0]]);const accounting=await c.ok('sql',{sql:'SELECT charged,total FROM collections;'});assert.equal(accounting[0].values[0][0],accounting[0].values[0][1]);await c.ok('save');Sim.load(await fs.readFile(path.join(host.dir,'yard.json'),'utf8'));
 });
+
+test('native electrical commands plan explicit circuits, expose links and meters, and never energize by a global flag', async (t) => {
+  const host=await launch();t.after(()=>host.close());const c=host.client;
+  await c.ok('new_game',{mode:'empty'});await c.ok('pause',{paused:true});
+  const stationOrder=await c.ok('purchase',{item:'power',qty:1,mode:'road'});
+  assert.equal(stationOrder.orders.length,1);
+  const state=Sim.createState();state.paused=true;state.utilities.power=true;
+  state.buildings.push(
+    {id:Sim.id(state,'building'),kind:'power',x:30,z:30,w:1,d:1,rotation:0,connected:true,name:'Opening station',source:'opening'},
+    {id:Sim.id(state,'building'),kind:'lamp',x:36,z:30,w:1,d:1,rotation:0,connected:false,name:'Light',source:'opening'});
+  await c.ok('import',{json:Sim.save(state)});
+  const args={sourceId:state.buildings[0].id,targetId:state.buildings[1].id,cells:Array.from({length:5},(_,i)=>({x:31+i,z:30}))};
+  const before=JSON.parse((await c.ok('export')).json);
+  const preview=await c.ok('electrical_preview',args);assert.equal(preview.valid,true);assert.equal(preview.meters,5);
+  assert.deepEqual(JSON.parse((await c.ok('export')).json),before,'Preview must not reserve stock or alter the yard');
+  const invalid=await c.request('electrical_plan',{...args,cells:[{x:31,z:30},{x:35,z:30}]});assert.equal(invalid.ok,false);
+  const planned=await c.ok('electrical_plan',args);
+  assert.equal((await c.ok('inspect',{id:planned.runId})).type,'electricalRuns');
+  const load=(await c.ok('tables',{table:'electricalConsumers'}))[0];assert.equal(load.powered,false);
+  assert.equal((await c.ok('tables',{table:'electricalSources'}))[0].capacityKw,16);
+  await c.ok('buy_missing');
+  assert.equal(JSON.parse((await c.ok('export')).json).orders[0].item,'cableReel');
+  await c.ok('electrical_cancel',{id:planned.runId});await c.ok('speed',{value:10});await sleep(160);await c.ok('pause',{paused:true});
+  assert.equal(JSON.parse((await c.ok('export')).json).electrical.runs[0].status,'canceled');
+  await c.ok('electrical_resume',{id:planned.runId});
+  assert.equal(JSON.parse((await c.ok('export')).json).electrical.runs[0].status,'planned');
+  await c.ok('import',{json:Sim.save(state)});await c.ok('creative',{enabled:true});
+  const creative=await c.ok('electrical_plan',args);
+  assert.equal((await c.ok('tables',{table:'electricalConsumers'}))[0].powered,true);
+  assert.equal((await c.ok('inspect',{id:creative.runId})).entity.installedMeters,5);
+  const sql=await c.ok('sql',{sql:'SELECT id, connected, powered, ratedKw FROM electrical_consumers;'});
+  assert.ok(JSON.stringify(sql).includes(state.buildings[1].id));
+  await c.ok('save');
+  const saved=Sim.load(await fs.readFile(path.join(host.dir,'yard.json'),'utf8'));assert.equal(saved.electrical!.runs[0].status,'commissioned');
+});

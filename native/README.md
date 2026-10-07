@@ -2,15 +2,17 @@
 
 The existing factory simulation now runs in a local Node.js service, with Godot rendering the approved Concept C yard and providing native controls. The service owns simulation time and file persistence, so gameplay can continue while the window is unfocused. No web page, Chrome process, web server, or Internet connection is needed to play.
 
-Native v0.25.0 adds physical equipment refueling with a visible service can, paid collection of unwanted stock and retired equipment, spatial sounds with local controls, and continuous sunlight and full-moon nights. The [fuel, collection, sound, and daylight guide](../docs/site-services.md) explains the new controls, required crew and access, cancellation, and charges.
+Native v0.26.0 adds physical underground electrical circuits: a 16 kW incoming station, delivered cable reels, real trench and spoil work, backfill and paving restoration, terminations, tests, and powered lights and tanker pumps. Open **Electrical**, or read the [electrical walkthrough](../docs/electrical-operations.md).
+
+Native v0.25.0 added physical equipment refueling with a visible service can, paid collection of unwanted stock and retired equipment, spatial sounds with local controls, and continuous sunlight and full-moon nights. The [fuel, collection, sound, and daylight guide](../docs/site-services.md) explains the new controls, required crew and access, cancellation, and charges.
 
 It retains walking-distance worker selection, safe action clearance, linked persistent warnings, and warning-only registers from v0.24.0, alongside physical tanks, railway transfer pumps, piping, valves, gauges, conserved fluid transfer, unified rail editing and buffer-stop recovery, supplier locomotive handoff, owned shunting, selected-car unloading and empty return trains. The original browser application and static visual proof remain available for comparison. Existing portable JSON saves can be imported; importing preserves the current yard as a backup.
 
 ## Download or open on this Mac
 
-[Download the Apple Silicon Mac app](https://github.com/lukacslacko/factory_game/releases/tag/v0.25.0), unzip it, and open **Plant 01.app**. This checkpoint targets macOS 14 or newer.
+[Download the Apple Silicon Mac app](https://github.com/lukacslacko/factory_game/releases/tag/v0.26.0), unzip it, and open **Plant 01.app**. This checkpoint targets macOS 14 or newer.
 
-Open the **Plant 01.app** built beside the repository in `outputs/`. It includes the Godot runner, Node runtime, simulation, terrain maps, and license notices. It is a local app for this Mac, not a notarized public release.
+On the creator’s Mac, the new build is **Plant 01 v0.26.0.app** beside the repository in `outputs/`. Save and quit the older game before opening it; the previous app is retained. Downloaded releases use the usual **Plant 01.app** name. It includes the Godot runner, Node runtime, simulation, terrain maps, and license notices. It is a local app for this Mac, not a notarized public release.
 
 For development, double-click **Open Plant 01.command** in the repository root. It uses Godot in `/Applications` and the installed Node runtime, building the simulation bundle when needed. Or run `npm run native:build` and open `native/project.godot` in Godot.
 
@@ -193,7 +195,7 @@ Tanker liquids can now be transferred through the v0.23.0 process equipment belo
 
 Open **Process** for tanks, railway transfer pumps, supported DN100 pipe runs, elbows, tees, manual valves, and gauges. Purchase their physical kits; the 4,800 kg tank kit requires the excavator. Foundations, transport, staged assembly, fastening, and inspection are actual construction work. Creative completes the same identified components immediately.
 
-Select a pump, apply its destination tank/rate, choose a stopped tanker within its 8 m hose reach, and request a worker to connect. Complete the outlet pipe route, request opening of its valves, provide site electrical service, and start the pump. It transfers up to 5 L/s while consuming 2 kW of available site power. Stop and physically disconnect before moving the car. Tanks hold 30,000 L, pipes retain actual hold-up, and all liquid is conserved through stops and reloads.
+Select a pump, apply its destination tank/rate, choose a stopped tanker within its 8 m hose reach, and request a worker to connect. Complete the outlet pipe route, request opening of its valves, build a commissioned underground electrical circuit to this pump, and start the pump. It transfers up to 5 L/s while consuming 2 kW of available site power. Stop and physically disconnect before moving the car. Tanks hold 30,000 L, pipes retain actual hold-up, and all liquid is conserved through stops and reloads.
 
 The Process register contains dense linked tanks/pumps/pipes/valves/gauges/ground-operation tables. Its **How to use** and asset **Fluid system help** buttons explain port geometry, pipe dragging, worker operations, interlocks, and reports. See the [complete fluid walkthrough](../docs/fluid-operations.md). Filled components cannot be recovered until drained; drainage, tank-to-tank transfer, pressure simulation and reactions are later work.
 
@@ -204,3 +206,7 @@ The v0.23.0 Mac bundle includes a public example yard at `Contents/Resources/exa
 Automatic work selects reachable qualified workers by the walking route to the actual rigging, construction, boarding or fuel point. Existing work and explicit support crews stay assigned. Idle automatic workers and attended empty equipment can physically clear construction and parking envelopes. Active work, cargo, off-duty workers and manual control remain protected.
 
 A continuous blockage creates one saved warning after 20 simulated seconds. Open Activity or Inbox and enable **Warnings only**, or inspect the affected equipment or work. **Inspect** and **Locate** identify the blocker and actual working area. Manual workers have **Return to automatic duty**; manually driven equipment has **Return to automatic work**. Once clearance succeeds, the warning resolves. Fixed stock or physically boxed equipment may require relocation or player control. See [the detailed guide](../docs/worker-assignment-and-clearance.md).
+
+## Underground electrical circuits
+
+Open **Electrical** to order the 16 kW incoming utility station, inspect load capacity, and plan real buried circuits to lights and tanker pumps. Order 50-meter cable reels, hire an operator and engineer, and provide a fueled excavator with Construction enabled. Draw a circuit between the selected source and load boundary cells; **R** flips its bend. The excavator moves the reel, lifts paving, digs and stores spoil, then backfills while the engineer lays cable, terminates, and tests. Commissioned light-base terminal boxes can feed further branches. Linked records retain meters, dirt, crew, and partial progress through cancellation and saves. See [Underground electrical service](../docs/electrical-operations.md) for the full workflow.

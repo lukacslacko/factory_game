@@ -1,3 +1,4 @@
+import { wireOpeningConsumer } from './support/electrical';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as S from '../src/sim';
@@ -38,6 +39,7 @@ function fixture(product: 'bulkWater' | 'bulkDiesel' = 'bulkWater', liters = 100
   const pump = building(s, 'transferPump', 24, 24, 2, 2),
     tank = building(s, 'processTank', 30, 22, 4, 4);
   for (let x = 26; x < 30; x++) building(s, 'processPipe', x, 24);
+  wireOpeningConsumer(s,pump);
   reconcileProcessAssets(s);
   assert.equal(configureProcessPump(s, pump.id, { tankId: tank.id }), undefined);
   const p = s.process!.pumps[0];
@@ -294,6 +296,8 @@ test('two pumps share final tank capacity fairly through a real tee without over
   junction.kind = 'pipeTee';
   junction.rotation = 2;
   const pump2 = building(s, 'transferPump', 26, 28, 2, 2);
+  const source=s.buildings.find(b=>b.kind==='power')!;
+  wireOpeningConsumer(s,pump2,source,[...Array.from({length:4},(_,i)=>({x:source.x,z:source.z+1+i})),...Array.from({length:6},(_,i)=>({x:source.x+1+i,z:28}))]);
   building(s, 'pipeElbow', 28, 28);
   for (let z = 25; z < 28; z++) building(s, 'processPipe', 28, z, 1, 1, 1);
   assert.equal(
@@ -409,6 +413,7 @@ test('two cars transferred fractionally in the same train maintain exact grouped
   const pump = place('transferPump', x, z),
     tank = place('processTank', x + 8, z - 2);
   for (let i = 2; i < 8; i++) place('processPipe', x + i, z);
+  wireOpeningConsumer(s,pump);
   assert.equal(configureProcessPump(s, pump.id, { tankId: tank.id }), undefined);
   assert.equal(requestPumpHose(s, pump.id, c.id, f.worker.id), undefined);
   tickUntil(s, () => s.process!.pumps.find((p) => p.id === pump.id)!.hose === 'connected', 180);

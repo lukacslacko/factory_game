@@ -1,4 +1,5 @@
 import type { Collection, RetiredEquipment } from './collection-types';
+import type { ElectricalState } from './electrical-types';
 import type { TrackPiece } from './track';
 import type { ProcessState } from './process-types';
 export type Point = { x: number; z: number };
@@ -25,6 +26,7 @@ export type Item =
   | 'processGauge'
   | 'store'
   | 'lamp'
+  | 'cableReel'
   | 'diesel'
   | 'fence';
 export type BuildKind = Item | 'power' | 'water';
@@ -143,6 +145,11 @@ export interface Stack extends Rect {
   source: string;
   assetId?: string;
   liters?: number;
+  /** A physical 50-meter reel remains after its cable has been unwound. */
+  cableMeters?: number;
+  cableReservedMeters?: number;
+  cableReservedSpaceMeters?: number;
+  electricalCarriedBy?: string;
 }
 export interface Building extends Rect {
   id: string;
@@ -401,7 +408,8 @@ export interface Job extends Rect {
   bufferTarget?: Point & { yaw: number };
   bufferDestination?: Rect;
   id: string;
-  kind: BuildKind | 'refuel' | 'remove' | 'throwSwitch' | 'moveStock';
+  kind: BuildKind | 'refuel' | 'remove' | 'throwSwitch' | 'moveStock' | 'cableRun';
+  electricalRunId?: string;
   /** Exact-source physical rail relocation, never a construction material demand. */
   stockMove?: { sourceId: string; destination: Rect; yaw: number; mergeId?: string };
   /** Installed steel remains in the network until its joints and slings are released. */
@@ -785,6 +793,7 @@ export interface State {
   railReturns?: RailReturn[];
   railServiceCrew?: RailServiceCrew[];
   process?: ProcessState;
+  electrical?: ElectricalState;
   buffers?: BufferStop[];
   paving: Record<string, string>;
   /** Compaction from accepted equipment travel, bounded to one value per meter cell. */

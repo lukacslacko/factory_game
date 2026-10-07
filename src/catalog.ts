@@ -194,6 +194,11 @@ export const MATERIALS: Record<
     color: 0xb2b9ad,
     description: '6 m pole, base and lamp. Requires paving and electricity.',
   },
+  cableReel: {
+    name: 'Low-voltage cable reel · 50 m', unit: 'reels', price: 600, mass: 185,
+    w: 1, d: 1, max: 1, work: 8, color: 0x947956,
+    description: 'One physical wooden reel carrying 50 meters of buried low-voltage cable. Remaining meters are tracked; empty reels remain on site.',
+  },
   diesel: {
     name: 'Diesel drum · 200 L',
     unit: 'drums',
@@ -295,7 +300,7 @@ export const SERVICES = {
     name: 'Electrical connection',
     price: 1800,
     description:
-      'Utility crew installs a 16 kVA site connection. Lights are wired during installation.',
+      'Utility crew installs a 16 kW low-voltage incoming cabinet. Each light or pump needs a separately built, tested underground cable circuit.',
   },
   water: {
     name: 'Water and sewer connection',
@@ -322,6 +327,7 @@ export const label = (key: string) =>
   (SERVICES as any)[key]?.name ||
   (
     {
+      cableRun: 'Underground electrical circuit',
       moveStock: 'Relocate rail stock',
       remove: 'Recovery',
       refuel: 'Refueling',

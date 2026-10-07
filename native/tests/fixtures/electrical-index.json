@@ -1,0 +1,54 @@
+{
+  "shots": [
+    {
+      "name": "electrical-excavating",
+      "filename": "electrical-excavating.json",
+      "runId": "ELEC-0007",
+      "phase": "dump-spoil",
+      "focus": {
+        "x": 33,
+        "z": 31
+      }
+    },
+    {
+      "name": "electrical-laying",
+      "filename": "electrical-laying.json",
+      "runId": "ELEC-0007",
+      "phase": "lay",
+      "focus": {
+        "x": 33,
+        "z": 31
+      }
+    },
+    {
+      "name": "electrical-cable-laid",
+      "filename": "electrical-cable-laid.json",
+      "runId": "ELEC-0007",
+      "phase": "backfill-approach",
+      "focus": {
+        "x": 33,
+        "z": 31
+      }
+    },
+    {
+      "name": "electrical-backfilling",
+      "filename": "electrical-backfilling.json",
+      "runId": "ELEC-0007",
+      "phase": "backfill",
+      "focus": {
+        "x": 33,
+        "z": 31
+      }
+    },
+    {
+      "name": "electrical-complete",
+      "filename": "electrical-complete.json",
+      "runId": "ELEC-0007",
+      "phase": "complete",
+      "focus": {
+        "x": 33,
+        "z": 31
+      }
+    }
+  ]
+}

@@ -1,3 +1,4 @@
+import { electricalObstacles } from './electrical-geometry';
 import { bufferAssets } from './buffers';
 import { railFreightCarPose, railFreightCarBogies, railMovementPose } from './rail-freight';
 import type { State, Point, Equipment, Order, Worker, Rect } from './types';
@@ -420,6 +421,7 @@ export function staticObstacleRects(s: State): (Rect & { id: string })[] {
   }
   for (let x = -110; x < 250; x += 28)
     out.push({ x: x - 0.13, z: -20.13, w: 0.26, d: 0.26, id: `CORRIDOR-POLE-${x}` });
+  out.push(...electricalObstacles(s));
   return out;
 }
 export function people(s: State) {

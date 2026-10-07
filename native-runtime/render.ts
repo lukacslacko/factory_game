@@ -1,3 +1,4 @@
+import { electricalRender, electricalToolPose } from './electrical-render';
 import { collectionLots } from '../src/collection';
 /** Engine-neutral render records. Coordinates remain the simulation's meters and radians;
  * Godot converts positive planar yaw to its negative Y rotation. No browser/Three dependency. */
@@ -34,6 +35,7 @@ import { railLocationPath, railLocationPose, railLocationStatus } from '../src/r
 import { workerFuelCan } from './fuel-can-render';
 
 export function renderState(s: State) {
+  const electrical=electricalRender(s);
   // Simulation advances a carrying pose before moving the machine in that tick.
   // Sample its exact attachment from the current chassis for rendering, keeping
   // physical hoist height/orientation; never mutate a game/save record.
@@ -99,6 +101,7 @@ export function renderState(s: State) {
       const collectionTask = s.collections?.find(c=>c.task?.helperId===w.id || c.task?.operatorId===w.id)?.task;
       const pose = { x: w.x, z: w.z, y: w.y || surface(w), yaw: w.yaw ?? 0 };
       const fuelCan = workerFuelCan(s, w, job);
+      const electricalWork=s.electrical?.runs.find(r=>r.workerId===w.id && !['commissioned','canceled'].includes(r.status));
       return {
         ...w,
         ...pose,
@@ -106,14 +109,15 @@ export function renderState(s: State) {
         visible: !w.vehicle && !['home', 'returning', 'aboard'].includes(w.shiftPhase || 'working'),
         walking: !!w.path?.length || Math.abs(w.velocity || 0) > 0.01 || (collectionTask?.phase==='equipment-exit' && collectionTask.clock>2),
         workPhase:
-          (collectionTask && ['rig','secure'].includes(collectionTask.phase) ? 'rail-fastening' : undefined) || (processTask ? 'rail-fastening' : undefined) || (groundTask?.phase === 'working' ? 'rail-fastening' : undefined) || job?.railWork?.phase || job?.processAssembly?.phase || job?.shedAssembly?.phase || job?.handling?.phase || job?.phase,
+          (electricalWork ? `electrical-${electricalWork.phase}` : undefined) || (collectionTask && ['rig','secure'].includes(collectionTask.phase) ? 'rail-fastening' : undefined) || (processTask ? 'rail-fastening' : undefined) || (groundTask?.phase === 'working' ? 'rail-fastening' : undefined) || job?.railWork?.phase || job?.processAssembly?.phase || job?.shedAssembly?.phase || job?.handling?.phase || job?.phase,
         workClock:
-          fuelCan?.clock || collectionTask?.clock || processTask?.clock || groundTask?.clock || job?.railWork?.clock || job?.processAssembly?.clock ||
+          fuelCan?.clock || electricalWork?.clock || collectionTask?.clock || processTask?.clock || groundTask?.clock || job?.railWork?.clock || job?.processAssembly?.clock ||
           job?.shedAssembly?.clock ||
           job?.handling?.clock ||
           job?.elapsed ||
           0,
         fuelCan,
+        electricalWork: electricalWork ? {phase:electricalWork.phase,clock:electricalWork.clock,cableInHand:electricalWork.cableInHand,point:electricalWork.workPoint} : undefined,
       };
     }),
     ...(s.railServiceCrew || []).map(w => {
@@ -289,10 +293,20 @@ export function renderState(s: State) {
           parentEquipmentId: e.id,
           item: e.cargo.item,
           qty: e.cargo.qty,
+          cableMeters: e.cargo.item==='cableReel' ? s.stacks.find(stack=>stack.electricalCarriedBy===s.electrical?.runs.find(r=>r.equipmentId===e.id)?.jobId)?.cableMeters ?? (collectionTask?.lineIndex!==undefined?s.collections?.find(c=>c.task===collectionTask)?.lines[collectionTask.lineIndex]?.sourceSnapshot?.cableMeters:undefined) ?? 50 : undefined,
           hand: collectionTask?.lineIndex!==undefined?s.collections?.find(c=>c.task===collectionTask)?.lines[collectionTask.lineIndex]?.trackHand:undefined,
           pose: loadPose,
           carried: true,
         });
+      }
+      const electricalWork=s.electrical?.runs.find(r=>r.equipmentId===e.id && !['commissioned','canceled'].includes(r.status));
+      const electricalTool=electricalWork&&electricalToolPose(electricalWork,e);
+      if(electricalTool && !e.path.length && e.kind==='excavator') {lift=electricalTool.lift;reach=electricalTool.reach;upperYaw=-angleDelta(pose.yaw,Math.atan2(electricalTool.point.z-e.z,electricalTool.point.x-e.x));}
+      if(electricalWork && e.kind==='excavator' && e.cargo){
+        lift=(e.lift??.12)+(e.cargo.item==='cableReel'?.47:stackHeight(e.cargo.item,e.cargo.qty))+.7;
+        reach=e.reach??2.7;
+      }else if(electricalWork?.phase==='reel-rig' && e.kind==='excavator'){
+        lift=2+(.47+.7-2)*smoothstep(electricalWork.clock/3);reach=e.reach??2.7;
       }
       return {
         ...e,
@@ -301,13 +315,14 @@ export function renderState(s: State) {
         walking: !!e.path?.length || Math.abs(e.velocity || 0) > 0.01,
         lift,
         reach,
+        soilInBucketM3: electricalWork?.soilInBucketM3 || 0,
         toolLift: lift,
         toolReach: reach,
         forkSupportY: e.kind === 'forklift' ? pose.y + lift : undefined,
         upperYaw,
         cargoPose: loadPose,
-        workPhase: rail?.phase || handling?.phase || shed?.phase || unload?.phase || collectionTask?.phase,
-        workClock: rail?.clock || handling?.clock || shed?.clock || unload?.clock || collectionTask?.clock || 0,
+        workPhase: electricalWork?.phase || rail?.phase || handling?.phase || shed?.phase || unload?.phase || collectionTask?.phase,
+        workClock: electricalWork?.clock || rail?.clock || handling?.clock || shed?.clock || unload?.clock || collectionTask?.clock || 0,
       };
     }),
   ];
@@ -333,6 +348,7 @@ export function renderState(s: State) {
         .map((l) => ({
           ...l,
           hand: 'trackHand' in l ? l.trackHand : 1,
+          cableMeters: o.collectionId && 'lineIndex' in l ? s.collections?.find(c=>c.id===o.collectionId)?.lines[l.lineIndex]?.sourceSnapshot?.cableMeters : undefined,
           ...(rail
             ? {
                 ...localPoint(
@@ -518,8 +534,9 @@ export function renderState(s: State) {
   const equipmentIntents = s.equipment.map((e) => ({ id: e.id, ...equipmentIntent(s, e) }));
   return {
     actors,
+    electrical,
     processAssemblies: s.jobs.filter(j => j.status === 'doing' && j.processAssembly).map(j => ({...processAssemblyRender(j), equipmentId:j.equipment})),
-    processRows: [...process.tanks,...process.pumps,...process.lines,...process.valves,...process.gauges],
+    processRows: [...process.tanks,...process.pumps,...process.lines,...process.valves,...process.gauges].map(row=>({...row,...(electrical.consumers.find(c=>c.id===row.id)||{})})),
     processHoses: processHosePaths(s),
     railShunters,
     loads,

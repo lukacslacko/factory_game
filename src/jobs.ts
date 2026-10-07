@@ -267,6 +267,7 @@ export function equipmentReservedForJob(s: State, e: Equipment, j: Job): boolean
 }
 export function equipmentCanDoJob(e: Equipment, j: Job, s?: State): boolean {
   if (j.kind === 'throwSwitch') return false;
+  if (j.kind === 'cableRun') return e.kind === 'excavator';
   if (j.kind === 'refuel') return e.id === j.target;
   // A freshly queued recovery resolves its item at scheduling time. Manual
   // assignment must inspect that same existing asset before promising a lift.
@@ -308,7 +309,7 @@ export function reconcileEquipmentAssignments(s: State): void {
     if (
       j.status !== 'doing' ||
       !j.equipment ||
-      ['refuel', 'throwSwitch'].includes(j.kind) ||
+      ['refuel', 'throwSwitch', 'cableRun'].includes(j.kind) ||
       j.cancel
     )
       continue;

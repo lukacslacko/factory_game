@@ -1,3 +1,7 @@
+import { planElectricalRun, tickElectricalJob, cancelElectricalRun, resumeElectricalRun, recoverElectricalRun, electricalRemovalConflict } from './electrical';
+import type { ElectricalRequest } from './electrical-types';
+import { electricalObstacles, electricalPlannedRects } from './electrical-geometry';
+import { electricalNetwork } from './electrical-network';
 import { quoteCollection, requestCollection as requestPhysicalCollection, cancelCollection as cancelPhysicalCollection, pauseCollection, resumeCollection, collectionInventory, collectionOwnsStack, collectionOwnsEquipment } from './collection';
 import { assignEquipmentRefueling, tickEquipmentRefueling, equipmentRefuelingCanDrive } from './equipment-refueling';
 import { tickActionClearances, requestActionClearance, clearActionClearance, actionEnvelopeBlockers, releaseActionYield } from './action-clearance';
@@ -126,6 +130,7 @@ import type {
   Job,
   Order,
   BuildKind,
+  Building,
   Stack,
   JobGroup,
   BufferStop,
@@ -239,6 +244,7 @@ export function createState(): State {
     notices: [],
     buffer: { x: 125, z: 5 },
     utilities: { power: false, water: false },
+    electrical: { runs: [], meterLedger: [] },
     wageClock: 0,
     guide: true,
   };
@@ -356,12 +362,15 @@ export function addZone(s: State, r: Rect, name = 'Stockyard') {
   if (r.x < bounds.minX || r.x + r.w > bounds.maxX || r.z < 12 || r.z + r.d > bounds.maxZ)
     return 'Keep storage inside the yard, clear of the transport corridor.';
   if (
+    electricalObstacles(s).some(q=>overlap(q,r)) ||
+    electricalPlannedRects(s).some(q=>overlap(q,r)) ||
     s.zones.some((z) => overlap(z, r)) ||
     s.buildings.some((b) => overlap(b, r)) ||
     s.jobs.some(
       (j) =>
         j.status !== 'canceled' &&
         j.status !== 'done' &&
+        j.kind !== 'cableRun' &&
         (j.track ? railCells(j).some((p) => overlap({ ...p, w: 1, d: 1 }, r)) : overlap(j, r)),
     )
   )
@@ -403,6 +412,7 @@ export function allocate(
 ): Rect | null {
   const m = MATERIALS[item];
   const clearance = constructionStorageClearance(s);
+  const electricalClearance = [...electricalObstacles(s), ...electricalPlannedRects(s)];
   const storageAccessible = createRailStorageAccessCheck(s);
   for (const zone of s.zones) {
     for (let z = zone.z; z + m.d <= zone.z + zone.d; z++) {
@@ -412,6 +422,7 @@ export function allocate(
           !s.stacks.some((t) => (t.qty > 0 || t.item === 'diesel' || collectionOwnsStack(s, t.id)) && overlap(t, r)) &&
           !s.orders.some((o) => o.allocated && overlap(o.allocated, r)) &&
           !clearance.some((area) => overlap(area, r)) &&
+          !electricalClearance.some(area=>overlap(area,r)) &&
           !s.jobs.some(
             (j) => j.status === 'doing' && j.recoveryStack && overlap(j.recoveryStack, r),
           ) &&
@@ -420,7 +431,7 @@ export function allocate(
           !s.jobs.some(
             (j) =>
               j.status === 'doing' &&
-              (overlap(j, r) ||
+              ((j.kind !== 'cableRun' && overlap(j, r)) ||
                 (j.railRecovery && j.stockMove && overlap(j.stockMove.destination, r))),
           ) &&
           (!from || approach(from, r, obstacles(s), 1.1)) &&
@@ -447,6 +458,9 @@ export function purchaseBatch(
   mode: 'road' | 'rail' = 'road',
   options: { railLocationId?: string; storageZoneId?: string } = {},
 ): string[] {
+  const powerCount=lines.filter(l=>l.item==='power').reduce((n,l)=>n+l.qty,0);
+  if(powerCount && (powerCount!==1 || s.buildings.some(b=>b.kind==='power') || s.orders.some(o=>o.item==='power' && o.status!=='done')))
+    throw new Error('The starter site supports one 16 kW incoming station. Inspect the existing or incoming station, then extend it through underground light-base junctions.');
   const packed = packPurchase(lines, mode);
   const railLoads = packed.filter((load) => load.mode === 'rail');
   if (railLoads.length > 100) throw new Error('Order at most 100 rail cars in one supplier train.');
@@ -556,6 +570,7 @@ export function validPlan(s: State, kind: string, r: Rect, ignoreJobs = false): 
     return 'Outside the buildable yard or inside the protected road / railway corridor.';
   if (r.x < -3 && r.z < 25) return 'Keep the crossing and receiving access lane clear.';
   if (kind === 'slab' && s.paving[key(r.x, r.z)]) return 'Already paved.';
+  if (electricalObstacles(s).some(q => overlap(q,r)) || electricalPlannedRects(s).some(q => overlap(q,r))) return 'Underground electrical construction reserves this trench or its adjacent spoil area. Finish or safely recover it first.';
   if(kind==='engineShed') {const error=engineShedPlacementError(s,r,r.w>r.d?1:0);if(error)return error;}
   if (s.buildings.some((b) => overlap(b, r))) return 'An existing structure occupies this area.';
   if (s.zones.some((z) => overlap(z, r)) && kind !== 'slab')
@@ -571,6 +586,7 @@ export function validPlan(s: State, kind: string, r: Rect, ignoreJobs = false): 
         j.status !== 'done' &&
         j.status !== 'canceled' &&
         j.kind !== 'refuel' &&
+        j.kind !== 'cableRun' &&
         (j.track ? railCells(j).some((p) => overlap({ ...p, w: 1, d: 1 }, r)) : overlap(j, r)) &&
         !(kind === 'slab' && j.kind !== 'slab' && j.kind !== 'rail'),
     )
@@ -744,7 +760,7 @@ function completeCreativePlacement(s: State, jobs: Job[]) {
         name: label(j.kind),
         source: j.id,
         connected:
-          j.kind === 'lamp' ? s.utilities.power : j.kind === 'sanitary' ? s.utilities.water : true,
+          j.kind === 'lamp' ? false : j.kind === 'sanitary' ? s.utilities.water : true,
       });
     }
     if(isProcessKind(j.kind)) { const b=s.buildings.at(-1)!;b.componentIds=processComponentIds(b.kind,b.id); reconcileProcessAssets(s); }
@@ -1231,7 +1247,12 @@ export function missingMaterials(s: State) {
     if (j.item && j.status !== 'done' && j.status !== 'canceled' && !j.delivered && !j.equipment)
       result[j.item] = (result[j.item] || 0) + j.qty;
   }
+  const cableNeeded=(s.electrical?.runs||[]).filter(r=>!r.recovering&&!['commissioned','canceled'].includes(r.status)).reduce((n,r)=>n+r.cells.filter(c=>!c.cableInstalled).length-r.cableInHand,0);
+  const cableAvailable=s.stacks.filter(t=>t.item==='cableReel' && t.qty===1).reduce((n,t)=>n+(t.cableMeters??50),0);
+  const cableIncoming=s.orders.filter(o=>o.status!=='done').flatMap(o=>orderLines(o)).filter(l=>l.item==='cableReel').reduce((n,l)=>n+(l.qty-l.arrived)*50,0);
+  if(cableNeeded>cableAvailable+cableIncoming) result.cableReel=Math.ceil((cableNeeded-cableAvailable-cableIncoming)/50);
   for (const item of Object.keys(result) as Item[]) {
+    if(item==='cableReel')continue;
     const available = s.stacks
       .filter((t) => t.item === item)
       .reduce((n, t) => n + t.qty - t.reserved, 0);
@@ -2305,6 +2326,7 @@ export function removeBuilding(s: State, bid: string) {
   const b = recoveryTarget(s, bid);
   if (!b) return 'Structure or paving not found.';
   if (s.rails.some((r) => r.id === bid)) return removeRailInfrastructure(s, bid);
+  const electricalConflict=electricalRemovalConflict(s,bid);if(electricalConflict)return electricalConflict;
   if(isProcessKind(b.kind)) {const error=processRecoveryConflict(s,bid);if(error)return error;}
   if (!(b.kind in MATERIALS))
     return 'Utility service connections cannot be removed in this version.';
@@ -2340,6 +2362,7 @@ export function recoverAt(s: State, p: Point) {
 export function cancelJob(s: State, jid: string) {
   const j = s.jobs.find((j) => j.id === jid);
   if (!j || j.status === 'done' || j.status === 'canceled') return;
+  if (j.kind === 'cableRun') {cancelElectricalRun(s,j.id);return;}
   if (
     j.kind === 'remove' &&
     j.item === 'bufferStop' &&
@@ -2481,6 +2504,11 @@ function complete(s: State, j: Job) {
     );
 }
 const deliveryAPI = { id, event, notice, cost, movement, obstacles, allocate };
+const electricalAPI = {id,event,notice,cost,movement,obstacles,complete};
+export function planElectrical(s:State,request:ElectricalRequest) {const result=planElectricalRun(s,request,electricalAPI);reconcileElectricalLoads(s);return result;}
+export function cancelElectrical(s:State,id:string) {return cancelElectricalRun(s,id);}
+export function resumeElectrical(s:State,id:string) {return resumeElectricalRun(s,id);}
+export function recoverElectrical(s:State,id:string) {const result=recoverElectricalRun(s,id,electricalAPI);reconcileElectricalLoads(s);return result;}
 export { quoteCollection };
 export function requestCollection(s: State, request: import('./collection-types').CollectionRequest) { return requestPhysicalCollection(s, request, deliveryAPI); }
 export function cancelCollection(s: State, collectionId: string) { return cancelPhysicalCollection(s, collectionId, deliveryAPI); }
@@ -2503,6 +2531,7 @@ function assignmentWorkPoints(j: Job, stack?: Stack, equipment?: Equipment): Poi
   return workerApproachPoints(j);
 }
 function assign(s: State, j: Job) {
+  if (j.kind === 'cableRun') {tickElectricalJob(s,j,0,electricalAPI);return;}
   if (railBatchHeld(s, j)) {
     j.reason = `Reserved in ${j.railStagingBatch}'s physical staging batch`;
     return;
@@ -3095,6 +3124,10 @@ function recoveryDestination(s: State, j: Job, e: Equipment) {
   return spot && drive ? { spot, merge: undefined, ...drive } : undefined;
 }
 function tickJob(s: State, j: Job, dt: number) {
+  if (j.kind === 'cableRun') {
+    if (j.status==='doing' || j.cancel) tickElectricalJob(s,j,dt,electricalAPI);
+    return;
+  }
   if (j.status !== 'doing') return;
   if (tickEquipmentRefueling(s,j,dt,{event,notice,movement,complete,release:finishRelease})) return;
   if (tickTurnoutOperation(s, j, dt, { obstacles, event, complete, release: finishRelease }))
@@ -3462,7 +3495,7 @@ function tickJob(s: State, j: Job, dt: number) {
           source: j.id,
           connected:
             j.kind === 'lamp'
-              ? s.utilities.power
+              ? false
               : j.kind === 'sanitary'
                 ? s.utilities.water
                 : true,
@@ -3532,6 +3565,12 @@ function tickJob(s: State, j: Job, dt: number) {
     complete(s, j);
   }
 }
+export function reconcileElectricalLoads(s: State) {
+  for (const c of electricalNetwork(s).consumers) {
+    const b=s.buildings.find(b=>b.id===c.id);
+    if(b) b.connected=c.powered;
+  }
+}
 export function tick(s: State, dt: number) {
   if (s.paused) return;
   reconcileEquipmentAssignments(s);
@@ -3539,6 +3578,7 @@ export function tick(s: State, dt: number) {
   s.time += dt;
   s.wageClock += dt;
   tickRailOperations(s, dt);
+  reconcileElectricalLoads(s);
   tickProcessFluids(s, dt);
   for (const o of s.orders) advanceOrder(s, o, dt);
   tickWorkforce(s, dt, deliveryAPI);
@@ -3648,6 +3688,7 @@ export function tick(s: State, dt: number) {
   }
   restoreYieldingWorkers(s);
   for (const j of s.jobs) tickJob(s, j, dt);
+  reconcileElectricalLoads(s);
   reconcileEquipmentAssignments(s);
   updateEquipmentAssistants(s, dt);
   tickActionClearances(s);
@@ -3696,7 +3737,7 @@ export function totals(s: State, item: Item) {
     ...collectionInventory(s, item),
     inConstruction: s.jobs.filter(
       (j) => j.status === 'doing' && j.kind === item && j.delivered && (j.shedAssembly || j.processAssembly),
-    ).length,
+    ).length + (item==='slab'?(s.electrical?.runs||[]).flatMap(r=>r.cells).filter(c=>c.originalPaving&&c.originalPaving!=='EXISTING'&&c.slabLifted&&!c.slabRestored&&!c.slabCarried).length:0),
     stored: s.stacks.filter((t) => t.item === item).reduce((n, t) => n + t.qty, 0),
     reserved: s.stacks.filter((t) => t.item === item).reduce((n, t) => n + t.reserved, 0),
     cargo:
@@ -3807,6 +3848,12 @@ export function load(json: string): State {
   }
   if (s.version < 4) migrateLegacyRailJobs(s, { release: finishRelease, event });
   s.version = 4;
+  if (!s.electrical) {
+    s.electrical = {runs:[],meterLedger:[]};
+    if (s.utilities.power && s.buildings.some(b=>b.kind==='lamp'||b.kind==='transferPump'))
+      notice(s,'Electrical circuits required','Lights and tanker pumps now need commissioned underground circuits. Open Electrical to plan connections from the incoming cabinet.','');
+  }
+  reconcileElectricalLoads(s);
   s.groundWear ??= {};
   s.railLocations ??= [];
   for (const order of s.orders) migrateRoadDrive(s, order);
@@ -3901,6 +3948,16 @@ export function demoState(): State {
     },
   );
   s.utilities = { power: true, water: true };
+  const incoming:Building={id:id(s,'building'),kind:'power',x:3,z:15,w:1,d:1,rotation:0,name:'Incoming electrical station · 16 kW',connected:true,source:'opening'};
+  s.buildings.push(incoming);
+  const light=s.buildings.find(b=>b.kind==='lamp')!;
+  const wasCreative=s.creative;s.creative=true;
+  const electrical=planElectrical(s,{sourceId:incoming.id,targetId:light.id,cells:[...Array.from({length:17},(_,i)=>({x:4+i,z:15})),...Array.from({length:17},(_,i)=>({x:20,z:16+i}))]});
+  s.creative=wasCreative;
+  if(electrical.error)throw new Error('Example electrical route: '+electrical.error);
+  const openingRun=s.electrical!.runs.find(r=>r.id===electrical.runId)!;
+  s.jobs=s.jobs.filter(j=>j.id!==openingRun.jobId);
+  openingRun.opening=true;openingRun.jobId='opening';
   for (const [item, n] of Object.entries({
     slab: 72,
     rail: 8,

@@ -43,3 +43,7 @@ Every accepted liter leaves the tanker and enters a pipe or tank. Tanker manifes
 SQL tables are `process_tanks`, `process_pumps`, `process_lines`, `process_valves`, `process_gauges`, `process_operations`, and `fluid_movements`. Existing freight-car and order-line tables show the decreasing tanker inventory. The SQL examples include Fluid inventory, Transfer interlocks, and Fluid movement ledger. SQL results can be exported as CSV.
 
 The fluid movement ledger aggregates each transfer run by physical source/destination edge rather than creating a row every simulation tick. Its bounded history is independent of the conserved source baselines and live vessel contents. Native display snapshots limit historical rows; portable saves and reporting retain the full bounded records. Ordinary procurement costs, labor, stable component IDs, and construction material movements remain in their existing registers.
+
+## Underground electrical prerequisite
+
+The pump motor needs a commissioned circuit to its own electrical box. A site-wide utility flag alone no longer supplies pumps. Open Electrical, order the incoming station and cable reels, then build a valid underground connection with an excavator, operator, and engineer. The motor draws 2 kW while enabled; each connected light draws 0.1 kW from the shared 16 kW station. See [Underground electrical service](electrical-operations.md).

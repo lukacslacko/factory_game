@@ -102,7 +102,7 @@ static func inspector(ui, building: Dictionary) -> void:
 			ui._detail("Hose",e.get("hose","disconnected"))
 			ui._detail("Actual flow","%.2f L/s"%float(e.get("flow",0)))
 			ui._detail("Transferred","%.2f L"%float(e.get("transferred",0)))
-			ui._detail("Electrical load","2 kW · completed site power connection required")
+			ui._detail("Electrical load","2 kW · commissioned underground circuit required")
 			var tank: OptionButton = OptionButton.new()
 			tank.size_flags_horizontal=Control.SIZE_EXPAND_FILL
 			tank.add_item("Choose destination tank…");tank.set_item_metadata(0,"")
@@ -125,7 +125,7 @@ static func inspector(ui, building: Dictionary) -> void:
 			ui._button(ui.inspector_body,"Request worker to connect hose",func() -> void:ui._send("process_connect",{"id":id,"carId":str(car.get_selected_metadata())}))
 			ui._button(ui.inspector_body,"Stop pump" if e.get("enabled",false) else "Start pump",func() -> void:ui._send("process_run",{"id":id,"running":not e.get("enabled",false)}))
 			ui._button(ui.inspector_body,"Request worker to disconnect hose",func() -> void:ui._send("process_disconnect",{"id":id}))
-			ui._note(ui.inspector_body,"The 8 m hose locks the connected car against movement. Complete the outlet pipe route to the selected tank, open its valves, and provide site power. The status above explains any interlock.")
+			ui._note(ui.inspector_body,"The 8 m hose locks the connected car against movement. Complete the outlet pipe route to the selected tank, open its valves, and connect this pump through Electrical. The status above explains any interlock.")
 		"processValve":
 			ui._detail("Position","Open" if e.get("open",false) else "Closed")
 			ui._detail("Operation",operation(ui,e.get("operation","")).get("id",""))
@@ -148,7 +148,7 @@ static func help_dialog(ui) -> void:
 		"Place the pump close to a stopped tanker: its flexible hose reaches 8 meters. The pump outlet is on its east side at default rotation; R rotates a placement. Tank ports sit on all four sides. Pipe centerlines are 0.85 meters above ground. Drag the pipe tool to plan a straight, connected meter-grid run. Use elbows and tees to change direction or branch; their orientation also follows R.",
 		"A closed manual valve blocks flow. Select it and request a worker to open it. Workers must be on duty and able to walk to the fitting. Gauges are inline components and show the connected tank quantity and actual flow; they do not invent pressure readings.",
 		"Receive a tanker train from Railway, then release its supplier locomotive and shunt the car to your named transfer location if needed. Select the pump, choose the destination tank and transfer rate, apply them, choose the stopped tanker, and request a hose connection. A worker walks to the car and pump to attach the hose.",
-		"Start the pump after the hose is connected and the pipe route is complete. A completed site power connection supplies its 2 kW motor. The pump status explains missing power, closed valves, incomplete routes, incompatible products, a full tank, or an empty car. Liquid fills the pipe first; the pipe, tank, and car quantities balance exactly.",
+		"Start the pump after the hose is connected and the pipe route is complete. Its 2 kW motor needs a commissioned underground circuit from an energized incoming station or connected light junction. Build that route in Electrical; a site connection alone is insufficient. The pump status explains missing power, closed valves, incomplete routes, incompatible products, a full tank, or an empty car. Liquid fills the pipe first; the pipe, tank, and car quantities balance exactly.",
 		"Stop the pump and request a worker to disconnect before shunting or returning the car. A connected hose physically locks the car against movement. Pipe contents remain when pumping stops or a valve closes. Empty and isolate equipment before removing it. Save/load preserves contents, valve settings, hose operations, and transfer totals.",
 		"Process tables are sortable and filterable. Click asset, car, and worker IDs to inspect them. SQL exposes process tanks, pumps, lines, valves, gauges, ground operations, and the fluid movement ledger. This first system transfers water and diesel from rail tankers; reactions and pressurized hydraulics are later work."
 	]:ui._note(dialog.body,text)

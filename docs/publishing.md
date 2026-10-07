@@ -213,3 +213,12 @@ Verification passes **696/696** frozen-input sequential regressions, both builds
 Install the same verified, ad-hoc-signed macOS 14+ app with private previous-app/save backups. Verify every candidate file, the installed signature, and 70 repository source/asset hashes; retain byte-identical private saves and leave the app closed. The archive includes its runtimes, assets, notices, public fluid example and five player guides. The browser Site remains v0.18.0. Close the completed service issues and the already accepted #18/#19; leave #13 explicitly deferred.
 
 Release: [v0.25.0](https://github.com/lukacslacko/factory_game/releases/tag/v0.25.0). `Plant-01-macOS-arm64-v0.25.0.zip` is **151,628,998 bytes**, SHA-256 **`c5753e46957995c506ffb73863a259c8b9b970d9a5c8ce55f6b6d3d57888e465`**. Measured results and scope limits are recorded in `native/tests/site-services-verified-results.json`.
+
+
+## Underground electrical circuits — native v0.26.0
+
+Publish Apple Silicon **build 219** and public MIT source for #13. The approved buried-cable concepts become real low-voltage construction: a utility-installed 16 kW cabinet, delivered 50-meter reels, physical operator/excavator/engineer work, neighboring conserved spoil, lifted/restored paving, terminations and testing. Rooted light-base branches share supply capacity; individual lamps and tanker pumps require commissioned circuits. Safe cancellation, physical cable recovery, local saves, linked warnings, dense Electrical registers and SQL retain every meter and work phase. See [electrical operations](electrical-operations.md).
+
+The complete frozen suite passes **725/725** tests and both builds. Actual native UI/render/bridge and exact packaged checks are detailed in `native/tests/electrical-verified-results.json`. Preserve the existing running game and install the new app alongside it as **Plant 01 v0.26.0.app**. Public archives keep the usual **Plant 01.app** name and exclude private data, test fixtures and development captures. The browser Site remains v0.18.0.
+
+Release: [v0.26.0](https://github.com/lukacslacko/factory_game/releases/tag/v0.26.0). `Plant-01-macOS-arm64-v0.26.0.zip` is **152,135,261 bytes**, SHA-256 **`899b5e9b05af5fdedc29eaba16b73fedb0a0e0af648384ff5f8c6948788caae8`**. All 91 packaged source/asset hashes match the verified repository; the installed versioned app matches the signed candidate.

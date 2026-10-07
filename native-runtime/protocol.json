@@ -61,7 +61,12 @@
     "tables": "{table?:string}; native reporting rows",
     "sql": "{sql:string}; SELECT/WITH/EXPLAIN SQLite reporting snapshot",
     "ping": "{}; clock and bounded transport counters",
-    "export_costs": "{path:absolute}; writes full cost history CSV"
+    "export_costs": "{path:absolute}; writes full cost history CSV",
+    "electrical_preview": "{sourceId,targetId,cells:[{x:int,z:int}]}; read-only valid/error, surveyed spoil and lifted-paving reservations, meters and endpoint terminal cells",
+    "electrical_plan": "same as electrical_preview; creates real linked cable construction work or commissions instantly in creative",
+    "electrical_cancel": "{id:runId|jobId}; request safe cancellation with physical material and soil restoration",
+    "electrical_resume": "{id:runId|jobId}; resume safely canceled unfinished circuit",
+    "electrical_recover": "{id:runId|jobId}; queue physical isolation, re-excavation, cable retrieval to real available reel capacity, backfill and paving restoration; downstream branches must be recovered first"
   },
   "snapshot": {
     "state": "Existing src/types.ts State JSON; events/movements/costs snapshot tails bounded, complete history retained for saves/SQL",

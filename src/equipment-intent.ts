@@ -1,3 +1,4 @@
+import { electricalObstacles } from './electrical-geometry';
 import type { Equipment, Point, Rect, State } from './types';
 import { localPoint } from './motion';
 import { boxRect, carrierBoxes } from './traffic';
@@ -64,7 +65,14 @@ export function equipmentIntent(s: State, e: Equipment): EquipmentIntent {
       ...(r?.routeBlockage ? [r.routeBlockage.blocker] : []),
       ...[h?.sourceId, r?.source?.stackId, r?.panel.stackId].filter((v): v is string => !!v),
     );
-    if (job.kind==='refuel') {
+    if (job.kind==='cableRun') {
+      const run=s.electrical?.runs.find(r=>r.id===job.electricalRunId);
+      if(run) {
+        references.push(run.id,run.sourceId,run.targetId,...[run.workerId,run.operatorId,run.reelId].filter((id):id is string=>!!id));
+        target=run.phase==='reel-source'||run.phase==='reel-rig'||run.phase==='reel-lift'?run.reelDock:run.phase==='reel-withdraw'||run.phase==='reel-clear'?run.reelClear:run.dock||run.toolPoint;
+        if(!target && run.cells[run.cellIndex])target={x:run.cells[run.cellIndex].x+.5,z:run.cells[run.cellIndex].z+.5};
+      }
+    } else if (job.kind==='refuel') {
       const barrel=s.stacks.find(t=>t.id===(job.fuelWork?.barrelId||job.stack));
       references.push(...[job.fuelWork?.barrelId].filter((v):v is string=>!!v));
       target=job.phase==='Carry fuel'?equipmentFuelFiller(e):
@@ -130,7 +138,7 @@ export function equipmentIntent(s: State, e: Equipment): EquipmentIntent {
       const stock = !job.delivered && job.stack && s.stacks.find((t) => t.id === job.stack);
       target = job.shedAssembly?.dock || (stock ? middle(stock) : middle(job));
     }
-    targetLabel = job.kind==='refuel'
+    targetLabel = job.kind==='cableRun'?'Electrical work dock':job.kind==='refuel'
       ? job.phase==='Carry fuel'?'Equipment fuel filler':job.phase==='Drive to diesel barrel'?'Fuel service position':['Board equipment','Alight for fuel'].includes(job.phase)?'Equipment cab step':'Diesel barrel'
       : !h && !r && !job.shedAssembly && !job.delivered && job.stack
         ? 'Reserved material'
@@ -157,8 +165,10 @@ export function equipmentIntent(s: State, e: Equipment): EquipmentIntent {
     target = e.trafficGoal;
     targetLabel = 'Clearance maneuver';
   } else if (e.destination && !job && !collection) target = e.destination;
+  const electricalBlocker=electricalObstacles(s).find(q=>e.blockedBy?.includes(q.id));
+  if(electricalBlocker) references.push(electricalBlocker.id.split('/')[0]);
   const blockedId = e.blockedBy?.match(/(?:EQ|WRK|STK|BLD|RAIL|PO|BUFFER)-\d+/)?.[0];
-  let blocker: EquipmentIntent['blocker'];
+  let blocker: EquipmentIntent['blocker']=electricalBlocker?{id:electricalBlocker.id,rect:electricalBlocker}:undefined;
   if (blockedId) {
     const asset = [...s.equipment, ...s.workers, ...s.stacks, ...s.buildings, ...s.rails].find(
       (a) => a.id === blockedId,

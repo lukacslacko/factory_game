@@ -94,7 +94,7 @@ function idleMachine(e: Equipment) {
 }
 function stackError(s: CollectionState, t: Stack | undefined) {
   if (!t || t.qty < 1) return 'Choose a physical stack with material remaining.';
-  if (t.reserved || collectionOwnsStack(s, t.id) || railStagingStackOwned(s, t.id))
+  if (t.reserved || t.cableReservedMeters || t.cableReservedSpaceMeters || s.electrical?.runs.some(r=>!['commissioned','canceled'].includes(r.status)&&(r.reelId===t.id || r.reservations.some(q=>q.stackId===t.id))) || collectionOwnsStack(s, t.id) || railStagingStackOwned(s, t.id))
     return `${t.id} is reserved by active work. Release that work before collection.`;
   if (t.item === 'diesel' && (t.liters || 0) > 0.000001)
     return `${t.id} contains fuel. This collection service accepts empty drums only.`;
@@ -167,7 +167,7 @@ export function quoteCollection(s: CollectionState, request: CollectionRequest):
       if (error) return bad(error);
       if (choice.qty > t!.qty) return bad(`${t!.id} has only ${t!.qty} units available.`);
       const m = MATERIALS[t!.item],
-        unitMass = t!.item === 'diesel' ? 20 : m.mass;
+        unitMass = t!.item === 'diesel' ? 20 : t!.item === 'cableReel' ? 35+3*(t!.cableMeters??50) : m.mass;
       if (m.w > FREIGHT_DECK_LENGTH.road || m.d > 3)
         return bad(`${label(t!.item)} does not fit this collection truck.`);
       for (let remaining = choice.qty; remaining > 0;) {

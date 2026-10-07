@@ -320,7 +320,9 @@ test('a larger starter base completes across save/reload with balanced inventory
   assert.ok(s.events.some((e) => e.type === 'Fuel' && e.text.startsWith('Collected ')));
   assert.ok(s.events.some((e) => e.type === 'Fuel' && e.text.startsWith('Transferred ')));
   assert.equal(s.buildings.filter((b) => b.kind === 'office').length, 1);
-  assert.equal(s.buildings.filter((b) => b.kind === 'lamp' && b.connected).length, 4);
+  assert.equal(s.buildings.filter((b) => b.kind === 'lamp').length, 4);
+  assert.equal(s.buildings.filter((b) => b.kind === 'lamp' && b.connected).length, 0, 'The utility station must not energize lights without commissioned physical cables');
+  assert.equal(s.buildings.filter(b=>b.kind==='power' && b.connected).length,1);
   assert.equal(s.buffer.x, 150);
   assert.equal(s.rails.length, 5);
   for (const item of Object.keys(MATERIALS) as Item[]) checkBalance(s, item);

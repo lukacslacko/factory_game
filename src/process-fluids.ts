@@ -1,3 +1,4 @@
+import { electricalConsumerPower } from './electrical-network';
 import type { State, Building, Point, Worker, Order, RailFreightCar } from './types';
 import type { ProcessState, ProcessOperation, ProcessPump } from './process-types';
 import type { RailCommodity } from './rail-commodities';
@@ -378,8 +379,11 @@ export function setProcessPumpRunning(s: State, pumpId: string, running: boolean
     return 'Connect the tanker hose and select a destination tank first.';
   if (running && !processNetworkRoute(s, p.id, p.tankId!))
     return 'No open, continuous installed pipe route reaches the selected tank.';
-  if (running && !s.utilities.power)
-    return 'Connect the site electrical supply before starting the pump.';
+  if (running) {
+    const probe = {...s, process:{...s.process!, pumps:s.process!.pumps.map(q=>q.id===p.id?{...q,enabled:true}:q)}};
+    const power=electricalConsumerPower(probe,p.id);
+    if(!power.powered) return `Pump electrical interlock: ${power.reason}.`;
+  }
   p.enabled = running;
   p.runId = running ? next(s, 'FLOW') : undefined;
   p.flow = 0;
@@ -522,11 +526,7 @@ function ledger(
 function transfer(s: State, dt: number) {
   const p = s.process!,
     lineMap = new Map(p.lines.map((l) => [l.id, l])),
-    tankMap = new Map(p.tanks.map((l) => [l.id, l])),
-    budget = s.utilities.power
-      ? Math.max(0, 16000 - s.buildings.filter((b) => b.kind === 'lamp').length * 100)
-      : 0;
-  let watts = budget;
+    tankMap = new Map(p.tanks.map((l) => [l.id, l]));
   const candidates: {
     pump: ProcessPump;
     q: NonNullable<ReturnType<typeof car>>;
@@ -544,11 +544,11 @@ function transfer(s: State, dt: number) {
           : 'Connect a stationary tanker';
       continue;
     }
-    if (watts < 2000) {
-      pump.status = s.utilities.power ? 'Site power capacity exhausted' : 'No electrical supply';
+    const power=electricalConsumerPower(s,pump.id);
+    if (!power.powered) {
+      pump.status = power.reason;
       continue;
     }
-    watts -= 2000;
     const q = pump.carId ? car(s, pump.carId) : undefined;
     if (pump.hose !== 'connected' || !q?.c.tank || !processCarStationary(s, q.c.id)) {
       pump.status = 'Hose not connected to a stationary tanker';
@@ -741,6 +741,7 @@ export function processRows(s: State) {
   });
   const pumps = (p?.pumps || []).map((q) => ({
     ...base(q.id), ...q,
+    electrical:electricalConsumerPower(s,q.id),
     route: q.tankId ? processNetworkRoute(s, q.id, q.tankId) || [] : [],
     installedRoute: q.tankId ? processNetworkRoute(s, q.id, q.tankId, true) || [] : [],
   }));

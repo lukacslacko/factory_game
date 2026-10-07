@@ -1116,6 +1116,7 @@ function unloadTick(s: State, o: Order, dt: number, api: DeliveryAPI) {
         yaw: t.dropYaw + Math.PI / 2,
       };
       if (item === 'diesel') stack.liters = 200;
+      if (item === 'cableReel') stack.cableMeters = 50;
       s.stacks.push(stack);
     }
     api.movement(
@@ -1484,8 +1485,7 @@ function serviceTick(s: State, o: Order, dt: number, api: DeliveryAPI) {
     });
     for (const b of s.buildings)
       if (
-        (b.kind === 'lamp' && o.item === 'power') ||
-        (b.kind === 'sanitary' && o.item === 'water')
+        b.kind === 'sanitary' && o.item === 'water'
       )
         b.connected = true;
     o.arrived = o.qty;

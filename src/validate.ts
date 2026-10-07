@@ -1,3 +1,4 @@
+import { electricalValidationProblem } from './electrical-validation';
 import { collectionValidationProblem } from './collection-validation';
 import { validTrackPiece, trackGeometry } from './track';
 import { validRailLocation } from './rail-locations';
@@ -1284,6 +1285,7 @@ export function validateState(value: any): asserts value is State {
         fail('unloading destination stack is missing');
     }
   }
+  const electricalError=electricalValidationProblem(s);if(electricalError)fail(electricalError);
   const collectionError=collectionValidationProblem(s, ids); if(collectionError)fail(collectionError);
   const processError=processValidationProblem(s);if(processError)fail(processError);
   const processConstructionError = processConstructionProblem(s);

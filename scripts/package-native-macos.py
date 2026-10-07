@@ -61,8 +61,12 @@ launcher.chmod(0o755)
 shutil.copy2(ROOT / 'LICENSE', resources / 'LICENSE')
 (resources / 'README.md').write_text((ROOT / 'native/README.md').read_text().replace('../docs/', 'docs/'))
 (resources / 'docs').mkdir()
-for guide in ['site-services.md', 'rail-operations.md', 'fluid-operations.md', 'worker-assignment-and-clearance.md', 'native-migration.md']:
+for guide in ['electrical-operations.md', 'site-services.md', 'rail-operations.md', 'fluid-operations.md', 'worker-assignment-and-clearance.md', 'native-migration.md']:
     shutil.copy2(ROOT / 'docs' / guide, resources / 'docs' / guide)
+    if guide == 'electrical-operations.md':
+        page = resources / 'docs' / guide
+        page.write_text(page.read_text().replace('../native/screenshots/electrical-register.png', 'electrical-register.png'))
+        shutil.copy2(ROOT / 'native/screenshots/electrical-register.png', resources / 'docs/electrical-register.png')
 (resources / 'examples').mkdir()
 shutil.copy2(ROOT / 'examples/first-fluid-transfer.json', resources / 'examples/first-fluid-transfer.json')
 icon = ROOT / 'native/assets/plant01-icon.icns'
@@ -70,8 +74,8 @@ if icon.exists():
     shutil.copy2(icon, resources / 'Plant01.icns')
 info = {'CFBundleName': 'Plant 01', 'CFBundleDisplayName': 'Plant 01',
         'CFBundleIdentifier': 'com.lukacslacko.factory-game', 'CFBundleExecutable': 'Plant01',
-        'CFBundlePackageType': 'APPL', 'CFBundleShortVersionString': '0.25.0',
-        'CFBundleVersion': '218', 'CFBundleIconFile': 'Plant01.icns',
+        'CFBundlePackageType': 'APPL', 'CFBundleShortVersionString': '0.26.0',
+        'CFBundleVersion': '219', 'CFBundleIconFile': 'Plant01.icns',
         'NSHighResolutionCapable': True, 'LSMinimumSystemVersion': '14.0',
         'NSHumanReadableCopyright': 'Plant 01 contributors · MIT; runtime notices in Resources/native/licenses'}
 (app / 'Contents/Info.plist').write_bytes(plistlib.dumps(info))

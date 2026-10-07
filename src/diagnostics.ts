@@ -97,6 +97,7 @@ export class DiagnosticRecorder {
           stack: j.stack,
           handlingPhase: j.handling?.phase,
           railPhase: j.railWork?.phase,
+          electrical: j.electricalRunId ? (()=>{const r=s.electrical?.runs.find(r=>r.id===j.electricalRunId);return r?{id:r.id,phase:r.phase,cellIndex:r.cellIndex,reelId:r.reelId,cableInHand:r.cableInHand,soilInBucketM3:r.soilInBucketM3}:undefined;})() : undefined,
           railStageOnly: j.railStageOnly,
           stagingBatch: j.railWork?.stagingBatch,
           stagingBatchLeader: j.railStagingBatch,
@@ -196,7 +197,7 @@ export class DiagnosticRecorder {
     return copy({
       format: 'plant01-diagnostics',
       version: 1,
-      gameVersion: '0.18.0',
+      gameVersion: '0.26.0',
       started: this.started,
       entries: this.entries,
       checkpoints: this.checkpoints,

@@ -1,3 +1,5 @@
+import { electricalNetwork } from '../src/electrical-network';
+import { electricalPreview } from '../src/electrical-geometry';
 /** Native simulation host: no window, browser, DOM, or renderer. Single authenticated
  * loopback client, fixed simulation clock, bounded transport, atomic local persistence. */
 import net from 'node:net';
@@ -208,7 +210,12 @@ function storage() {
   };
 }
 function reportingRows() {
+  const electrical=electricalNetwork(state);
   return {
+    electricalRuns:electrical.runs,
+    electricalSources:electrical.sources,
+    electricalConsumers:electrical.consumers,
+    cableMovements:(state.electrical?.meterLedger||[]).slice(-1000),
     process: processRows(state),
     actionClearances: (state.actionClearances || []).slice(0,4096),
     work: jobRows(state),
@@ -264,6 +271,7 @@ function snapshot() {
   const limited = {
     ...state,
     actionClearances: (state.actionClearances || []).slice(0,4096),
+    electrical:state.electrical?{...state.electrical,meterLedger:state.electrical.meterLedger.slice(-200)}:undefined,
     process: state.process ? {...state.process, ledger:state.process.ledger.slice(-200),operations:recentOperations} : undefined,
     events: state.events.slice(-1000),
     movements: state.movements.slice(-1000),
@@ -279,6 +287,7 @@ function snapshot() {
     workRows: tables.work,
     railReservations: tables.railReservations,
     inventory: tables.inventory,
+    electrical:electricalNetwork(state),
     process: {...tables.process,ledger:tables.process.ledger.slice(-200),operations:recentOperations},
     summaries: {
       totalCosts: state.costs.reduce((n, c) => n + c.amount, 0),
@@ -334,6 +343,7 @@ const readonly = new Set([
   'hello',
   'ping',
   'rail_preview',
+  'electrical_preview',
   'rail_edit_preview',
   'rail_location_anchor',
   'inspect',
@@ -347,6 +357,14 @@ const readonly = new Set([
 ]);
 async function dispatch(action: string, a: any) {
   switch (action) {
+    case 'electrical_plan': {
+      const result=Sim.planElectrical(state,a);check(result.error);return result;
+    }
+    case 'electrical_cancel':check(Sim.cancelElectrical(state,entityId(a)));return {};
+    case 'electrical_recover':check(Sim.recoverElectrical(state,entityId(a)));return {};
+    case 'electrical_resume':check(Sim.resumeElectrical(state,entityId(a)));return {};
+    case 'electrical_preview':
+      return electricalPreview(state,a);
     case 'hello':
       return {
         version: 1,

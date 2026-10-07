@@ -12,4 +12,4 @@ The original **C Planning View** concept is preserved in [C-original-planning.pn
 
 The [GitHub request index](github-issues.md) links the individual railway, chemical and feedback issues, with implementation approval gates and open design choices.
 
-The [electrical distribution study](electrical-distribution-2026-10-07/README.md) compares underground and overhead industrial cabling during construction and in service, with four labeled concept images and recorded generation prompts. It preserves the creator's preference for buried trunks, substations and local distribution; these concepts are not implemented gameplay.
+The [electrical distribution study](electrical-distribution-2026-10-07/README.md) compares underground and overhead industrial cabling during construction and in service, with four labeled concept images and recorded generation prompts. It preserves the creator's preference for buried trunks, substations and local distribution; these images remain concept art. The creator later approved the buried option for the first low-power implementation; see the journal and [electrical operations guide](../electrical-operations.md).

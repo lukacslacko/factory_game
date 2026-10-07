@@ -5,6 +5,7 @@ const GameWorld = preload("res://scripts/game_world.gd")
 const GameUI = preload("res://scripts/game_ui.gd")
 const SiteLighting = preload("res://scripts/site_lighting.gd")
 const GameAudio = preload("res://scripts/game_audio.gd")
+const ElectricalUI = preload("res://scripts/electrical_ui.gd")
 var client: Node
 var world: Node3D
 var ui: CanvasLayer
@@ -34,6 +35,26 @@ var preview_dirty: bool = false
 var preview_clock: float = 0.0
 var preview_key: String = ""
 var preview_request: int = 0
+var cable_source_id: String=""
+var cable_target_id: String=""
+var cable_anchor: Dictionary={}
+var cable_end: Dictionary={}
+var cable_sources: Array[Dictionary]=[]
+var cable_targets: Array[Dictionary]=[]
+var cable_cells: Array[Dictionary]=[]
+var cable_vertical_first: bool=false
+var cable_pointer_down: bool=false
+var cable_first_press: bool=false
+var cable_preview_node: Node3D
+var cable_preview_mesh: MultiMeshInstance3D
+var cable_preview_material: StandardMaterial3D
+var cable_preview_request: int=0
+var cable_preview_key: String=""
+var cable_checked_key: String=""
+var cable_error: String=""
+var cable_preview_dirty: bool=false
+var cable_preview_age: float=0.0
+var cable_plan_request: int=0
 var backgrounded: bool = false
 var dragging: bool = false
 var orbiting: bool = false
@@ -221,6 +242,27 @@ func _reply(message: Dictionary) -> void:
 	reply_results[int(message.get("id", 0))] = message
 	if reply_results.size() > 200:
 		reply_results.erase(reply_results.keys()[0])
+	if message.get("action")=="electrical_preview":
+		if tool=="cable" and int(message.get("id",0))==cable_preview_request:
+			var result: Dictionary=message.get("result",{})
+			cable_checked_key=cable_preview_key
+			cable_error=str(result.get("error",message.get("error","")))
+			if not bool(message.get("ok",false)) or not bool(result.get("valid",false)):
+				if cable_error.is_empty():cable_error="This circuit cannot be built here."
+			_set_cable_preview_color()
+			_cable_hint()
+		return
+	if message.get("action")=="electrical_plan" and int(message.get("id",0))==cable_plan_request:
+		cable_plan_request=0
+		if message.get("ok",false):
+			var run_id: String=str(message.get("result",{}).get("runId",""))
+			ui._select_tool("select")
+			if not run_id.is_empty():_select_entity(run_id)
+			ui.status_label.text="Electrical circuit planned. Open its linked Work task for crew, material, or access delays."
+			return
+		else:
+			cable_checked_key=JSON.stringify(_cable_args())
+			cable_error=str(message.get("error","Circuit planning failed."));_set_cable_preview_color();_cable_hint()
 	if message.get("action") == "rail_preview":
 		if int(message.get("id",0)) == preview_request and tool.begins_with("rail") and message.get("ok",false):
 			var preview: Dictionary = message.get("result",{})
@@ -241,6 +283,10 @@ func _connection(connected: bool, description: String) -> void:
 		ui.show_error(description)
 
 func _command(action: String, args: Dictionary = {}) -> void:
+	if action=="electrical_draw":
+		cable_source_id=str(args.get("sourceId",""));cable_target_id=str(args.get("targetId",""))
+		ui._select_tool("cable")
+		return
 	if action in ["new_game","import","load","continue","restore_backup"] and is_instance_valid(audio):audio.reset_history()
 	if action == "audio_settings":
 		if is_instance_valid(audio):audio.show_settings()
@@ -276,19 +322,147 @@ func _select_entity(id: String) -> void:
 func _focus_entity(id: String) -> void:
 	_select_entity(id)
 	var pos: Vector3 = world.entity_position(id)
+	var run: Dictionary=ElectricalUI.record(ui,id)
+	if not run.is_empty() and not run.get("cells",[]).is_empty():
+		var cell: Dictionary=run.cells[int(run.cells.size()/2)]
+		pos=Vector3(float(cell.x)+.5,0,float(cell.z)+.5)
 	target = Vector3(pos.x, 0.0, pos.z)
 	distance = minf(distance, 38.0)
 
 func _select_tool(value: String) -> void:
+	_clear_cable_preview()
 	tool = value
 	placing = false
 	preview_key = ""
 	preview_request = 0
 	preview_dirty = false
 	world.preview({}, true)
+	if value=="cable":
+		_start_cable_preview()
+		return
 	if value == "select":
 		return
 	follow = false
+
+func _clear_cable_preview() -> void:
+	cable_anchor={};cable_end={};cable_cells.clear();cable_sources.clear();cable_targets.clear()
+	cable_preview_request=0;cable_preview_key="";cable_checked_key="";cable_error=""
+	cable_preview_dirty=false;cable_preview_age=0.;cable_pointer_down=false;cable_plan_request=0
+	if is_instance_valid(cable_preview_node):
+		remove_child(cable_preview_node);cable_preview_node.queue_free()
+	cable_preview_node=null;cable_preview_mesh=null;cable_preview_material=null
+
+func _electrical_asset(id: String, key: String) -> Dictionary:
+	var asset: Dictionary=ui._entity(id).get("entity",{}).duplicate(true)
+	asset.merge(ElectricalUI.record(ui,id,key),true)
+	if key=="sources":asset.merge(ElectricalUI.record(ui,id,"junctions"),true)
+	return asset
+
+func _start_cable_preview() -> void:
+	var source: Dictionary=_electrical_asset(cable_source_id,"sources")
+	var consumer: Dictionary=_electrical_asset(cable_target_id,"consumers")
+	if source.is_empty() or consumer.is_empty() or cable_source_id.is_empty() or cable_target_id.is_empty():
+		ui.show_error("Choose an incoming station or wired light base and a light or pump in Electrical first.")
+		tool="select";ui.active_tool="select";return
+	cable_sources=ElectricalUI.terminal_cells(source);cable_targets=ElectricalUI.terminal_cells(consumer)
+	cable_vertical_first=false
+	cable_preview_node=Node3D.new();cable_preview_node.name="ElectricalRoutePreview";add_child(cable_preview_node)
+	cable_preview_material=StandardMaterial3D.new();cable_preview_material.shading_mode=BaseMaterial3D.SHADING_MODE_UNSHADED
+	cable_preview_material.no_depth_test=false;cable_preview_material.vertex_color_use_as_albedo=true
+	cable_preview_material.albedo_color=Color.WHITE
+	var mesh:=BoxMesh.new();mesh.size=Vector3(.12,.035,1.)
+	cable_preview_mesh=MultiMeshInstance3D.new();cable_preview_mesh.cast_shadow=GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	cable_preview_mesh.multimesh=MultiMesh.new();cable_preview_mesh.multimesh.transform_format=MultiMesh.TRANSFORM_3D
+	cable_preview_mesh.multimesh.mesh=mesh;cable_preview_mesh.material_override=cable_preview_material
+	cable_preview_node.add_child(cable_preview_mesh)
+	for pair: Array in [[cable_sources,Color("8ec6a5"),"SOURCE "+cable_source_id],[cable_targets,Color("82becd"),"CONSUMER "+cable_target_id]]:
+		var cells: Array=pair[0]
+		for cell: Dictionary in cells:
+			var marker:=MeshInstance3D.new();var tile:=BoxMesh.new();tile.size=Vector3(.78,.025,.78);marker.mesh=tile
+			var material:=StandardMaterial3D.new();material.shading_mode=BaseMaterial3D.SHADING_MODE_UNSHADED
+			material.albedo_color=pair[1];material.no_depth_test=false;marker.material_override=material
+			marker.cast_shadow=GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+			marker.position=Vector3(float(cell.x)+.5,_cable_surface(cell)+.025,float(cell.z)+.5)
+			cable_preview_node.add_child(marker)
+		if not cells.is_empty():
+			var label:=Label3D.new();label.text=str(pair[2]);label.font_size=34;label.pixel_size=.007
+			label.modulate=pair[1];label.no_depth_test=false;label.billboard=BaseMaterial3D.BILLBOARD_ENABLED
+			label.position=Vector3(float(cells[0].x)+.5,_cable_surface(cells[0])+.75,float(cells[0].z)+.5)
+			cable_preview_node.add_child(label)
+	var center_source:=Vector3(float(source.get("x",0))+float(source.get("w",1))*.5,0,float(source.get("z",0))+float(source.get("d",1))*.5)
+	var center_target:=Vector3(float(consumer.get("x",0))+float(consumer.get("w",1))*.5,0,float(consumer.get("z",0))+float(consumer.get("d",1))*.5)
+	target=(center_source+center_target)*.5;distance=clampf(center_source.distance_to(center_target)*1.7+24.,32.,200.)
+	follow=false;preview_point=center_source
+	_update_cable_preview(center_source)
+
+func _cable_surface(cell: Dictionary) -> float:
+	var key: String="%d,%d"%[int(cell.get("x",0)),int(cell.get("z",0))]
+	return .105 if state.get("paving",{}).has(key) else .05
+
+func _cable_args() -> Dictionary:
+	return {"sourceId":cable_source_id,"targetId":cable_target_id,"cells":cable_cells.duplicate(true)}
+
+func _update_cable_preview(point: Vector3) -> void:
+	if not is_instance_valid(cable_preview_mesh) or cable_sources.is_empty() or cable_targets.is_empty():return
+	var start: Dictionary=cable_anchor
+	if start.is_empty():
+		var target_asset: Dictionary=_electrical_asset(cable_target_id,"consumers")
+		start=ElectricalUI.nearest_terminal(cable_sources,Vector3(float(target_asset.get("x",0))+.5,0,float(target_asset.get("z",0))+.5))
+		cable_end=ElectricalUI.nearest_terminal(cable_targets,Vector3(float(start.x)+.5,0,float(start.z)+.5))
+	else:cable_end=ElectricalUI.nearest_terminal(cable_targets,point)
+	var cells: Array[Dictionary]=ElectricalUI.manhattan_cells(start,cable_end,cable_vertical_first)
+	if cells!=cable_cells:
+		cable_cells=cells;cable_error="";cable_preview_dirty=not cable_cells.is_empty()
+		var mm: MultiMesh=cable_preview_mesh.multimesh;mm.instance_count=maxi(0,cable_cells.size()-1)
+		for index: int in range(mm.instance_count):
+			var a: Dictionary=cable_cells[index];var b: Dictionary=cable_cells[index+1]
+			var basis:=Basis(Vector3.UP,PI*.5 if a.x!=b.x else 0.)
+			mm.set_instance_transform(index,Transform3D(basis,Vector3((float(a.x)+float(b.x))*.5+.5,maxf(_cable_surface(a),_cable_surface(b))+.065,(float(a.z)+float(b.z))*.5+.5)))
+	_set_cable_preview_color();_cable_hint()
+
+func _set_cable_preview_color() -> void:
+	if not is_instance_valid(cable_preview_material):return
+	var checked: bool=cable_checked_key==JSON.stringify(_cable_args())
+	cable_preview_material.albedo_color=Color("cf6550") if checked and not cable_error.is_empty() else (Color("79ba92") if checked else Color("d6b46f"))
+
+func _cable_hint() -> void:
+	var text: String="%d m · %s → %s · "%[cable_cells.size(),cable_source_id,cable_target_id]
+	if cable_checked_key==JSON.stringify(_cable_args()):
+		text+="Valid. " if cable_error.is_empty() else cable_error+" · "
+	else:text+="Checking route… "
+	text+="Click a green source terminal, or drag to a blue consumer terminal." if cable_anchor.is_empty() else "Click a blue consumer terminal to plan. R swaps elbow; Esc cancels."
+	ui.set_electrical_hint(text)
+
+func _request_cable_preview() -> void:
+	cable_preview_dirty=false;cable_preview_age=0.
+	if cable_cells.is_empty() or not is_instance_valid(client):return
+	cable_preview_key=JSON.stringify(_cable_args())
+	cable_preview_request=client.send("electrical_preview",_cable_args())
+
+func _cable_click(pressed: bool, point: Vector3, screen_point: Vector2) -> void:
+	if cable_plan_request>0:return
+	if pressed:
+		cable_pointer_down=false;cable_first_press=cable_anchor.is_empty();click_screen=screen_point
+		if cable_first_press:
+			var cell: Dictionary=ElectricalUI.nearest_terminal(cable_sources,point)
+			if cell.is_empty() or Vector2(float(cell.x)+.5-point.x,float(cell.z)+.5-point.z).length()>1.8:
+				ui.show_error("Start at a highlighted green terminal beside "+cable_source_id+".");return
+			cable_anchor=cell
+		cable_pointer_down=true;preview_point=point;_update_cable_preview(point)
+	elif cable_pointer_down:
+		cable_pointer_down=false
+		if cable_first_press and screen_point.distance_to(click_screen)<=4.:return
+		_finish_cable(point)
+
+func _finish_cable(point: Vector3) -> void:
+	_update_cable_preview(point)
+	if cable_end.is_empty() or Vector2(float(cable_end.x)+.5-point.x,float(cable_end.z)+.5-point.z).length()>1.8:
+		ui.show_error("Finish at a highlighted blue terminal beside "+cable_target_id+". The start remains selected.");return
+	if cable_cells.is_empty():ui.show_error("This circuit is too long to preview; choose a closer consumer.");return
+	if cable_checked_key==JSON.stringify(_cable_args()) and not cable_error.is_empty():
+		ui.show_error(cable_error);return
+	cable_plan_request=client.send("electrical_plan",_cable_args())
+	ui.set_electrical_hint("Validating and planning %s → %s…"%[cable_source_id,cable_target_id])
 
 func _set_grid(value: bool) -> void:
 	grid = value
@@ -361,6 +535,10 @@ func _rect(a: Vector3, b: Vector3) -> Dictionary:
 	return {"x":x1,"z":z1,"w":mini(100,absi(floori(a.x)-floori(b.x))+1),"d":mini(100,absi(floori(a.z)-floori(b.z))+1)}
 
 func _rotate_placement() -> void:
+	if tool=="cable":
+		cable_vertical_first=not cable_vertical_first
+		_update_cable_preview(preview_point)
+		return
 	if tool == "relocate":
 		ui.show_error("A stock relocation preserves the stack orientation and footprint.")
 		return
@@ -370,6 +548,9 @@ func _rotate_placement() -> void:
 
 func _placement_preview(point: Vector3) -> void:
 	preview_point = point
+	if tool=="cable":
+		_update_cable_preview(point)
+		return
 	if tool.begins_with("rail"):
 		preview_dirty = true
 		return
@@ -429,6 +610,9 @@ func _unhandled_input(event: InputEvent) -> void:
 		var mouse := event as InputEventMouseButton
 		var point = _floor_point(mouse.position)
 		if mouse.button_index == MOUSE_BUTTON_LEFT:
+			if tool=="cable" and point is Vector3:
+				_cable_click(mouse.pressed,point,mouse.position)
+				return
 			if mouse.pressed and point is Vector3:
 				click_screen = mouse.position
 				click_point = point
@@ -496,7 +680,7 @@ func _unhandled_input(event: InputEvent) -> void:
 			return
 		match event.keycode:
 			KEY_ESCAPE:
-				_select_tool("select")
+				ui._select_tool("select")
 				controlled_worker = ""
 				_select_entity("")
 			KEY_R: _rotate_placement()
@@ -525,6 +709,7 @@ func _input(event: InputEvent) -> void:
 func _reset_drag() -> void:
 	dragging = false
 	placing = false
+	cable_pointer_down=false
 
 func _notification(what: int) -> void:
 	if what == NOTIFICATION_APPLICATION_FOCUS_OUT:
@@ -587,6 +772,11 @@ func _camera_key_pressed(key: Key) -> bool:
 
 func _process(dt: float) -> void:
 	elapsed += dt
+	if is_instance_valid(cable_preview_node):cable_preview_node.visible=ui.active_tab=="Yard"
+	if tool=="cable":
+		cable_preview_age+=dt
+		if not cable_cells.is_empty() and cable_preview_age>=1.:cable_preview_dirty=true
+		if cable_preview_dirty and cable_preview_age>=.18:_request_cable_preview()
 	_update_lighting(dt)
 	if is_instance_valid(audio):audio.advance(dt,camera_target+Vector3.UP*2.0,Basis(Vector3.UP,camera_yaw))
 	preview_clock += dt

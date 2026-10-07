@@ -40,3 +40,7 @@ For construction gameplay, A implies a coherent physical sequence: reserve route
 - [Eaton — Industrial cable tray and ladder](https://www.eaton.com/us/en-us/catalog/support-systems/imperial-cable-tray-and-ladder.html): supported cable-management systems for industrial and oil-and-gas applications.
 
 These sources inform the plausibility of the concepts. The proposed mix, visual treatment, construction granularity and future game rules remain design choices.
+
+## Creator approval and implemented first scope
+
+The creator subsequently approved A and B and authorized issue #13's implementation. The first native electrical system is deliberately smaller than the long-term medium-voltage concept: one low-power incoming cabinet, 50-meter delivered cable reels, real excavation/spoil/cable/backfill, restored paving, and tested circuits to the existing lights and tanker pumps. Light-base terminal boxes allow branching while retaining the incoming station's shared 16 kW limit. See [Underground electrical service](../../electrical-operations.md). The images above remain concept art; the broader high-power network and overhead alternatives are future design references.

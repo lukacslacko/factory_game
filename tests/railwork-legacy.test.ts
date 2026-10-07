@@ -14,6 +14,7 @@ import { tickUntil } from './support/yard.ts';
 function legacyRail(stage: 'reserved' | 'carried' | 'installed') {
   const s = S.demoState();
   s.buildings = [];
+  s.electrical = { runs: [], meterLedger: [] };
   s.paving = {};
   s.rails = [];
   s.jobs = [];

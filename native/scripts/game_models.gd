@@ -3,6 +3,7 @@ const G=preload("res://scripts/geometry.gd")
 const M=preload("res://scripts/machines.gd")
 const R=preload("res://scripts/rail_yard.gd")
 const Process=preload("res://scripts/process_models.gd")
+const Electrical=preload("res://scripts/electrical_models.gd")
 const FuelCan=preload("res://scripts/fuel_can.gd")
 static var palette:Dictionary={}
 
@@ -103,7 +104,9 @@ static func animate_actor(model:Node3D,p:Dictionary,delta:float)->void:
 		var elbow_y:=2.65*sin(angle); var elbow_r:=2.65*cos(angle)
 		var stick_angle:=atan2(dy-elbow_y,r-elbow_r)
 		stick.rotation.x=stick_angle-angle
-		(stick.get_node("Bucket") as Node3D).rotation.x=-stick_angle+(.95 if bool(model.get_meta("suspended_load",false)) else .10)
+		var bucket:Node3D=stick.get_node("Bucket")
+		bucket.rotation.x=-stick_angle+(.95 if bool(model.get_meta("suspended_load",false)) else .10)
+		Electrical.bucket_soil(bucket,float(p.get("soilInBucketM3",0)))
 	elif kind=="forklift":
 		var carriage:Node3D=model.get_node("Carriage")
 		carriage.position.y=maxf(-.21,float(p.get("forkSupportY",float(p.get("y",0))+float(p.get("toolLift",.12))))-float(p.get("y",0))-.3125)
@@ -135,7 +138,10 @@ static func animate_actor(model:Node3D,p:Dictionary,delta:float)->void:
 			leg.rotation.x=sin(phase)*amount*side
 			arm.rotation.x=-sin(phase)*amount*.8*side if not work else -.85+sin(float(p.get("workClock",0))*4)*.12*side
 
-static func stock(parent:Node3D,item:String,qty:int,hand:int=1)->Node3D:
+		Electrical.animate_worker(model,p)
+
+static func stock(parent:Node3D,item:String,qty:int,hand:int=1,cable_meters:float=50.0)->Node3D:
+	if item=="cableReel":return Electrical.cable_reel(parent,cable_meters)
 	if Process.handles(item):
 		var kits:=Node3D.new();parent.add_child(kits)
 		for index in range(mini(qty,8)):
@@ -306,6 +312,7 @@ static func _locomotive(parent:Node3D,owned:bool=false)->Node3D:
 	return n
 
 static func building(parent:Node3D,data:Dictionary)->Node3D:
+	if str(data.get("kind",""))=="power":return Electrical.station(parent,data)
 	if Process.handles(str(data.get("kind",""))):return Process.building(parent,data)
 	var kind:=str(data.get("kind","")); var root:=Node3D.new(); parent.add_child(root)
 	var b:=R.Batch.new(); var m:=materials()
@@ -314,7 +321,8 @@ static func building(parent:Node3D,data:Dictionary)->Node3D:
 		if kind=="sanitary": root.scale.z=2.0/3.0
 	elif kind=="lamp":
 		var lamp:=R._lamp(root,b,Vector3.ZERO,m.steel,m.bright_steel)
-		lamp.set_meta("connected",data.get("connected",false))
+		lamp.set_meta("connected",data.get("powered",false))
+		Electrical.lamp_terminal(root)
 	elif kind=="engineShed":
 		var w:float=float(data.get("w",6));var d:float=float(data.get("d",14))
 		if int(data.get("rotation",0))%2==1:var swap:=w;w=d;d=swap
@@ -352,7 +360,7 @@ static func building(parent:Node3D,data:Dictionary)->Node3D:
 		for x in range(12): b.box(Vector3(-1.4+x*.25,1,0),Vector3(.012,2,.015),m.steel)
 	else:
 		G.beveled_box(root,Vector3(0,.7,0),Vector3(.8,1.4,.65),G.mat("789077" if kind=="power" else "698c8b",.70,.18))
-		G.label(root,"16 kVA" if kind=="power" else "WATER",Vector3(0,1,.34),28,.006)
+		G.label(root,"16 kW" if kind=="power" else "WATER",Vector3(0,1,.34),28,.006)
 	b.finish(root)
 	return root
 
@@ -506,6 +514,7 @@ static func rig_cargo(cargo:Node3D,equipment:Node3D)->void:
 	var height:float=.325+maxi(0,qty-1)*.36 if item.begins_with("rail") else .18*qty if item=="slab" else .91 if item=="diesel" else 1.15 if item in ["buffer","bufferStop"] else 2.8 if item in ["office","sanitary"] else .4
 	height=float(cargo.get_meta("cargo_height",height))
 	if item in ["buffer","bufferStop"]:width=.35;depth=.74
+	if item=="cableReel":width=.40;depth=.035;height=.47
 	var index:=0
 	for x in [-width,width]:
 		for z in [-depth,depth]:

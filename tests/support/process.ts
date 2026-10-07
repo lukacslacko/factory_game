@@ -1,3 +1,4 @@
+import { wireOpeningConsumer } from './electrical';
 import assert from 'node:assert/strict';
 import * as S from '../../src/sim';
 import { orderTankers } from '../../src/rail-tankers';
@@ -67,7 +68,7 @@ export function createProcessYard(
   };
   s.workers.push(worker);
   // Public electrical company construction is covered independently; this opening fixture supplies its completed connection.
-  s.utilities.power = true;
+  wireOpeningConsumer(s,pump);
   assert.equal(configureProcessPump(s, pump.id, { tankId: tank.id, rate: 5 }), undefined);
   if (options.connect || options.running) {
     assert.equal(requestPumpHose(s, pump.id, car.id, worker.id), undefined);

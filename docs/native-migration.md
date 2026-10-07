@@ -102,4 +102,11 @@ New automatic assignments use reachable walking-path distance to actual work/boa
 
 Native equipment service now drives suitable free machines near reachable diesel drums, uses visibly held 20 L cans and retains a clearly labeled stationary emergency path for dry machines or supported loads. Outbound road collections quote costs, reserve real stored assets, load through owned equipment/workers and preserve IDs and disposal history. An operator drives retired forklifts/excavators onto actual low-loader ramps.
 
-Native spatial sounds have saved master/category/mute/background controls and bounded playback. The production launchers use the normal audio driver. Sun, moon, sky, distant shadows and connected lamps follow actual simulated time continuously; every night has a full moon. The Dusk preview control explicitly overrides that presentation until switched off. See [Fuel, collection, sound, and daylight](site-services.md). The browser remains at v0.18.0; underground cable construction (#13) is deferred by request.
+Native spatial sounds have saved master/category/mute/background controls and bounded playback. The production launchers use the normal audio driver. Sun, moon, sky, distant shadows and connected lamps follow actual simulated time continuously; every night has a full moon. The Dusk preview control explicitly overrides that presentation until switched off. See [Fuel, collection, sound, and daylight](site-services.md). The browser remains at v0.18.0. The native underground electrical system (#13) adds physical incoming service, delivered cable reels, cell-by-cell excavation/spoil/cable/backfill, and tested circuits to lights and pumps; see [Underground electrical service](electrical-operations.md).
+
+
+## Underground electrical service — v0.26.0
+
+Issue #13 adds explicit low-voltage underground circuits, conserved cable reels and adjacent spoil, excavator/operator/engineer work, paving restoration, physical recovery, and per-consumer electrical interlocks. Lights can extend a protected branch from their base; all branches share the root station's 16 kW service. Existing saves without circuits require real connections rather than receiving invisible free wiring. The example has an explicitly recorded opening circuit. See [electrical operations](electrical-operations.md).
+
+The creator's earlier game was running during this update. Install the new build alongside it as **Plant 01 v0.26.0.app**; leave the running app and its saves untouched. Save and quit the old instance before continuing in the new one.

@@ -12,8 +12,10 @@ signal file_requested(action: String)
 const Table = preload("res://scripts/ui_table.gd")
 const ProcessUI = preload("res://scripts/process_ui.gd")
 const CollectionUI = preload("res://scripts/collection_ui.gd")
+const ElectricalUI = preload("res://scripts/electrical_ui.gd")
 var collection_ui: RefCounted = CollectionUI.new()
-const TABS: Array[String] = ["Yard","Railway","Process","Materials","Workers","Equipment","Deliveries","Work","Activity","Costs","SQL","Inbox"]
+var electrical_ui: RefCounted = ElectricalUI.new()
+const TABS: Array[String] = ["Yard","Railway","Process","Electrical","Materials","Workers","Equipment","Deliveries","Work","Activity","Costs","SQL","Inbox"]
 const ACTIVITIES: Array[String] = ["receiving","paving","construction","rail","recovery"]
 const CATALOG: Dictionary = {
 	"builder":{"name":"Construction worker","price":90,"wage":28},"operator":{"name":"Equipment operator","price":120,"wage":36},"engineer":{"name":"Site engineer","price":150,"wage":42},
@@ -22,7 +24,7 @@ const CATALOG: Dictionary = {
 	"bufferStop":{"name":"Railway buffer stop","price":1250,"mass":850},
 	"railPoints":{"name":"Turnout points module","price":3100,"mass":1750},"railFrog":{"name":"Turnout frog module","price":2450,"mass":1520},"railClosure":{"name":"Turnout closure module","price":2100,"mass":1520},"railExit":{"name":"Turnout exit module","price":1950,"mass":1520},
 	"office":{"name":"Office container","price":7200,"mass":4800},"sanitary":{"name":"Sanitary container","price":4600,"mass":2000},"shed":{"name":"Equipment shed kit","price":5200,"mass":2200},"store":{"name":"Stores building kit","price":6400,"mass":2600},
-	"lamp":{"name":"Light pole kit","price":340,"mass":160},"diesel":{"name":"Diesel drum · 200 L","price":320,"mass":185},"fence":{"name":"Fence panel","price":115,"mass":60},"power":{"name":"Electrical connection","price":1800},"water":{"name":"Water/sewer connection","price":2300}
+	"lamp":{"name":"Light pole kit","price":340,"mass":160},"diesel":{"name":"Diesel drum · 200 L","price":320,"mass":185},"fence":{"name":"Fence panel","price":115,"mass":60},"power":{"name":"Utility station · 16 kW","price":1800},"water":{"name":"Water/sewer connection","price":2300},"cableReel":{"name":"Low-voltage cable reel · 50 m","price":600,"mass":185,"w":1,"d":1,"max":1}
 }
 
 var catalog: Dictionary = CATALOG.duplicate(true)
@@ -80,6 +82,7 @@ var menu: PopupMenu
 var confirmation: ConfirmationDialog
 var pending_confirmation: Callable
 var tool_label: Label
+var electrical_tool_hint: String=""
 var release_control_button: Button
 var group_expansion: Dictionary = {}
 var rail_tool_buttons: Dictionary = {}
@@ -157,6 +160,7 @@ func setup() -> void:
 	bottom.add_child(footer)
 	status_label=_label(footer,"Drag empty ground: pan · right drag: orbit · scroll: zoom · WASD: view-relative")
 	status_label.size_flags_horizontal=Control.SIZE_EXPAND_FILL
+	status_label.clip_text=true
 	summary_label=_label(footer,"")
 	error_label=Label.new()
 	error_label.set_anchors_and_offsets_preset(Control.PRESET_TOP_WIDE)
@@ -336,9 +340,11 @@ func _build_yard_controls() -> void:
 	tool_panel.add_child(tools)
 	var row: HBoxContainer = HBoxContainer.new()
 	tools.add_child(row)
-	var choices: Dictionary = {"select":"Select","slab":"Pave","office":"Office","sanitary":"WC","shed":"Shed","engineShed":"Engine shed","store":"Stores","lamp":"Light","fence":"Fence","power":"Power","water":"Water","zone":"Stockyard"}
+	var choices: Dictionary = {"select":"Select","slab":"Pave","office":"Office","sanitary":"WC","shed":"Shed","engineShed":"Engine shed","store":"Stores","lamp":"Light","fence":"Fence","power":"Power…","water":"Water","zone":"Stockyard"}
 	for key: String in choices:
-		_button(row,str(choices[key]),func() -> void: _select_tool(key))
+		_button(row,str(choices[key]),func() -> void:
+			if key=="power":ElectricalUI.station_dialog(self)
+			else:_select_tool(key))
 	var rail_row: HBoxContainer = HBoxContainer.new()
 	tools.add_child(rail_row)
 	var rail_choices: Dictionary = {"railStraight":"Straight rail","railCurve":"90° curve","railTurnout":"Diverging switch","railConverging":"Converging switch"}
@@ -348,6 +354,7 @@ func _build_yard_controls() -> void:
 		rail_tool_buttons[key]=rail_button
 	(rail_tool_buttons["railTurnout"] as Button).tooltip_text="One incoming track splits into two. Click the incoming endpoint and point away from it."
 	(rail_tool_buttons["railConverging"] as Button).tooltip_text="Two incoming tracks join one. Click the straight incoming endpoint and point toward the junction; incoming tracks must be 5 meters apart."
+	_button(rail_row,"Cable…",func()->void:electrical_ui.plan_dialog(self))
 	_button(rail_row,"Rotate R",func() -> void: _send("rotate",{}))
 	_button(rail_row,"Left / right",func() -> void: _send("rail_hand",{}))
 	_button(rail_row,"Buy missing",func() -> void: _send("buy_missing",{}))
@@ -383,6 +390,7 @@ func _build_menu() -> void:
 	menu.add_item("Controls / guide",8)
 	menu.add_item("Railway management help",11)
 	menu.add_item("Sound settings…",12)
+	menu.add_item("Underground electrical help",13)
 	menu.add_item("Open save folder",9)
 	menu.add_separator()
 	menu.add_check_item("Full-resolution 3D (slower on Retina)",10)
@@ -413,6 +421,7 @@ func _menu_action(id: int) -> void:
 		9: file_requested.emit("folder")
 		11: _switch_tab("Help")
 		12: command.emit("audio_settings",{})
+		13: ElectricalUI.help_dialog(self)
 		10:
 			var index: int = menu.get_item_index(10)
 			var enabled: bool = not menu.is_item_checked(index)
@@ -423,6 +432,7 @@ func _menu_action(id: int) -> void:
 			help.title="Plant 01 controls"
 			help.dialog_text="Drag empty ground to pan; right drag to orbit; scroll to zoom. WASD moves relative to the view. Space pauses. R rotates a plan.\n\nPurchase workers, machines, and materials. Deliveries need owned equipment and an operator. Designate physical stockyards, pave foundations, and plan construction. IDs in every register open the inspector. Assign machines to whole work orders or rail crews.\n\n1× uses real time. The simulation continues while this window is unfocused. Save files and rolling diagnostic history remain on this device."
 			help.dialog_text += "\n\nAutomatic work chooses reachable nearby qualified workers. Explicit crews and active work keep precedence. Idle automatic blockers can move clear with their real operators. After 20 simulated seconds, a persistent warning links the work and blocker. Use Warnings only in Activity or Inbox, then Inspect / Locate. Return to automatic duty (worker) or Return to automatic work (equipment) releases manual control. Fixed stock or a boxed-in load may need relocation."
+			help.dialog_text += "\n\nElectrical: order a utility station, cable reels, an excavator, and crew. Plan a specific station-to-light or station-to-pump circuit from the Electrical register. Outside terminal cells are highlighted in Yard; click or drag between them and use R to swap the elbow. Electrical help explains trench/spoil access, crew, testing, and the 16 kW capacity limit."
 			help.dialog_text += "\n\nSave folder: " + str(metadata.get("storage",{}).get("dataDir","Not connected yet"))
 			screen.add_child(help)
 			_window_background(help)
@@ -630,7 +640,7 @@ func _build_register() -> void:
 	column_filters.toggled.connect(func(value: bool) -> void:
 		for table: Control in tables: table.show_filters(value))
 	filters.add_child(column_filters)
-	if active_tab in ["Work","Deliveries","Inbox"]:
+	if active_tab in ["Work","Deliveries","Inbox","Electrical"]:
 		record_status=_option(filters,["Active","All","To do","Doing","Done","Canceled"] if active_tab=="Work" else ["Active","All","Done"])
 		record_status.item_selected.connect(func(_index: int) -> void: _refresh_register())
 	if active_tab in ["Activity","Inbox"]:
@@ -638,6 +648,7 @@ func _build_register() -> void:
 		severity_filter.item_selected.connect(func(_index: int) -> void: _refresh_register())
 	match active_tab:
 		"Process": ProcessUI.build_register(self)
+		"Electrical": electrical_ui.build_register(self)
 		"Railway":
 			_note(register_body,"Receive a train, release its supplier engine through the siding exit, and use an owned shunter to move selected cars to named tracks. Rail management help walks through unloading and empty returns.")
 			var rail_actions: HBoxContainer = HBoxContainer.new()
@@ -668,7 +679,7 @@ func _build_register() -> void:
 		"Materials":
 			_button(register_body,"Collect unwanted material…",func() -> void:collection_ui.open(self))
 			_table(register_body,"Inventory",["Material","Delivered","Incoming","Stored","Reserved","In transit","On collection truck","Installed","Construction","Collected","Mass stored"])
-			_table(register_body,"Physical stacks",["ID","Material","Qty","Reserved","Footprint","Position","Source","Diesel L"])
+			_table(register_body,"Physical stacks",["ID","Material","Qty","Reserved","Footprint","Position","Source","Consumable contents"])
 		"Workers": _table(register_body,"",["ID","Name","Role","Duty","Shift","Status","Job / delivery","Vehicle","Support","Hours"])
 		"Equipment":
 			_table(register_body,"Mobile equipment",["ID","Type","Control","Auto work","Operator","Job / delivery","Fuel L","Used L","Parking","Status"])
@@ -713,6 +724,7 @@ func _refresh_register() -> void:
 	var rows: Array[Dictionary] = []
 	match active_tab:
 		"Process": ProcessUI.refresh_register(self)
+		"Electrical": electrical_ui.refresh_register(self)
 		"Railway":
 			for e: Dictionary in _records("railLocations"):
 				rows.append(_row(str(e.id),[e.id,e.get("name",""),e.get("kind",""),e.get("trackId",""),e.get("offset",0),e.get("length",0),"Designated"]))
@@ -754,7 +766,10 @@ func _refresh_register() -> void:
 				rows.append(_row(key,[_name(key),value.get("delivered",0),value.get("incoming",0),value.get("stored",0),value.get("reserved",0),value.get("cargo",0),value.get("outbound",0),value.get("installed",0),value.get("inConstruction",0),value.get("collected",0),_mass(_stored_mass(key))]))
 			_set_table(0,rows); rows=[]
 			for e: Dictionary in _records("stacks"):
-				rows.append(_row(str(e.id),[e.id,_name(str(e.get("item",""))),e.get("qty",0),e.get("reserved",0),"%s × %s m"%[e.get("w",1),e.get("d",1)],_position(e),e.get("source",""),"%.1f"%float(e.get("liters",0)) if e.get("item")=="diesel" else "—"]))
+				var contents: String="—"
+				if e.get("item")=="diesel":contents="%.1f L"%float(e.get("liters",0))
+				elif e.get("item")=="cableReel":contents="%.1f m · %.1f reserved"%[float(e.get("cableMeters",50)),float(e.get("cableReservedMeters",0))]
+				rows.append(_row(str(e.id),[e.id,_name(str(e.get("item",""))),e.get("qty",0),e.get("reserved",0),"%s × %s m"%[e.get("w",1),e.get("d",1)],_position(e),e.get("source",""),contents]))
 			_set_table(1,rows)
 		"Workers":
 			for e: Dictionary in _records("workers"):
@@ -876,6 +891,10 @@ func _entity(id: String) -> Dictionary:
 		if str(endpoint.get("id",""))==id:return {"type":"railEndpoint","entity":endpoint}
 	for operation: Dictionary in ProcessUI.records(self,"operations"):
 		if str(operation.get("id",""))==id:return {"type":"processOperation","entity":operation}
+	for run: Dictionary in ElectricalUI.records(self,"runs"):
+		if str(run.get("id",""))==id:return {"type":"electricalRun","entity":run}
+	for movement: Dictionary in ElectricalUI.records(self,"meterLedger"):
+		if str(movement.get("id",""))==id:return {"type":"electricalCableMovement","entity":movement}
 	var historical: Dictionary={}
 	var collections: Array[String]=[]
 	var collected: int=0
@@ -983,6 +1002,10 @@ func _render_inspector() -> void:
 	if entity.has("x"): _detail("Last site position" if kind in ["retiredEquipment","collectedStock"] else "Position",_position(entity))
 	_clearance_controls(str(entity.get("id","")))
 	match kind:
+		"electricalRun": ElectricalUI.run_inspector(self,entity)
+		"electricalCableMovement":
+			for pair: Array in [["Time","time"],["Circuit","runId"],["From","from"],["To","to"],["Meters","meters"],["Reason","reason"]]:_detail(pair[0],_clock(entity.get("time",0)) if pair[1]=="time" else entity.get(pair[1],"—"))
+			_reference_controls(inspector_body,[entity.get("runId",""),str(entity.get("from","")).get_slice("/",0),str(entity.get("to","")).get_slice("/",0)])
 		"workers": _worker_inspector(entity)
 		"equipment": _equipment_inspector(entity)
 		"collections":collection_ui.inspector(self,entity)
@@ -1052,17 +1075,23 @@ func _render_inspector() -> void:
 			_detail("Mass",_mass(20.0*stock_quantity+.825*float(entity.get("liters",0)) if stock_item=="diesel" else stock_quantity*float(catalog.get(stock_item,{}).get("mass",0))))
 			_detail("Source",entity.get("source",""))
 			if entity.get("item")=="diesel": _detail("Contents","%.1f / 200 L"%float(entity.get("liters",0)))
+			if entity.get("item")=="cableReel":
+				_detail("Cable remaining","%.1f / 50 m"%float(entity.get("cableMeters",50)))
+				_detail("Reserved cable","%.1f m"%float(entity.get("cableReservedMeters",0)))
+				_detail("Reserved recovery capacity","%.1f m"%float(entity.get("cableReservedSpaceMeters",0)))
+				_note(inspector_body,"Cable is consumed by the meter; the physical wooden reel stays on site when empty. Electrical's cable meter ledger links every withdrawal and buried segment.")
 			_button(inspector_body,"Collect unwanted units…",func()->void:collection_ui.open(self,str(entity.id)))
 			if str(entity.get("item","")).begins_with("rail"):
 				_button(inspector_body,"Relocate one exposed rail panel",func() -> void: _select_tool("relocate"))
 				_note(inspector_body,"Click clear space in a stockyard. An owned machine and crew physically move an unreserved panel.")
 		"buildings":
+			electrical_ui.asset_inspector(self,entity)
 			if str(entity.get("kind","")) in ProcessUI.KINDS:
 				ProcessUI.inspector(self,entity)
 				_button(inspector_body,"Recover / remove building",func() -> void: _send("remove_building",{"id":selected_id}))
 				return
 			_detail("Footprint","%s × %s m"%[entity.get("w",1),entity.get("d",1)])
-			_detail("Utilities","Connected" if entity.get("connected",false) else "Connection required")
+			if str(entity.get("kind","")) not in ["lamp","power"]:_detail("Utilities","Connected" if entity.get("connected",false) else "Connection required")
 			_detail("Source",entity.get("source",""))
 			if entity.get("kind")=="engineShed":
 				_detail("Rail parking bay",entity.get("parkingLocationId",""))
@@ -1212,10 +1241,22 @@ func _update_control_banner() -> void:
 		var vehicle_id: String = str(worker.get("vehicle",""))
 		tool_label.text="Manual driving · %s"%(vehicle_id if not vehicle_id.is_empty() else controlled_worker)
 		tool_label.tooltip_text="Automatic work stays suspended until you return this worker to automatic duty. Click the yard to drive or walk."
+	elif active_tool=="cable":
+		tool_label.text="Cable · R swaps elbow · Esc cancels"
+		tool_label.tooltip_text=electrical_tool_hint
+		status_label.text=electrical_tool_hint
+		status_label.tooltip_text=electrical_tool_hint
 	else:
 		var tool_name: String = (rail_tool_buttons[active_tool] as Button).text if rail_tool_buttons.has(active_tool) else active_tool
 		tool_label.text="Select · 1 m grid" if active_tool=="select" else "%s · click / drag the yard"%tool_name
 		tool_label.tooltip_text="Construction ghosts: cyan queued, amber underway. Placement preview: green valid, red invalid."
+		if not electrical_tool_hint.is_empty() and status_label.text==electrical_tool_hint:
+			status_label.text="Ready · click an asset to inspect it or drag empty ground to move the view."
+			status_label.tooltip_text=""
+
+func set_electrical_hint(text: String) -> void:
+	electrical_tool_hint=text
+	if active_tool=="cable":_update_control_banner()
 
 func _clearance_records(id: String) -> Array[Dictionary]:
 	var related: Dictionary={id:true}
@@ -1421,6 +1462,9 @@ func _work_inspector(work: Dictionary,group: bool) -> void:
 		_detail("Progress","%d%%"%roundi(float(work.get("progress",0))*100))
 		if work.has("item"): _detail("Material","%s × %s"%[work.get("qty",0),_name(str(work.item))])
 		if str(work.get("kind",""))=="refuel":_fuel_details(work)
+		if work.has("electricalRunId"):
+			_detail("Electrical circuit",work.electricalRunId)
+			_reference_controls(inspector_body,[work.electricalRunId])
 		if work.has("shedAssembly"):
 			var assembly: Dictionary = work.shedAssembly
 			_detail("Assembly",assembly.get("phase",""))
@@ -2108,7 +2152,9 @@ func _check_notices() -> void:
 		if candidate.get("seen",false) or candidate.get("state","todo")=="done":continue
 		if newest.is_empty():newest=candidate
 		if _notice_severity(candidate)=="warning":newest=candidate;break
-	if newest.is_empty():return
+	if newest.is_empty():
+		toast.hide();latest_notice="";latest_notice_key=""
+		return
 	var notice_key: String=JSON.stringify([newest.get("id",""),newest.get("detail",""),newest.get("state","")])
 	if notice_key==latest_notice_key or not started:return
 	latest_notice=str(newest.id);latest_notice_key=notice_key
