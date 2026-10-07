@@ -1,3 +1,5 @@
+import { quoteCollection, requestCollection as requestPhysicalCollection, cancelCollection as cancelPhysicalCollection, pauseCollection, resumeCollection, collectionInventory, collectionOwnsStack, collectionOwnsEquipment } from './collection';
+import { assignEquipmentRefueling, tickEquipmentRefueling, equipmentRefuelingCanDrive } from './equipment-refueling';
 import { tickActionClearances, requestActionClearance, clearActionClearance, actionEnvelopeBlockers, releaseActionYield } from './action-clearance';
 import { appendRailLayers, takeRailLayers, recoveryStackCandidates } from './rail-stock';
 import {
@@ -407,7 +409,7 @@ export function allocate(
       for (let x = zone.x; x + m.w <= zone.x + zone.w; x++) {
         const r = { x, z, w: m.w, d: m.d };
         if (
-          !s.stacks.some((t) => (t.qty > 0 || t.item === 'diesel') && overlap(t, r)) &&
+          !s.stacks.some((t) => (t.qty > 0 || t.item === 'diesel' || collectionOwnsStack(s, t.id)) && overlap(t, r)) &&
           !s.orders.some((o) => o.allocated && overlap(o.allocated, r)) &&
           !clearance.some((area) => overlap(area, r)) &&
           !s.jobs.some(
@@ -558,7 +560,7 @@ export function validPlan(s: State, kind: string, r: Rect, ignoreJobs = false): 
   if (s.buildings.some((b) => overlap(b, r))) return 'An existing structure occupies this area.';
   if (s.zones.some((z) => overlap(z, r)) && kind !== 'slab')
     return 'This is a storage zone. Place the structure outside its marked boundary.';
-  if (s.stacks.some((t) => (t.qty > 0 || t.item === 'diesel') && overlap(t, r)))
+  if (s.stacks.some((t) => (t.qty > 0 || t.item === 'diesel' || collectionOwnsStack(s, t.id)) && overlap(t, r)))
     return 'Stored material occupies the construction area.';
   if (kind !== 'engineShed' && s.rails.some((t) => railCells(t).some((p) => overlap(r, { ...p, w: 1, d: 1 }))))
     return 'Existing track occupies this area.';
@@ -590,7 +592,7 @@ function newJob(
     kind,
     rotation,
     item: kind in MATERIALS ? (kind as Item) : undefined,
-    qty: 1,
+    qty: kind === 'refuel' ? 0 : 1,
     status: 'todo',
     phase: 'Waiting',
     reason: '',
@@ -608,6 +610,7 @@ function newJob(
 export function stockMoveError(s: State, sourceId: string, destination: Rect): string {
   const source = s.stacks.find((t) => t.id === sourceId);
   if (!source || !source.item.startsWith('rail')) return 'Select a physical stack of rail panels.';
+  if (collectionOwnsStack(s,source.id)) return 'This stack is reserved for physical collection.';
   if (railStagingStackOwned(s, source.id))
     return 'This rail stack belongs to active staging or withdrawal. Wait until its handling crew releases it.';
   if (source.qty - source.reserved < 1)
@@ -1233,7 +1236,7 @@ export function missingMaterials(s: State) {
       .filter((t) => t.item === item)
       .reduce((n, t) => n + t.qty - t.reserved, 0);
     const incoming = s.orders
-      .filter((o) => o.status !== 'done')
+      .filter((o) => o.status !== 'done' && !o.collectionId)
       .flatMap(orderLines)
       .filter((line) => line.item === item)
       .reduce((n, line) => n + line.qty - line.arrived, 0);
@@ -2478,6 +2481,10 @@ function complete(s: State, j: Job) {
     );
 }
 const deliveryAPI = { id, event, notice, cost, movement, obstacles, allocate };
+export { quoteCollection };
+export function requestCollection(s: State, request: import('./collection-types').CollectionRequest) { return requestPhysicalCollection(s, request, deliveryAPI); }
+export function cancelCollection(s: State, collectionId: string) { return cancelPhysicalCollection(s, collectionId, deliveryAPI); }
+export { pauseCollection, resumeCollection };
 function advanceOrder(s: State, o: Order, dt: number) {
   tickDelivery(s, o, dt, deliveryAPI);
 }
@@ -2503,51 +2510,7 @@ function assign(s: State, j: Job) {
   if (j.status !== 'todo') return;
   if (j.retryRevision === s.revision && (j.retryAt || 0) > s.elapsed) return;
   if (assignTurnoutOperation(s, j, { obstacles, event, complete, release: finishRelease })) return;
-  if (j.kind === 'refuel') {
-    const e = s.equipment.find((e) => e.id === j.target);
-    if (!e) {
-      j.reason = 'Equipment no longer exists';
-      return;
-    }
-    if (e.refueling || (e.job && e.fuel > 0.01) || (e.path.length && e.fuel > 0.01)) {
-      j.reason = 'Waiting for equipment to stop';
-      return;
-    }
-    if (e.fuel >= e.tank - 0.1) {
-      complete(s, j);
-      return;
-    }
-    const barrels=s.stacks.filter(t=>t.item==='diesel'&&(t.liters||0)>0&&!s.jobs.some(k=>k.id!==j.id&&k.stack===t.id&&k.status==='doing'));
-    const picks=barrels.map(stack=>({stack,choice:selectWorker(s,workerApproachPoints(stack),{equipmentId:e.id,workId:j.parentId||j.id,preferredId:equipmentAssistant(s,e.id)?.id,allowJobId:e.job,eligible:w=>workerSupportsEquipment(w,e.id)})})).filter(q=>q.choice).sort((a,b)=>a.choice!.score-b.choice!.score||a.stack.id.localeCompare(b.stack.id));
-    const stack=picks[0]?.stack||barrels[0],worker=picks[0]?.choice?.worker;
-    if (!stack) {
-      j.reason = 'No diesel in storage';
-      return;
-    }
-    if (!worker) {
-      j.reason = s.workers.some(w=>workerCanStart(s,w,{equipmentId:e.id,allowJobId:e.job}))?'No walking access to the diesel drums':'No available worker';
-      return;
-    }
-    const path = picks[0]?.choice?.path;
-    if (!path) {
-      j.reason = 'No access to the diesel drum';
-      return;
-    }
-    j.stack = stack.id;
-    j.worker = worker.id;
-    j.equipment = e.id;
-    j.resumeJob = worker.job;
-    e.refueling = j.id;
-    if (!e.job) e.job = j.id;
-    worker.job = j.id;
-    worker.path = path;
-    noteWorkerAssignment(s,worker,{equipmentId:e.id,workId:j.parentId||j.id});
-    worker.status = 'Collecting fuel';
-    j.status = 'doing';
-    j.phase = 'Collect fuel';
-    j.reason = '';
-    return;
-  }
+  if (assignEquipmentRefueling(s,j,{event,notice,movement,complete,release:finishRelease})) return;
   if (j.railRecovery) {
     const source = s.rails.find((r) => r.id === j.railRecovery!.railId);
     const pending = j.railRecovery.buffers.filter((id) => bufferAssets(s).some((b) => b.id === id));
@@ -2722,6 +2685,7 @@ function assign(s: State, j: Job) {
         ? s.stacks.find(
             (t) =>
               t.id === j.stockMove?.sourceId &&
+              !collectionOwnsStack(s,t.id) &&
               t.qty - t.reserved >= j.qty &&
               !railStagingStackOwned(s, t.id),
           )
@@ -2729,6 +2693,7 @@ function assign(s: State, j: Job) {
           s.stacks.find(
             (t) =>
               t.item === j.item &&
+              !collectionOwnsStack(s, t.id) &&
               (!railStagingStackOwned(s, t.id) ||
                 (j.legacyRailHandoff === 'staged' && t.source === j.id)) &&
               (j.kind !== 'slab' || !constructionSourceBusy(s, t.id, j.id)) &&
@@ -2805,7 +2770,8 @@ function assign(s: State, j: Job) {
     s.equipment.some(
       (e) =>
         !!availableEquipmentAssistant(s, e.id) &&
-        equipmentReservedForJob(s, e, j) &&
+        !collectionOwnsEquipment(s, e.id) &&
+    equipmentReservedForJob(s, e, j) &&
         equipmentCanDoJob(e, j, s),
     );
   if (!worker && !prefetch && !hasReadyHelper) {
@@ -2831,6 +2797,7 @@ function assign(s: State, j: Job) {
   }
   const explicit = jobEquipmentAssignment(s, j).equipmentId;
   const allowed = (e: Equipment) =>
+    !collectionOwnsEquipment(s, e.id) &&
     equipmentReservedForJob(s, e, j) &&
     (explicit === e.id ||
       (equipmentAllows(e, jobActivity(j)) &&
@@ -3129,6 +3096,7 @@ function recoveryDestination(s: State, j: Job, e: Equipment) {
 }
 function tickJob(s: State, j: Job, dt: number) {
   if (j.status !== 'doing') return;
+  if (tickEquipmentRefueling(s,j,dt,{event,notice,movement,complete,release:finishRelease})) return;
   if (tickTurnoutOperation(s, j, dt, { obstacles, event, complete, release: finishRelease }))
     return;
   let w = s.workers.find((w) => w.id === j.worker);
@@ -3189,64 +3157,6 @@ function tickJob(s: State, j: Job, dt: number) {
     return;
   }
   if (j.reason.startsWith('Waiting for PO-') && j.reason.endsWith('to pass safely')) j.reason = '';
-  if (j.kind === 'refuel') {
-    if (j.phase === 'Collect fuel' && !w.path.length) {
-      if(stack && !workerApproachPoints(stack).some(p=>dist(w,p)<.18)) {
-        w.path=approach(w,stack,obstacles(s),.1)||[];
-        j.reason=w.path.length?'Returning to the diesel drum after clearance':'No access to the diesel drum';
-        return;
-      }
-      if (!stack || (stack.liters || 0) <= 0) {
-        j.reason = 'Drum empty';
-        finishRelease(s, j);
-        j.status = 'todo';
-        return;
-      }
-      const p = route(w, machineStep(e), obstacles(s), 0.1);
-      if (!p) {
-        j.reason = 'No access to machine';
-        return;
-      }
-      j.fuelLiters = Math.min(20, stack.liters || 0, e.tank - e.fuel);
-      stack.liters! -= j.fuelLiters;
-      w.path = p;
-      j.phase = 'Carry fuel';
-      w.status = `Carrying ${j.fuelLiters.toFixed(0)} L service can`;
-      event(
-        s,
-        'Fuel',
-        j.id,
-        `Collected ${j.fuelLiters.toFixed(1)} L from ${stack.id} into the service can.`,
-      );
-    } else if (j.phase === 'Carry fuel' && !w.path.length) {
-      const fillPoint=machineStep(e);
-      if(dist(w,fillPoint)>.18) {
-        w.path=walkRoute(s,w,fillPoint,pedestrianObstacles(s))||[];
-        j.reason=w.path.length?'Returning the carried service can to the actual filler':'No access to the equipment filler';
-        return;
-      }
-      j.reason='';
-      j.elapsed += dt;
-      j.progress = Math.min(1, j.elapsed / 6);
-      if (j.elapsed >= 6) {
-        const liters = j.fuelLiters || 0;
-        e.fuel += liters;
-        j.fuelLiters = 0;
-        event(
-          s,
-          'Fuel',
-          e.id,
-          `Transferred ${liters.toFixed(1)} L from ${stack!.id} using a service can.`,
-        );
-        if (!j.cancel && e.fuel < e.tank - 0.1 && (stack!.liters || 0) > 0) {
-          w.path = approach(w, stack!, obstacles(s), 0.1) || [];
-          j.phase = 'Collect fuel';
-          j.elapsed = 0;
-        } else complete(s, j);
-      }
-    }
-    return;
-  }
   if (!op) return;
   syncConstructionLoad(s, j);
   if (e.refueling) {
@@ -3704,7 +3614,7 @@ export function tick(s: State, dt: number) {
       }
     }
     const active = e.path.length > 0 || e.work > 0 || !!e.trafficGoal;
-    if (active && e.fuel > 0 && !e.refueling) {
+    if (active && e.fuel > 0 && (!e.refueling || equipmentRefuelingCanDrive(s,e))) {
       const used = Math.min(e.fuel, dt * (e.work ? 0.014 : 0.008));
       e.fuel -= used;
       e.used += used;
@@ -3758,6 +3668,7 @@ export function tick(s: State, dt: number) {
       .map((job) => ({ job, assignment: jobEquipmentAssignment(s, job) }));
     queued.sort(
       (a, b) =>
+        Number(b.job.kind==='refuel') - Number(a.job.kind==='refuel') ||
         (b.assignment.priority || 0) - (a.assignment.priority || 0) ||
         Number(!!b.assignment.equipmentId) - Number(!!a.assignment.equipmentId) ||
         Number(!!automaticEquipmentForWork(s, b.job)) -
@@ -3782,6 +3693,7 @@ export function tick(s: State, dt: number) {
 }
 export function totals(s: State, item: Item) {
   return {
+    ...collectionInventory(s, item),
     inConstruction: s.jobs.filter(
       (j) => j.status === 'doing' && j.kind === item && j.delivered && (j.shedAssembly || j.processAssembly),
     ).length,
@@ -3795,10 +3707,12 @@ export function totals(s: State, item: Item) {
         ? bufferAssets(s).filter((b) => b.carried && b.source !== 'opening').length
         : 0),
     incoming: s.orders
+      .filter(o => !o.collectionId)
       .flatMap(orderLines)
       .filter((line) => line.item === item)
       .reduce((n, line) => n + line.qty - line.arrived, 0),
     delivered: s.orders
+      .filter(o => !o.collectionId)
       .flatMap(orderLines)
       .filter((line) => line.item === item)
       .reduce((n, line) => n + line.arrived, 0),

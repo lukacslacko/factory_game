@@ -1,6 +1,8 @@
 import type { Equipment, Point, Rect, State } from './types';
 import { localPoint } from './motion';
 import { boxRect, carrierBoxes } from './traffic';
+import { equipmentFuelFiller } from './equipment-refueling';
+import { machineStep } from './boarding';
 
 export interface EquipmentIntent {
   phase: string;
@@ -26,7 +28,24 @@ export function equipmentIntent(s: State, e: Equipment): EquipmentIntent {
     target: Point | undefined,
     targetLabel = 'Destination';
   const references: string[] = [];
-  if (order?.unload) {
+  const collection=s.collections?.find(c=>!['done','canceled'].includes(c.status) && (c.task?.equipmentId===e.id || c.equipmentId===e.id || c.automaticEquipment===e.id));
+  if(collection && !e.refueling && !(job?.kind==='refuel' && job.status==='doing')) {
+    const t=collection.task;
+    phase=`Collection${collection.status==='paused'?' paused':''} · ${t?.phase||collection.phase}`;
+    detail=collection.note;
+    references.push(collection.id,collection.carrierOrderId,...[collection.equipmentId,t?.operatorId,t?.helperId,t?.lineIndex!==undefined?collection.lines[t.lineIndex]?.stackId:undefined].filter((id):id is string=>!!id));
+    if(t) {
+      target=['boarding','source','rig','lift'].includes(t.phase)?t.sourceDock:
+        t.phase==='clear-source'?t.sourceClear:
+        ['return','return-lower'].includes(t.phase)?t.sourceDock:
+        t.phase==='clear-deck'?t.withdrawalPoint||t.deckClear:
+        t.phase==='equipment-clear'?t.deckClear:
+        t.phase.startsWith('equipment-')||t.phase==='ramps'?t.deckDock:t.deckDock;
+      if(['equipment-ramp','equipment-exit','equipment-unload'].includes(t.phase)) target=t.deck;
+      targetLabel=t.phase.startsWith('equipment-')||t.phase==='ramps'?'Collection lowloader':
+        ['source','rig','lift','boarding','clear-source','return','return-lower'].includes(t.phase)?'Selected collection source':'Collection truck';
+    }
+  } else if (order?.unload && !e.refueling) {
     const t = order.unload;
     phase = `${order.unloadPaused ? 'Delivery paused' : 'Delivery'} · ${t.phase}`;
     detail = order.note || 'Handling delivery';
@@ -45,7 +64,14 @@ export function equipmentIntent(s: State, e: Equipment): EquipmentIntent {
       ...(r?.routeBlockage ? [r.routeBlockage.blocker] : []),
       ...[h?.sourceId, r?.source?.stackId, r?.panel.stackId].filter((v): v is string => !!v),
     );
-    if (h) {
+    if (job.kind==='refuel') {
+      const barrel=s.stacks.find(t=>t.id===(job.fuelWork?.barrelId||job.stack));
+      references.push(...[job.fuelWork?.barrelId].filter((v):v is string=>!!v));
+      target=job.phase==='Carry fuel'?equipmentFuelFiller(e):
+        ['Board equipment','Alight for fuel'].includes(job.phase)?machineStep(e):
+        job.phase==='Drive to diesel barrel'&&job.fuelWork?.station?job.fuelWork.station:
+        barrel?middle(barrel):undefined;
+    } else if (h) {
       target = ['approach', 'rig', 'engage', 'lift'].includes(h.phase)
         ? h.sourceDock
         : h.phase === 'clear'
@@ -104,8 +130,9 @@ export function equipmentIntent(s: State, e: Equipment): EquipmentIntent {
       const stock = !job.delivered && job.stack && s.stacks.find((t) => t.id === job.stack);
       target = job.shedAssembly?.dock || (stock ? middle(stock) : middle(job));
     }
-    targetLabel =
-      !h && !r && !job.shedAssembly && !job.delivered && job.stack
+    targetLabel = job.kind==='refuel'
+      ? job.phase==='Carry fuel'?'Equipment fuel filler':job.phase==='Drive to diesel barrel'?'Fuel service position':['Board equipment','Alight for fuel'].includes(job.phase)?'Equipment cab step':'Diesel barrel'
+      : !h && !r && !job.shedAssembly && !job.delivered && job.stack
         ? 'Reserved material'
         : 'Work approach';
   } else if (e.parking && e.parkingState && e.parkingState !== 'parked') {
@@ -129,7 +156,7 @@ export function equipmentIntent(s: State, e: Equipment): EquipmentIntent {
   } else if (e.trafficGoal) {
     target = e.trafficGoal;
     targetLabel = 'Clearance maneuver';
-  } else if (e.destination) target = e.destination;
+  } else if (e.destination && !job && !collection) target = e.destination;
   const blockedId = e.blockedBy?.match(/(?:EQ|WRK|STK|BLD|RAIL|PO|BUFFER)-\d+/)?.[0];
   let blocker: EquipmentIntent['blocker'];
   if (blockedId) {

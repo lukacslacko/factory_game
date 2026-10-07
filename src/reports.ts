@@ -15,6 +15,7 @@ import { parkingStatus } from './workforce';
 import { equipmentAssignment, jobRows, automaticEquipmentForWork } from './jobs';
 import { equipmentRole, equipmentActivities, equipmentWorkSummary } from './equipment-roles';
 export const SQL_EXAMPLES = [
+  {name: 'Paid collections', sql: 'SELECT id, status, phase, massKg, total FROM collections ORDER BY created DESC;'},
   {name: 'Fluid inventory', sql: 'SELECT id, product, liters, capacity FROM process_tanks UNION ALL SELECT id, product, liters, capacity FROM process_lines;'},
   {name: 'Transfer interlocks', sql: 'SELECT id, carId, tankId, hose, flow, transferred, status FROM process_pumps;'},
   {name: 'Fluid movement ledger', sql: 'SELECT time, product, liters, "from", "to" FROM fluid_movements ORDER BY updated DESC;'},
@@ -80,6 +81,9 @@ export async function query(s: State, sql: string) {
       item,
       ...totals(s, item as keyof typeof MATERIALS),
     })),
+    collections: (s.collections||[]).map(({task,lines,fees,...c})=>({...c,...fees})),
+    collection_lines: (s.collections||[]).flatMap(c=>c.lines.map((l,line)=>({...l,collection_id:c.id,line,sourceSnapshot:undefined}))),
+    retired_equipment: (s.retiredEquipment||[]).map(({path,...e})=>({...e})),
     workers: s.workers.map(({ path, ...w }) => ({ ...w })),
     equipment: s.equipment.map(({ path, cargo, ...e }) => ({
       ...e,
@@ -113,10 +117,11 @@ export async function query(s: State, sql: string) {
     work_orders: jobRows(s).map((r) => ({ ...r })),
     orders: s.orders.map(({ vehicle, handler, allocated, ...o }) => ({
       ...o,
-      mass_kg: orderMass(o),
+      mass_kg: o.collectionId ? s.collections?.find(c=>c.id===o.collectionId)?.massKg : orderMass(o),
+      direction: o.collectionId ? "outbound" : "incoming",
     })),
     order_lines: s.orders.flatMap((o) =>
-      orderLines(o).map((l, line) => ({
+      (o.collectionId ? [] : orderLines(o)).map((l, line) => ({
         order_id: o.id,
         line,
         ...l,
@@ -202,6 +207,9 @@ export async function query(s: State, sql: string) {
     }),
   };
   const defaultCols: Record<string, string[]> = {
+    collections: ['id','carrierOrderId','kind','status','phase','note','equipmentId','massKg','transport','disposal','total','invoiced','charged','created','finished'],
+    collection_lines: ['collection_id','line','stackId','item','qty','reserved','loaded','collected','massKg'],
+    retired_equipment: ['id','kind','fuel','used','collectionId','retiredAt','retirementReason'],
     rail_locations: [
       'id',
       'name',

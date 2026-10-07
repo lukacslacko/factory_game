@@ -11,6 +11,8 @@ signal file_requested(action: String)
 
 const Table = preload("res://scripts/ui_table.gd")
 const ProcessUI = preload("res://scripts/process_ui.gd")
+const CollectionUI = preload("res://scripts/collection_ui.gd")
+var collection_ui: RefCounted = CollectionUI.new()
 const TABS: Array[String] = ["Yard","Railway","Process","Materials","Workers","Equipment","Deliveries","Work","Activity","Costs","SQL","Inbox"]
 const ACTIVITIES: Array[String] = ["receiving","paving","construction","rail","recovery"]
 const CATALOG: Dictionary = {
@@ -313,7 +315,8 @@ func _build_yard_controls() -> void:
 	camera_bar.add_child(grid)
 	var light: CheckButton = CheckButton.new()
 	lighting_button = light
-	light.text="Dusk"
+	light.text="Dusk preview"
+	light.tooltip_text="Unchecked: sunlight and full-moon nights follow the simulated clock. Checked: hold a dusk preview without changing game time."
 	light.toggled.connect(func(value: bool) -> void: lighting_requested.emit(value))
 	camera_bar.add_child(light)
 	creative_button=CheckButton.new()
@@ -379,6 +382,7 @@ func _build_menu() -> void:
 	menu.add_item("Restore previous backup",7)
 	menu.add_item("Controls / guide",8)
 	menu.add_item("Railway management help",11)
+	menu.add_item("Sound settings…",12)
 	menu.add_item("Open save folder",9)
 	menu.add_separator()
 	menu.add_check_item("Full-resolution 3D (slower on Retina)",10)
@@ -408,6 +412,7 @@ func _menu_action(id: int) -> void:
 		7: _send("restore_backup",{})
 		9: file_requested.emit("folder")
 		11: _switch_tab("Help")
+		12: command.emit("audio_settings",{})
 		10:
 			var index: int = menu.get_item_index(10)
 			var enabled: bool = not menu.is_item_checked(index)
@@ -533,6 +538,7 @@ func show_error(text: String) -> void:
 	status_label.text=text
 
 func receive_reply(message: Dictionary) -> void:
+	collection_ui.receive(self,message)
 	if bool(message.get("ok",true)):
 		error_label.visible=false
 		if str(message.get("action",""))=="purchase_batch" and is_instance_valid(purchase_window):
@@ -660,15 +666,18 @@ func _build_register() -> void:
 			_table(register_body,"Active rail route reservations · select the owning train or locomotive",["Owner","Operation","Track sections","Progress m","Cars","Waiting for"])
 			for table: Control in tables:table.tree.custom_minimum_size.y=34
 		"Materials":
-			_table(register_body,"Inventory",["Material","Delivered","Incoming","Stored","Reserved","In transit","Installed","Construction","Mass stored"])
+			_button(register_body,"Collect unwanted material…",func() -> void:collection_ui.open(self))
+			_table(register_body,"Inventory",["Material","Delivered","Incoming","Stored","Reserved","In transit","On collection truck","Installed","Construction","Collected","Mass stored"])
 			_table(register_body,"Physical stacks",["ID","Material","Qty","Reserved","Footprint","Position","Source","Diesel L"])
 		"Workers": _table(register_body,"",["ID","Name","Role","Duty","Shift","Status","Job / delivery","Vehicle","Support","Hours"])
 		"Equipment":
 			_table(register_body,"Mobile equipment",["ID","Type","Control","Auto work","Operator","Job / delivery","Fuel L","Used L","Parking","Status"])
 			_table(register_body,"Buildings",["ID","Name","Kind","Position","Footprint","Utilities"])
+			_table(register_body,"Retired equipment archive",["ID","Type","Collection","Remaining diesel L","Lifetime diesel used L"])
 		"Deliveries":
 			_table(register_body,"",["ID","Items","Qty","Arrived","Mass","Mode","ETA","Status","Receiving note","Cost"])
 			_table(register_body,"Empty return trains",["ID","Supplier engine","Deliveries","Cars","Phase","Waiting / status"])
+			collection_ui.build_register(self)
 		"Work":
 			_button(filters,"Expand all",func() -> void:
 				for group: Dictionary in _records("jobGroups"): group_expansion[str(group.id)]=true
@@ -742,7 +751,7 @@ func _refresh_register() -> void:
 		"Materials":
 			for value: Dictionary in metadata.get("inventory",[]):
 				var key: String = str(value.get("item",""))
-				rows.append(_row(key,[_name(key),value.get("delivered",0),value.get("incoming",0),value.get("stored",0),value.get("reserved",0),value.get("cargo",0),value.get("installed",0),value.get("inConstruction",0),_mass(float(value.get("stored",0))*float(catalog.get(key,{}).get("mass",0)))]))
+				rows.append(_row(key,[_name(key),value.get("delivered",0),value.get("incoming",0),value.get("stored",0),value.get("reserved",0),value.get("cargo",0),value.get("outbound",0),value.get("installed",0),value.get("inConstruction",0),value.get("collected",0),_mass(_stored_mass(key))]))
 			_set_table(0,rows); rows=[]
 			for e: Dictionary in _records("stacks"):
 				rows.append(_row(str(e.id),[e.id,_name(str(e.get("item",""))),e.get("qty",0),e.get("reserved",0),"%s × %s m"%[e.get("w",1),e.get("d",1)],_position(e),e.get("source",""),"%.1f"%float(e.get("liters",0)) if e.get("item")=="diesel" else "—"]))
@@ -759,8 +768,13 @@ func _refresh_register() -> void:
 			for e: Dictionary in _records("buildings"):
 				rows.append(_row(str(e.id),[e.id,e.get("name",""),_name(str(e.get("kind",""))),_position(e),"%s × %s m"%[e.get("w",1),e.get("d",1)],"Connected" if e.get("connected",false) else "Needs connection"]))
 			_set_table(1,rows)
+			rows=[]
+			for e: Dictionary in _records("retiredEquipment"):
+				rows.append(_row(str(e.id),[e.id,_name(str(e.get("kind",""))),e.get("collectionId",""),"%.1f"%float(e.get("fuel",0)),"%.1f"%float(e.get("used",0))]))
+			_set_table(2,rows)
 		"Deliveries":
 			for e: Dictionary in _records("orders").duplicate():
+				if e.has("collectionId"):continue
 				if not _status_matches(str(e.get("status",""))): continue
 				var manifest: Array = e.get("manifest",[{"item":e.get("item",""),"qty":e.get("qty",0)}])
 				var names: PackedStringArray = []
@@ -774,6 +788,7 @@ func _refresh_register() -> void:
 				if not _status_matches(str(train.get("phase",""))):continue
 				rows.append(_row(str(train.id),[train.id,train.get("locomotiveId",""),", ".join(train.get("orderIds",[])),", ".join(train.get("carIds",[])),train.get("phase",""),train.get("status",train.get("blockedBy",""))]))
 			_set_table(1,rows)
+			collection_ui.refresh_register(self,2)
 		"Work":
 			var parents: Dictionary = {}
 			for work: Dictionary in metadata.get("workRows",[]): parents[str(work.id)]=str(work.get("parentId",""))
@@ -815,6 +830,13 @@ func _refresh_register() -> void:
 func _job_row(task: Dictionary,prefix: String) -> Dictionary:
 	return _row(str(task.id),[task.id,prefix+_name(str(task.get("kind",""))),task.get("status",""),"%d%%"%roundi(float(task.get("progress",0))*100),task.get("worker",""),task.get("operator",""),task.get("equipment",""),task.get("preferredEquipment",""),task.get("reason",task.get("phase",""))])
 
+func _stored_mass(item: String) -> float:
+	var total: float=0.0
+	for stack: Dictionary in _records("stacks"):
+		if str(stack.get("item",""))!=item:continue
+		total+=20.0*float(stack.get("qty",0))+.825*float(stack.get("liters",0)) if item=="diesel" else float(stack.get("qty",0))*float(catalog.get(item,{}).get("mass",0))
+	return total
+
 func _work_tasks(group_id: String) -> Array[Dictionary]:
 	var group_ids: Dictionary = {group_id:true}
 	for _pass: int in range(16):
@@ -832,7 +854,7 @@ func _work_tasks(group_id: String) -> Array[Dictionary]:
 func _entity(id: String) -> Dictionary:
 	# Missing optional reference IDs are empty too; they are not a selection.
 	if id.is_empty(): return {}
-	for key: String in ["workers","equipment","shunters","stacks","buildings","rails","zones","jobs","jobGroups","orders","railLocations","railReturns","railServiceCrew","railPossessions","notices","events","costs","movements"]:
+	for key: String in ["workers","equipment","shunters","stacks","buildings","rails","zones","jobs","jobGroups","orders","railLocations","railReturns","railServiceCrew","railPossessions","notices","events","costs","movements","collections","retiredEquipment"]:
 		for entity: Dictionary in _records(key):
 			if str(entity.get("id",""))==id: return {"type":key,"entity":entity}
 	for holder: Dictionary in _records("shunters")+_records("railReturns")+_records("railServiceCrew"):
@@ -854,6 +876,19 @@ func _entity(id: String) -> Dictionary:
 		if str(endpoint.get("id",""))==id:return {"type":"railEndpoint","entity":endpoint}
 	for operation: Dictionary in ProcessUI.records(self,"operations"):
 		if str(operation.get("id",""))==id:return {"type":"processOperation","entity":operation}
+	var historical: Dictionary={}
+	var collections: Array[String]=[]
+	var collected: int=0
+	var loaded: int=0
+	for collection: Dictionary in _records("collections"):
+		for line: Dictionary in collection.get("lines",[]):
+			if str(line.get("stackId",""))==id:
+				if historical.is_empty():historical=line.get("sourceSnapshot",{}).duplicate(true)
+				historical.merge({"id":id,"item":line.get("item","")},true)
+				collections.append(str(collection.id));collected+=int(line.get("collected",0));loaded+=int(line.get("loaded",0))
+	if not collections.is_empty():
+		historical.merge({"collectionIds":collections,"collected":collected,"loaded":loaded},true)
+		return {"type":"collectedStock","entity":historical}
 	return {}
 
 func _detail(label_text: String,value: Variant) -> void:
@@ -939,16 +974,31 @@ func _render_inspector() -> void:
 	var name: Label = _label(heading,selected_id)
 	name.add_theme_font_size_override("font_size",16)
 	name.size_flags_horizontal=Control.SIZE_EXPAND_FILL
-	_button(heading,"Locate",func() -> void: _switch_tab("Yard"); focus_entity.emit(selected_id))
+	if kind not in ["retiredEquipment","collectedStock"]:
+		_button(heading,"Locate",func() -> void: _switch_tab("Yard"); focus_entity.emit(selected_id))
 	_button(heading,"×",func() -> void: selected_id=""; entity_selected.emit(""); _render_inspector())
 	var display_name: String = str(entity.get("name",entity.get("label",_name(str(entity.get("kind",entity.get("item",kind)))))))
 	if kind=="buildings" and str(entity.get("kind","")) in ProcessUI.KINDS:display_name=display_name.trim_suffix(" kit")
 	_note(inspector_body,display_name)
-	if entity.has("x"): _detail("Position",_position(entity))
+	if entity.has("x"): _detail("Last site position" if kind in ["retiredEquipment","collectedStock"] else "Position",_position(entity))
 	_clearance_controls(str(entity.get("id","")))
 	match kind:
 		"workers": _worker_inspector(entity)
 		"equipment": _equipment_inspector(entity)
+		"collections":collection_ui.inspector(self,entity)
+		"retiredEquipment":
+			_detail("State","Collected off site")
+			_detail("Collection",entity.get("collectionId",""))
+			_detail("Remaining sealed tank fuel","%.1f L"%float(entity.get("fuel",0)))
+			_detail("Lifetime diesel used","%.1f L"%float(entity.get("used",0)))
+			_note(inspector_body,"This equipment's original ID and service history remain available after collection. It cannot be assigned to work.")
+		"collectedStock":
+			_detail("State","No longer in site storage")
+			_detail("Material",_name(str(entity.get("item",""))))
+			_detail("Collections"," · ".join(entity.get("collectionIds",[])))
+			_detail("Secured on carrier",entity.get("loaded",0))
+			_detail("Collected off site",entity.get("collected",0))
+			_note(inspector_body,"This is the original stock record retained for collection history. The collection ledger shows what is still on its carrier and what has left the site.")
 		"jobs","jobGroups": _work_inspector(entity,kind=="jobGroups")
 		"orders": _order_inspector(entity)
 		"freightCars": _freight_car_inspector(entity)
@@ -999,9 +1049,10 @@ func _render_inspector() -> void:
 				_detail("Quantity",stock_quantity)
 			_detail("Reserved",entity.get("reserved",0))
 			_detail("Footprint","%s × %s m"%[entity.get("w",1),entity.get("d",1)])
-			_detail("Mass",_mass(float(entity.get("qty",0))*float(catalog.get(entity.get("item",""),{}).get("mass",0))))
+			_detail("Mass",_mass(20.0*stock_quantity+.825*float(entity.get("liters",0)) if stock_item=="diesel" else stock_quantity*float(catalog.get(stock_item,{}).get("mass",0))))
 			_detail("Source",entity.get("source",""))
 			if entity.get("item")=="diesel": _detail("Contents","%.1f / 200 L"%float(entity.get("liters",0)))
+			_button(inspector_body,"Collect unwanted units…",func()->void:collection_ui.open(self,str(entity.id)))
 			if str(entity.get("item","")).begins_with("rail"):
 				_button(inspector_body,"Relocate one exposed rail panel",func() -> void: _select_tool("relocate"))
 				_note(inspector_body,"Click clear space in a stockyard. An owned machine and crew physically move an unreserved panel.")
@@ -1274,6 +1325,9 @@ func _equipment_inspector(equipment: Dictionary) -> void:
 	if intent.has("target"): _detail("Destination",str(intent.get("targetLabel",""))+" · "+_position(intent.target))
 	if intent.has("references"): _detail("References"," · ".join(intent.references))
 	_detail("Cargo","%s × %s"%[equipment.cargo.get("qty",0),_name(str(equipment.cargo.get("item","")))] if equipment.has("cargo") else "Empty")
+	for fuel_job: Dictionary in _records("jobs"):
+		if str(fuel_job.get("id",""))==str(equipment.get("refueling","")):
+			_fuel_details(fuel_job)
 	_label(inspector_body,"Automatic work")
 	var roles: MenuButton = MenuButton.new()
 	roles.text="▾ Select allowed job kinds"
@@ -1308,6 +1362,8 @@ func _equipment_inspector(equipment: Dictionary) -> void:
 		if not _selection(support).is_empty(): args.workerId=_selection(support)
 		_send("assistant",args))
 	_button(inspector_body,"Request refueling",func() -> void: _send("refuel",{"id":id}))
+	_button(inspector_body,"Retire / collect equipment…",func()->void:collection_ui.open(self,"",id))
+	_note(inspector_body,"A free, fueled machine travels to its diesel drum with an operator. Loaded or dry equipment receives an emergency can delivery. A pending request waits for manual control to be released or the current job to become safe.")
 	var operator: OptionButton = _entity_option(inspector_body,"workers","Choose operator to board…",str(equipment.get("operator","")),true)
 	_button(inspector_body,"Board operator",func() -> void:
 		if not _selection(operator).is_empty(): _send("enter_vehicle",{"workerId":_selection(operator),"equipmentId":id}))
@@ -1338,6 +1394,18 @@ func _equipment_inspector(equipment: Dictionary) -> void:
 	_button(inspector_body,"Clear parking bay",func() -> void: _send("clear_parking",{"id":id}))
 	_note(inspector_body,"Role changes preserve safe completion. Manual work assignments take precedence. Parking is used at idle time and at shift end.")
 
+func _fuel_details(work: Dictionary) -> void:
+	var service: Dictionary=work.get("fuelWork",{})
+	if service.is_empty(): return
+	_label(inspector_body,"Fuel service")
+	_detail("Service mode","Emergency can delivery" if service.get("mode")=="emergency" else "Drive to diesel drum")
+	_detail("Diesel drum",service.get("barrelId",work.get("stack","—")))
+	if service.has("station"):_detail("Service position",_position(service.station))
+	if service.has("emergencyReason"):_detail("Emergency reason",service.emergencyReason)
+	_detail("Can contents","%.1f / 20 L"%float(work.get("fuelLiters",0)))
+	_detail("Delivered to tank","%.1f L"%float(service.get("delivered",0)))
+	_reference_controls(inspector_body,[service.get("barrelId",""),work.get("worker",""),work.get("operator","")])
+
 func _work_inspector(work: Dictionary,group: bool) -> void:
 	var id: String = str(work.id)
 	if group:
@@ -1352,6 +1420,7 @@ func _work_inspector(work: Dictionary,group: bool) -> void:
 			_detail("Staging position",_position(work.railWork.stage))
 		_detail("Progress","%d%%"%roundi(float(work.get("progress",0))*100))
 		if work.has("item"): _detail("Material","%s × %s"%[work.get("qty",0),_name(str(work.item))])
+		if str(work.get("kind",""))=="refuel":_fuel_details(work)
 		if work.has("shedAssembly"):
 			var assembly: Dictionary = work.shedAssembly
 			_detail("Assembly",assembly.get("phase",""))
@@ -1401,6 +1470,9 @@ func _work_inspector(work: Dictionary,group: bool) -> void:
 
 func _order_inspector(order: Dictionary) -> void:
 	var id: String = str(order.id)
+	if order.has("collectionId"):
+		_detail("Outbound collection",order.collectionId)
+		_button(inspector_body,"Open collection controls",func()->void:_user_entity(str(order.collectionId)))
 	for pair: Array in [["State","status"],["Transport","mode"],["Receiving note","note"],["Equipment","equipmentId"],["Operator","operatorId"],["Automatic machine","automaticEquipment"]]: _detail(pair[0],order.get(pair[1],"—"))
 	var driving: Dictionary = order.get("drive",{})
 	_detail("Driving blocker",driving.get("blockedBy","—"))

@@ -18,6 +18,8 @@ var paving_key:String=""
 var selected:String=""
 var grid:bool=true
 var dusk:bool=false
+var lamp_amount:float=0.0
+var lamp_nodes:Dictionary={}
 var age:float=0.0
 var span:float=.2
 var last_snapshot:int=0
@@ -212,10 +214,14 @@ func sync_snapshot(message:Dictionary)->void:
 	_sync_wear()
 	_mask_vegetation()
 	_update_selection()
-	set_dusk(dusk)
 
 func _ensure_dynamic(id:String,kind:String,data:Dictionary,carrier:bool=false)->Node3D:
-	if models.has(id):return models[id] as Node3D
+	if models.has(id):
+		var existing:Node3D=models[id]
+		if str(existing.get_meta("kind",""))==kind:return existing
+		# A loaded/new yard can reuse IDs for a different actor. Rebuild its
+		# geometry, rather than leaving a freight truck under a low-loader pose.
+		remove_child(existing);existing.queue_free();models.erase(id);records.erase(id)
 	var model:Node3D=Models.carrier(self,kind) if carrier else Models.actor(self,kind,data)
 	model.set_meta("kind",kind); model.set_meta("id",id); model.name=id.replace("/","_")
 	models[id]=model
@@ -318,6 +324,7 @@ func _sync_statics()->void:
 		var key:String=JSON.stringify([data.kind,data.x,data.z,data.w,data.d,data.get("rotation",0)]) if process else JSON.stringify(data)
 		if static_keys.get(id,"")!=key:
 			_drop_static(id); var model:=Models.building(self,data); statics[id]=model; static_keys[id]=key
+			_register_lamps(id,model)
 			# Process component and hydraulic ports use the common site datum.
 			# Foundations integrate through paving rather than lifting ports on completion.
 			model.position=Vector3(float(data.x)+float(data.w)*.5,0.0 if process else _surface_height(data),float(data.z)+float(data.d)*.5)
@@ -325,9 +332,15 @@ func _sync_statics()->void:
 		if process:
 			(statics[id] as Node3D).set_meta("inspect_id",id)
 			ProcessModels.update(statics[id],process_rows.get(id,data))
+	var collection_lifts:Dictionary={}
+	for collection:Dictionary in state.get("collections",[]):
+		var task:Dictionary=collection.get("task",{})
+		var index:int=int(task.get("lineIndex",-1))
+		if bool(task.get("lifted",false)) and index>=0 and index<collection.get("lines",[]).size():collection_lifts[str(collection.lines[index].get("stackId",""))]=true
 	for data in state.get("stacks",[]):
 		var id:=str(data.id); live[id]=true
 		var hidden:bool=int(data.get("qty",0))<=0 and str(data.get("item",""))!="diesel"
+		if collection_lifts.has(id) and int(data.get("qty",0))<=0:hidden=true
 		for work in render.get("construction",[]):
 			if str(work.get("placedStack",""))==id and str(work.get("state",""))=="placed":hidden=true
 		for work in render.get("railWork",[]):
@@ -407,6 +420,7 @@ func _sync_statics()->void:
 		if not live.has(id):_drop_static(id)
 
 func _drop_static(id:String)->void:
+	lamp_nodes.erase(id)
 	if statics.has(id):
 		var model:Node3D=statics[id]; remove_child(model); model.queue_free(); statics.erase(id)
 	static_keys.erase(id)
@@ -505,17 +519,26 @@ func set_grid(enabled:bool)->void:
 		(paving.material_override as ShaderMaterial).set_shader_parameter("show_grid",enabled)
 
 func set_dusk(enabled:bool)->void:
-	dusk=enabled
-	for id in statics:
-		_set_lamps(statics[id])
+	set_lamp_amount(1.0 if enabled else 0.0)
 
-func _set_lamps(node:Node)->void:
-	if node is OmniLight3D:
-		var light:OmniLight3D=node
-		light.light_energy=7.5 if dusk and bool(light.get_meta("connected",false)) else 0.0
-		var material:StandardMaterial3D=light.get_meta("lamp_glass",null)
-		if material:material.emission_enabled=light.light_energy>0; material.emission=Color("ffe3a9"); material.emission_energy_multiplier=1.3
-	for child in node.get_children():_set_lamps(child)
+func set_lamp_amount(amount:float)->void:
+	amount=clampf(amount,0.0,1.0)
+	if is_equal_approx(amount,lamp_amount):return
+	lamp_amount=amount
+	dusk=lamp_amount>0.5
+	for lights: Array in lamp_nodes.values():
+		for light: OmniLight3D in lights:_set_lamp(light)
+
+func _register_lamps(id:String,node:Node)->void:
+	var lights:Array=node.find_children("*","OmniLight3D",true,false)
+	if lights.is_empty():return
+	lamp_nodes[id]=lights
+	for light:OmniLight3D in lights:_set_lamp(light)
+
+func _set_lamp(light:OmniLight3D)->void:
+	light.light_energy=7.5*lamp_amount if bool(light.get_meta("connected",false)) else 0.0
+	var material:StandardMaterial3D=light.get_meta("lamp_glass",null)
+	if material:material.emission_enabled=light.light_energy>0; material.emission=Color("ffe3a9"); material.emission_energy_multiplier=1.3*lamp_amount
 
 func _update_selection(rebuild:bool=true)->void:
 	if not selection_node:return

@@ -1,9 +1,11 @@
+import { collectionValidationProblem } from './collection-validation';
 import { validTrackPiece, trackGeometry } from './track';
 import { validRailLocation } from './rail-locations';
 import { processValidationProblem } from './process-validation';
 import { processConstructionProblem } from './process-construction';
 import { freightValidationProblem } from './freight-validation';
 import { railOperationsValidationProblem } from './rail-operations-validation';
+import { equipmentRefuelingProblem } from './equipment-refueling';
 import {
   FREIGHT_CAPACITY,
   FREIGHT_DECK_LENGTH,
@@ -134,11 +136,13 @@ export function validateState(value: any): asserts value is State {
     }
     return false;
   };
+  const inactiveWork = (work:any) => work.status !== undefined ? ['done','canceled'].includes(work.status) : !s.jobs.some((j:any)=>belongsToGroup(j,work.id) && !['done','canceled'].includes(j.status));
   for (const g of s.jobGroups || []) {
     if (g.railCrew) {
       const c = g.railCrew;
-      const staging = s.equipment.find((e: any) => e.id === c.stagingEquipment),
-        installing = s.equipment.find((e: any) => e.id === c.installingEquipment);
+      const assets=inactiveWork(g)?[...s.equipment,...(s.retiredEquipment||[])]:s.equipment;
+      const staging = assets.find((e: any) => e.id === c.stagingEquipment),
+        installing = assets.find((e: any) => e.id === c.installingEquipment);
       if (
         !staging ||
         !installing ||
@@ -242,7 +246,7 @@ export function validateState(value: any): asserts value is State {
     if (
       work.automaticEquipment !== undefined &&
       (typeof work.automaticEquipment !== 'string' ||
-        !s.equipment.some((e: any) => e.id === work.automaticEquipment))
+        !s.equipment.some((e: any) => e.id === work.automaticEquipment) && !(inactiveWork(work) && s.retiredEquipment?.some((e:any)=>e.id===work.automaticEquipment)))
     )
       fail('invalid automatic work-order equipment');
     if (
@@ -253,7 +257,7 @@ export function validateState(value: any): asserts value is State {
     if (
       work.preferredEquipment !== undefined &&
       (typeof work.preferredEquipment !== 'string' ||
-        !s.equipment.some((e: any) => e.id === work.preferredEquipment))
+        !s.equipment.some((e: any) => e.id === work.preferredEquipment) && !(inactiveWork(work) && s.retiredEquipment?.some((e:any)=>e.id===work.preferredEquipment)))
     )
       fail('invalid work-order equipment assignment');
     if (
@@ -533,6 +537,8 @@ export function validateState(value: any): asserts value is State {
     }
   }
   for (const j of s.jobs) {
+    const fuelProblem=equipmentRefuelingProblem(s,j);
+    if (fuelProblem) fail(fuelProblem);
     if (j.railRecovery !== undefined) {
       const h = j.railRecovery;
       const active = !['done', 'canceled'].includes(j.status);
@@ -1132,7 +1138,7 @@ export function validateState(value: any): asserts value is State {
       )
         fail('unsafe paused delivery assignment');
     }
-    if (o.carrierDeparted && (!['departing', 'done'].includes(o.status) || o.arrived !== o.qty))
+    if (o.carrierDeparted && (!['departing', 'done'].includes(o.status) || (o.arrived !== o.qty && !(o.collectionId && s.collections?.some((c:any)=>c.id===o.collectionId && c.cancelRequested)))))
       fail('departed carrier still has an unreceived load');
     if (
       o.commute &&
@@ -1202,7 +1208,7 @@ export function validateState(value: any): asserts value is State {
       !['waiting', 'walk', 'climb', 'board', 'offload', 'park', 'complete'].includes(o.deployment)
     )
       fail('invalid deployment phase');
-    if (o.equipmentId && !s.equipment.some((e: any) => e.id === o.equipmentId))
+    if (o.equipmentId && !s.equipment.some((e: any) => e.id === o.equipmentId) && !(o.status==='done' && s.retiredEquipment?.some((e:any)=>e.id===o.equipmentId)))
       fail('delivery machine is missing');
     if (o.operatorId && !s.workers.some((w: any) => w.id === o.operatorId && w.role === 'operator'))
       fail('delivery operator is missing');
@@ -1278,6 +1284,7 @@ export function validateState(value: any): asserts value is State {
         fail('unloading destination stack is missing');
     }
   }
+  const collectionError=collectionValidationProblem(s, ids); if(collectionError)fail(collectionError);
   const processError=processValidationProblem(s);if(processError)fail(processError);
   const processConstructionError = processConstructionProblem(s);
   if (processConstructionError) fail(processConstructionError);

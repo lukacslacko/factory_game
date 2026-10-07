@@ -3,13 +3,17 @@ extends Node3D
 const Client = preload("res://scripts/runtime_client.gd")
 const GameWorld = preload("res://scripts/game_world.gd")
 const GameUI = preload("res://scripts/game_ui.gd")
+const SiteLighting = preload("res://scripts/site_lighting.gd")
+const GameAudio = preload("res://scripts/game_audio.gd")
 var client: Node
 var world: Node3D
 var ui: CanvasLayer
+var audio: Node3D
 var camera := Camera3D.new()
 var environment := Environment.new()
 var sky_material := ShaderMaterial.new()
 var sun := DirectionalLight3D.new()
+var moon := DirectionalLight3D.new()
 var state: Dictionary = {}
 var target := Vector3(26, 0, 23)
 var camera_target := target
@@ -21,7 +25,10 @@ var distance: float = 88.0
 var camera_distance: float = distance
 var grid: bool = true
 var dusk: bool = false
-var clock_night: bool = false
+var lighting_age: float = 0.0
+var sky_clock: float = 1.0
+var last_sky_direction: Vector3 = Vector3.ZERO
+var last_lamp_amount: float = -1.0
 var preview_point := Vector3.ZERO
 var preview_dirty: bool = false
 var preview_clock: float = 0.0
@@ -90,6 +97,9 @@ func _ready() -> void:
 	client.reply_received.connect(_reply)
 	client.connection_changed.connect(_connection)
 	client.start()
+	audio=GameAudio.new();add_child(audio);audio.setup(client.data_directory)
+	audio.set_backgrounded(backgrounded)
+	audio.settings_error.connect(func(description: String)->void:ui.show_error(description))
 	var graphics := ConfigFile.new()
 	if graphics.load(client.data_directory.path_join("rendering.cfg")) == OK:
 		native_resolution = bool(graphics.get_value("graphics","native_resolution",false))
@@ -115,7 +125,9 @@ func _setup_environment() -> void:
 	var sky := Sky.new()
 	sky_material.shader = preload("res://shaders/daylight_sky.gdshader")
 	sky.sky_material = sky_material
-	sky.process_mode = Sky.PROCESS_MODE_QUALITY
+	# Time changes continuously; incremental radiance updates avoid rebaking the
+	# entire reflection map at each small movement of the sun.
+	sky.process_mode = Sky.PROCESS_MODE_INCREMENTAL
 	sky.radiance_size = Sky.RADIANCE_SIZE_256
 	environment.sky = sky
 	environment.background_mode = Environment.BG_SKY
@@ -154,42 +166,56 @@ func _setup_environment() -> void:
 	sun.directional_shadow_mode = DirectionalLight3D.SHADOW_PARALLEL_4_SPLITS
 	sun.directional_shadow_blend_splits = true
 	sun.light_angular_distance = 0.55
+	add_child(moon)
+	moon.light_color=Color("b2c9ff")
+	moon.shadow_enabled=true
+	moon.shadow_bias=0.025
+	moon.shadow_normal_bias=0.55
+	moon.directional_shadow_max_distance=650.0
+	moon.directional_shadow_fade_start=1.0
+	moon.directional_shadow_mode=DirectionalLight3D.SHADOW_PARALLEL_4_SPLITS
+	moon.directional_shadow_blend_splits=true
+	moon.light_angular_distance=0.65
 
 func _set_lighting(value: bool) -> void:
+	# Checked means an explicit dusk preview; unchecked follows simulation time.
 	dusk = value
 	if is_instance_valid(ui) and is_instance_valid(ui.lighting_button):
 		ui.lighting_button.set_pressed_no_signal(value)
-	if value:
-		sun.shadow_bias = 0.12
-		sun.shadow_normal_bias = 1.25
-		sun.rotation_degrees = Vector3(-13,-62,0)
-		sun.light_energy = 0.65
-		sun.light_color = Color("ffd098")
-		sky_material.set_shader_parameter("dusk",true)
-		environment.ambient_light_energy = 0.65
-		environment.tonemap_exposure = 1.12
-	else:
-		sun.shadow_bias = 0.025
-		sun.shadow_normal_bias = 0.55
-		sun.rotation_degrees = Vector3(-48,-144,0)
-		sun.light_energy = 1.65
-		sun.light_color = Color("fff1d9")
-		sky_material.set_shader_parameter("dusk",false)
-		environment.ambient_light_energy = 0.32
-		environment.tonemap_exposure = 0.90
-	if is_instance_valid(world):
-		world.set_dusk(value)
+	_update_lighting(0.0,true)
+
+func _update_lighting(dt: float, force: bool=false) -> void:
+	lighting_age+=dt;sky_clock+=dt
+	var seconds: float=float(state.get("time",32400.0))
+	if not bool(state.get("paused",true)):
+		# Interpolate only within the next snapshot interval. A disconnected host
+		# cannot keep a separate lighting clock running indefinitely.
+		seconds+=minf(lighting_age,0.25)*float(state.get("speed",1))
+	var profile: Dictionary=SiteLighting.profile(18.1*3600.0 if dusk else seconds)
+	sun.rotation=profile.sunRotation;sun.light_energy=profile.sunEnergy;sun.light_color=profile.sunColor
+	moon.rotation=profile.moonRotation;moon.light_energy=profile.moonEnergy
+	sun.visible=sun.light_energy>0.001;moon.visible=moon.light_energy>0.001
+	environment.ambient_light_energy=profile.ambient;environment.tonemap_exposure=profile.exposure
+	var sky_change: float=last_sky_direction.distance_to(profile.sunDirection)
+	if force or sky_change>.01 or (sky_clock>=0.25 and sky_change>.000001):
+		sky_clock=0.0
+		last_sky_direction=profile.sunDirection
+		for key: String in ["daylight","twilight"]:sky_material.set_shader_parameter(key,profile[key])
+		sky_material.set_shader_parameter("sun_direction",profile.sunDirection)
+		sky_material.set_shader_parameter("moon_direction",profile.moonDirection)
+	var amount: float=1.0 if dusk else float(profile.lamps)
+	if is_instance_valid(world) and (force or absf(amount-last_lamp_amount)>.002):
+		last_lamp_amount=amount
+		world.set_lamp_amount(amount)
 
 func _snapshot(message: Dictionary) -> void:
 	state = message.get("state", {})
+	lighting_age=0.0
 	received_snapshots += 1
 	world.sync_snapshot(message)
 	ui.update_snapshot(message)
-	var hour: float = fmod(float(state.get("time", 25200)), 86400.0) / 3600.0
-	var night: bool = hour < 6.0 or hour >= 19.0
-	if night != clock_night:
-		clock_night = night
-		_set_lighting(night)
+	if is_instance_valid(audio):audio.sync_snapshot(message)
+	_update_lighting(0.0)
 
 func _reply(message: Dictionary) -> void:
 	reply_results[int(message.get("id", 0))] = message
@@ -215,6 +241,10 @@ func _connection(connected: bool, description: String) -> void:
 		ui.show_error(description)
 
 func _command(action: String, args: Dictionary = {}) -> void:
+	if action in ["new_game","import","load","continue","restore_backup"] and is_instance_valid(audio):audio.reset_history()
+	if action == "audio_settings":
+		if is_instance_valid(audio):audio.show_settings()
+		return
 	if action == "native_resolution":
 		native_resolution = bool(args.get("value",false))
 		_update_render_resolution()
@@ -499,12 +529,14 @@ func _reset_drag() -> void:
 func _notification(what: int) -> void:
 	if what == NOTIFICATION_APPLICATION_FOCUS_OUT:
 		backgrounded = true
+		if is_instance_valid(audio):audio.set_backgrounded(true)
 		# Automated captures keep measuring/rendering even when covered by Codex.
 		Engine.max_fps = 60 if capture_mode else 15
 		dragging = false
 		orbiting = false
 	elif what == NOTIFICATION_APPLICATION_FOCUS_IN:
 		backgrounded = false
+		if is_instance_valid(audio):audio.set_backgrounded(false)
 		Engine.max_fps = 60
 	elif what == NOTIFICATION_WM_CLOSE_REQUEST:
 		_begin_close()
@@ -513,6 +545,7 @@ func _begin_close() -> void:
 	if closing:
 		return
 	closing = true
+	if is_instance_valid(audio):audio.set_backgrounded(true)
 	ui.show_error("Saving the yard before closing…")
 	client.close()
 
@@ -532,6 +565,10 @@ func _update_camera(dt: float, snap: bool = false) -> void:
 	sun.directional_shadow_split_1 = clampf(camera_distance*1.3+10.0,32.0,reach*0.45)/reach
 	sun.directional_shadow_split_2 = clampf(camera_distance*2.25,sun.directional_shadow_split_1*reach+35.0,reach*0.70)/reach
 	sun.directional_shadow_split_3 = clampf(camera_distance*3.5,sun.directional_shadow_split_2*reach+60.0,reach*0.90)/reach
+	moon.directional_shadow_max_distance=reach
+	moon.directional_shadow_split_1=sun.directional_shadow_split_1
+	moon.directional_shadow_split_2=sun.directional_shadow_split_2
+	moon.directional_shadow_split_3=sun.directional_shadow_split_3
 
 func _keyboard_controls_blocked() -> bool:
 	var focus := get_viewport().gui_get_focus_owner()
@@ -539,10 +576,10 @@ func _keyboard_controls_blocked() -> bool:
 		return true
 	# Popups have independent viewport focus. Pause yard keyboard controls
 	# for the whole dialog lifetime, including while its buttons have focus.
-	if is_instance_valid(ui):
-		for window: Window in ui.find_children("*","Window",true,false):
-			if window.visible:
-				return true
+	for owner: Node in [ui,audio]:
+		if not is_instance_valid(owner):continue
+		for window: Window in owner.find_children("*","Window",true,false):
+			if window.visible:return true
 	return false
 
 func _camera_key_pressed(key: Key) -> bool:
@@ -550,6 +587,8 @@ func _camera_key_pressed(key: Key) -> bool:
 
 func _process(dt: float) -> void:
 	elapsed += dt
+	_update_lighting(dt)
+	if is_instance_valid(audio):audio.advance(dt,camera_target+Vector3.UP*2.0,Basis(Vector3.UP,camera_yaw))
 	preview_clock += dt
 	if preview_dirty and preview_clock >= 0.18 and tool.begins_with("rail"):
 		preview_clock = 0.0
@@ -608,7 +647,7 @@ func _request_file(action: String) -> void:
 	file_dialog.current_dir = client.data_directory
 	file_dialog.current_file = "plant01-diagnostics.json" if action == "diagnostics" else "plant01-costs.csv" if action == "export_costs" else "plant01-save.json"
 	ui.add_child(file_dialog)
-	file_dialog.file_selected.connect(func(path: String): client.send("import" if file_action == "load" else file_action, {"path":path}))
+	file_dialog.file_selected.connect(func(path: String): _command("import" if file_action == "load" else file_action, {"path":path}))
 	file_dialog.popup_centered_ratio(0.70)
 
 func _save_capture(filename: String) -> void:

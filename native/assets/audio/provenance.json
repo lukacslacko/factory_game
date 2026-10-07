@@ -1,0 +1,147 @@
+{
+  "license": "MIT",
+  "author": "Plant01 project contributors",
+  "origin": "Original deterministic procedural synthesis; no external recordings, samples, music, or third-party sound assets.",
+  "generator": "native/tools/generate_audio.py",
+  "format": "PCM16 little-endian mono WAV",
+  "sample_rate": 22050,
+  "loop_seam": "900-sample smooth constant-gain crossfade",
+  "sounds": {
+    "engine-excavator": {
+      "file": "engine-excavator.wav",
+      "loop": true,
+      "frames": 65250,
+      "seconds": 2.959184,
+      "bytes": 130544,
+      "sha256": "ac180df9a82054fdd265ed16687bd00c1f14245caef8ea53a384b5417707ff30"
+    },
+    "engine-forklift": {
+      "file": "engine-forklift.wav",
+      "loop": true,
+      "frames": 65250,
+      "seconds": 2.959184,
+      "bytes": 130544,
+      "sha256": "6446cac0901c6ae38cb08d250fe1ff885a8a8168e6dadfd7fb208043e9f722cf"
+    },
+    "engine-truck": {
+      "file": "engine-truck.wav",
+      "loop": true,
+      "frames": 65250,
+      "seconds": 2.959184,
+      "bytes": 130544,
+      "sha256": "2f173c5cae37678ee863f94759398695ad8a99eca4f6e973e8b052e8fa1e7775"
+    },
+    "engine-bus": {
+      "file": "engine-bus.wav",
+      "loop": true,
+      "frames": 65250,
+      "seconds": 2.959184,
+      "bytes": 130544,
+      "sha256": "8179b0ce7418c26bf52836a6018c198e64fb285784e9e4f714b98676b38b044a"
+    },
+    "engine-shunter": {
+      "file": "engine-shunter.wav",
+      "loop": true,
+      "frames": 65250,
+      "seconds": 2.959184,
+      "bytes": 130544,
+      "sha256": "d49df015e1c5c548f6a79fb5850f200671b83b0020328f19043800bec0febee0"
+    },
+    "engine-pump": {
+      "file": "engine-pump.wav",
+      "loop": true,
+      "frames": 65250,
+      "seconds": 2.959184,
+      "bytes": 130544,
+      "sha256": "1df5c5dc89ca1a7c9b9a75e793050f4bb323c6b74ba463d47d75e42ed6910617"
+    },
+    "can-fill": {
+      "file": "can-fill.wav",
+      "loop": true,
+      "frames": 43200,
+      "seconds": 1.959184,
+      "bytes": 86444,
+      "sha256": "e942166544c2132f4f3a9be32c544dd950642be587ca706ffb214dee121942c8"
+    },
+    "can-pour": {
+      "file": "can-pour.wav",
+      "loop": true,
+      "frames": 43200,
+      "seconds": 1.959184,
+      "bytes": 86444,
+      "sha256": "a27efcfb29f39c42d67ee4d4381927d0310c2136e33e365fd27f2336653bbe89"
+    },
+    "footstep-a": {
+      "file": "footstep-a.wav",
+      "loop": false,
+      "frames": 4851,
+      "seconds": 0.22,
+      "bytes": 9746,
+      "sha256": "4b740f8c5b81812b71c2b3b5251dd62700b5f688daee5d7150b744ff92b4e9a5"
+    },
+    "footstep-b": {
+      "file": "footstep-b.wav",
+      "loop": false,
+      "frames": 4851,
+      "seconds": 0.22,
+      "bytes": 9746,
+      "sha256": "d2f7210235393bee951b891fe2d5e411a34e6e361db015516e6cb52317e1c4bc"
+    },
+    "ratchet": {
+      "file": "ratchet.wav",
+      "loop": false,
+      "frames": 9261,
+      "seconds": 0.42,
+      "bytes": 18566,
+      "sha256": "3272e357f5618c4c9bb7338db837b3db6bcfbb30853f7bd13a5ec745bcbdbd45"
+    },
+    "hammer": {
+      "file": "hammer.wav",
+      "loop": false,
+      "frames": 5733,
+      "seconds": 0.26,
+      "bytes": 11510,
+      "sha256": "e75e721328fbb92e596319c7f4a7faaf0b20b0b853a007e8d7c74d640222019c"
+    },
+    "slab-setdown": {
+      "file": "slab-setdown.wav",
+      "loop": false,
+      "frames": 10584,
+      "seconds": 0.48,
+      "bytes": 21212,
+      "sha256": "edd0af7ad794720b979e6c1dac90e86617a7f09c21a8ff9af0419c47e2a945fb"
+    },
+    "honk": {
+      "file": "honk.wav",
+      "loop": false,
+      "frames": 11466,
+      "seconds": 0.52,
+      "bytes": 22976,
+      "sha256": "72ba1c9d9e0800a5fd83ec527bd19817aced817024b3dafb57b4bcc2c8c00ee5"
+    },
+    "complete": {
+      "file": "complete.wav",
+      "loop": false,
+      "frames": 10143,
+      "seconds": 0.46,
+      "bytes": 20330,
+      "sha256": "506df3c8ffc6ab6fd9830c63bf0f36cbabdb4591ce9aab74f54a1d8479756602"
+    },
+    "delivery": {
+      "file": "delivery.wav",
+      "loop": false,
+      "frames": 10143,
+      "seconds": 0.46,
+      "bytes": 20330,
+      "sha256": "390a19e491125b3a277fa7e3b977e1b23ca8dc8269c27a461295b0506686d6a4"
+    },
+    "warning": {
+      "file": "warning.wav",
+      "loop": false,
+      "frames": 10143,
+      "seconds": 0.46,
+      "bytes": 20330,
+      "sha256": "0a455c2ed54b145404bcf18a1b1e073eaf7b5e04694275b57a55d4662cc16b23"
+    }
+  }
+}

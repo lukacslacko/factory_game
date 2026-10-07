@@ -1,0 +1,47 @@
+[
+  {
+    "name": "collection-pickup",
+    "focus": {
+      "x": 30,
+      "z": 34
+    },
+    "phase": "lift",
+    "elapsed": 243.29999999999046
+  },
+  {
+    "name": "collection-carry",
+    "focus": {
+      "x": 26,
+      "z": 30
+    },
+    "phase": "carry",
+    "elapsed": 250.59999999999005
+  },
+  {
+    "name": "collection-secure",
+    "focus": {
+      "x": 20,
+      "z": 20
+    },
+    "phase": "secure",
+    "elapsed": 273.79999999999376
+  },
+  {
+    "name": "collection-departing",
+    "focus": {
+      "x": 20,
+      "z": 18
+    },
+    "phase": "departing",
+    "elapsed": 344.4000000000098
+  },
+  {
+    "name": "collection-lowloader-ramp",
+    "focus": {
+      "x": -10.1,
+      "z": 34
+    },
+    "phase": "equipment-ramp",
+    "elapsed": 248.39999999999017
+  }
+]

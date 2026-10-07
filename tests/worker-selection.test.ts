@@ -144,10 +144,10 @@ test('paving chooses a helper at its actual forklift placement point and keeps t
   S.tick(reloaded, 0.1);
   assert.equal(saved.worker, near.id);
 });
-test('fuel assignment tries reachable drum/worker pairs and avoids the first distant register entry', () => {
+test('empty-machine emergency fuel assignment tries reachable drum/worker pairs and avoids the first distant register entry', () => {
   const s = S.createState(),
     e = seedHandlingResources(s, 'forklift');
-  e.fuel = 10;
+  e.fuel = 0;
   e.x = 30;
   e.z = 35;
   const far = worker(s, 10, 50),
@@ -168,6 +168,7 @@ test('fuel assignment tries reachable drum/worker pairs and avoids the first dis
   const j = s.jobs.find((j) => j.kind === 'refuel')!;
   tickUntil(s, () => j.status === 'doing', 5);
   assert.equal(j.worker, near.id);
+  assert.equal(j.fuelWork?.mode, 'emergency');
   assert.notEqual(j.worker, far.id);
   assert.ok(s.workers.find((w) => w.id === near.id)!.path.length > 0);
 });
@@ -402,4 +403,31 @@ test('simultaneous receiving and paving keep nearby helpers instead of crossing 
   );
   assert.ok(s.paving['50,45']);
   assert.equal(s.orders.find((o) => o.id === orderId)!.arrived, 1);
+});
+
+test('powered fuel service selects a qualified driver even when a builder is closer to the drum', () => {
+  const s = S.createState(),
+    e = seedHandlingResources(s, 'forklift'),
+    operator = s.workers[0];
+  Object.assign(e, { fuel: 10, x: 30, z: 35 });
+  const builder = worker(s, 35, 32);
+  s.stacks.push({
+    id: 'DRUM',
+    item: 'diesel',
+    qty: 1,
+    reserved: 0,
+    liters: 200,
+    x: 34,
+    z: 30,
+    w: 1,
+    d: 1,
+    source: 'test',
+  });
+  S.refuel(s, e.id);
+  const j = s.jobs.find((j) => j.kind === 'refuel')!;
+  tickUntil(s, () => j.status === 'doing', 5);
+  assert.equal(j.fuelWork?.mode, 'station');
+  assert.equal(j.worker, operator.id);
+  assert.notEqual(j.worker, builder.id);
+  assert.equal(j.operator, operator.id);
 });

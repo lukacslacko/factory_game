@@ -770,3 +770,15 @@ test('native fluid commands use actual assets, worker operations, conserved quan
   assert.equal((await c.request('control',{id:f.worker.id})).ok,false);
   assert.equal(s.process!.pumps[0].hose,'disconnecting');assert.equal(s.process!.pumps[0].transferred,transferred);
 });
+
+test('native paid collection commands quote, revalidate, preserve history and expose exact accounting',async(t)=>{
+ const fixture=Sim.createState();fixture.paused=true;seedHandlingResources(fixture);const stack={id:Sim.id(fixture,'stack'),item:'slab' as const,x:30,z:32,w:1,d:1,qty:12,reserved:0,source:'opening'};fixture.stacks.push(stack);
+ const host=await launch();t.after(()=>host.close());const c=host.client;await c.ok('import',{json:Sim.save(fixture)});
+ const quote=await c.ok('collection_quote',{lines:[{stackId:stack.id,qty:12}]});assert.equal(quote.valid,true);assert.equal(quote.massKg,3360);
+ const request=await c.ok('collection_request',{lines:[{stackId:stack.id,qty:12}]});assert.equal(request.ids.length,1);assert.equal((await c.request('collection_request',{lines:[{stackId:stack.id,qty:12}]})).ok,false,'Stale quote cannot silently close as success');
+ assert.equal((await c.ok('tables',{table:'collections'})).length,1);assert.equal((await c.ok('inspect',{id:request.ids[0]})).type,'collections');await c.ok('collection_pause',{id:request.ids[0]});await c.ok('collection_resume',{id:request.ids[0]});await c.ok('collection_cancel',{id:request.ids[0]});
+ const canceled=Sim.load((await c.ok('export')).json);assert.equal(canceled.stacks[0].reserved,0);assert.equal(canceled.collections![0].fees.charged,0);
+ fixture.paused=false;Sim.requestCollection(fixture,{lines:[{stackId:stack.id,qty:12}]});for(let i=0;i<16000&&fixture.collections![0].status!=='done';i++)Sim.tick(fixture,.1);assert.equal(fixture.collections![0].status,'done');fixture.paused=true;await c.ok('import',{json:Sim.save(fixture)});
+ const historical=await c.ok('inspect',{id:stack.id});assert.equal(historical.type,'collectedMaterial');assert.equal(historical.entity.collected,12);assert.equal(historical.entity.qty,0);
+ const inventory=await c.ok('sql',{sql:"SELECT item, collected, incoming, delivered FROM inventory WHERE item='slab';"});assert.deepEqual(inventory[0].values,[['slab',12,0,0]]);const accounting=await c.ok('sql',{sql:'SELECT charged,total FROM collections;'});assert.equal(accounting[0].values[0][0],accounting[0].values[0][1]);await c.ok('save');Sim.load(await fs.readFile(path.join(host.dir,'yard.json'),'utf8'));
+});

@@ -144,12 +144,12 @@ test('blocked fuel recovers with a physical service-can trip', () => {
     .reduce((n, t) => n + (t.liters || 0), 0);
   S.refuel(s, e.id);
   until(s, () => e.fuel === e.tank);
-  assert.equal(
-    s.stacks.filter((t) => t.item === 'diesel').reduce((n, t) => n + (t.liters || 0), 0),
-    liters - e.tank,
-  );
+  assert.ok(Math.abs(
+    s.stacks.filter((t) => t.item === 'diesel').reduce((n, t) => n + (t.liters || 0), 0) -
+    (liters - e.tank),
+  ) < 1e-7, 'Physical can trips conserve fuel within floating-point precision');
   assert.ok(
-    s.events.filter((e) => e.type === 'Fuel' && e.entity === s.equipment[0].id).length === 4,
+    s.events.filter((e) => e.type === 'Fuel' && e.entity === s.equipment[0].id && e.text.startsWith('Transferred ')).length === 4,
   );
 });
 test('missing materials includes incoming supply and prevents duplicate procurement', () => {
@@ -358,7 +358,7 @@ test('fuel is conserved in a service can across save and stop-after-current-trip
   j = s.jobs.find((j) => j.kind === 'refuel')!;
   S.cancelJob(s, j.id);
   until(s, () => j.status === 'done');
-  assert.equal(s.equipment.find((e) => e.id === eid)!.fuel, 20);
+  assert.ok(Math.abs(s.equipment.find((e) => e.id === eid)!.fuel - 20) < 1e-7);
   assert.equal(
     s.stacks.filter((t) => t.item === 'diesel').reduce((n, t) => n + (t.liters || 0), 0),
     380,

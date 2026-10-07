@@ -237,7 +237,7 @@ test('a displaced fuel worker returns to the real drum and filler before transfe
   assert.ok(w.path.length);
   tickUntil(s, () => j.status === 'done', 600);
   assert.equal(e.fuel, e.tank);
-  assert.ok(Math.abs(e.fuel + (drum.liters || 0) - 220) < 1e-7);
+  assert.ok(Math.abs(e.fuel + e.used + (drum.liters || 0) - 220) < 1e-7);
   S.load(S.save(s));
 });
 

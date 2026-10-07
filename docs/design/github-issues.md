@@ -97,3 +97,17 @@ Complete the five connected issues as one usable native checkpoint: physical tan
 ## Worker assignment and action clearance — v0.24.0 (#16, #17)
 
 [#16](https://github.com/lukacslacko/factory_game/issues/16) uses actual reachable walking distance for new eligible automatic assignments, respects explicit crews and active work, and covers concurrent receiving/paving, fuel and construction. [#17](https://github.com/lukacslacko/factory_game/issues/17) extends physical blocker recovery to construction/parking/action envelopes with collision-checked refuges, saved warning records, linked Inspect/Locate controls and warning-only Activity/Inbox views. Protected active/manual/cargo cases remain safe and explain the required intervention. Physically impossible layouts are reported, not forced. See [the guide](../worker-assignment-and-clearance.md).
+
+
+## Remaining site services — v0.25.0
+
+The creator authorizes all remaining open implementation work except #13, in the order #14/#15, #35, then #20/#39. #18 (Concept C art/native visuals) and #19 (desktop execution, files and background simulation) are reviewed as already covered and closed.
+
+- #14 and #15: actual hand-held 20 L cans, nearby reachable machine service, driving/boarding/alighting, stationary emergency service, conserved fuel, visible service state and safe interruption.
+- #35: quoted paid road collection, reserved finite stock, owned crew/equipment loading, self-propelled low-loader retirement, conserved archives, real cancellation and fees.
+- #20: original licensed spatial engine/work/footstep/can/pump/notification audio, targeted clearance horns, bounded voice pool and local sound controls.
+- #39: continuously clock-driven sunlight/sky/shadows, readable full-moon nights and connected lamps.
+
+[The service guide](../site-services.md) describes current controls. #13 remains the explicitly deferred physical trench/cable/spoil/backfill request; simplified utility commissioning remains its current boundary.
+
+The v0.25.0 implementation passes 696 frozen-input regressions, both builds, 461 native assertions and actual packaged command/GPU checks. Publish the verified build 218 and close #14, #15, #35, #20 and #39. #13 remains open; #18/#19 are already closed after review. See [verification](../testing.md) and [release details](../publishing.md).

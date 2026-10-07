@@ -2,11 +2,13 @@
 
 The existing factory simulation now runs in a local Node.js service, with Godot rendering the approved Concept C yard and providing native controls. The service owns simulation time and file persistence, so gameplay can continue while the window is unfocused. No web page, Chrome process, web server, or Internet connection is needed to play.
 
-Native v0.24.0 adds walking-distance worker selection, safe action clearance, linked persistent warnings, and warning-only registers. It includes physical tanks, railway transfer pumps, piping, valves, gauges, conserved fluid transfer and unified rail editing and buffer-stop recovery, supplier locomotive handoff, owned shunting, selected-car unloading and empty return trains. The original browser application and static visual proof remain available for comparison. Existing portable JSON saves can be imported; importing preserves the current yard as a backup.
+Native v0.25.0 adds physical equipment refueling with a visible service can, paid collection of unwanted stock and retired equipment, spatial sounds with local controls, and continuous sunlight and full-moon nights. The [fuel, collection, sound, and daylight guide](../docs/site-services.md) explains the new controls, required crew and access, cancellation, and charges.
+
+It retains walking-distance worker selection, safe action clearance, linked persistent warnings, and warning-only registers from v0.24.0, alongside physical tanks, railway transfer pumps, piping, valves, gauges, conserved fluid transfer, unified rail editing and buffer-stop recovery, supplier locomotive handoff, owned shunting, selected-car unloading and empty return trains. The original browser application and static visual proof remain available for comparison. Existing portable JSON saves can be imported; importing preserves the current yard as a backup.
 
 ## Download or open on this Mac
 
-[Download the Apple Silicon Mac app](https://github.com/lukacslacko/factory_game/releases/tag/v0.24.0), unzip it, and open **Plant 01.app**. This checkpoint targets macOS 14 or newer.
+[Download the Apple Silicon Mac app](https://github.com/lukacslacko/factory_game/releases/tag/v0.25.0), unzip it, and open **Plant 01.app**. This checkpoint targets macOS 14 or newer.
 
 Open the **Plant 01.app** built beside the repository in `outputs/`. It includes the Godot runner, Node runtime, simulation, terrain maps, and license notices. It is a local app for this Mac, not a notarized public release.
 
@@ -51,7 +53,7 @@ Automatic equipment traffic recovery checks the full chassis, boom, forks and ca
 
 Automatic excavators also check alternative reachable lifting positions when staged material blocks a rail-handling approach. The selected approach stays stable through travel, lowering, and saving, and the equipment inspector shows its actual destination. The crane routes around real stock without moving or deleting it. If no safe lifting position is reachable, one **Rail route blocked** warning names the blocker after 12 seconds; clear access or relocate the staged stock to storage. The warning resolves once routing succeeds. Existing requests for workers or idle equipment to clear a handling position still apply.
 
-Road vehicles issue a targeted clearance request to the blocking worker. Automatic ground workers can walk around stock rows and safely reroute a walking trip that is mutually blocked by that same vehicle. Their original destination is retained; once the carrier parks, they become available again instead of waiting for the whole delivery to finish. Manual/resting workers and unsafe physical operations are preserved. A persistent carrier obstruction produces one **Delivery vehicle blocked** notice after 20 seconds, with a linked blocker and recovery guidance. Sound, including request-triggered horns, remains tracked in GitHub issue #20.
+Road vehicles issue a targeted clearance request to the blocking worker. Automatic ground workers can walk around stock rows and safely reroute a walking trip that is mutually blocked by that same vehicle. Their original destination is retained; once the carrier parks, they become available again instead of waiting for the whole delivery to finish. Manual/resting workers and unsafe physical operations are preserved. A persistent carrier obstruction produces one **Delivery vehicle blocked** notice after 20 seconds, with a linked blocker and recovery guidance. New targeted clearance requests can sound a horn with a cooldown; ordinary waiting does not repeatedly honk. Open **☰ → Sound settings…** to adjust or mute sound.
 
 ## Actual native screenshots
 
@@ -62,6 +64,10 @@ Road vehicles issue a targeted clearance request to the blocking worker. Automat
 [Grid on](screenshots/camera-grid-on.png) · [Grid off](screenshots/camera-grid-off.png) · [Overview with distant shadows](screenshots/camera-overview-shadows.png)
 
 [Construction ghosts in daylight](screenshots/ghost-plans-day.png) · [Construction ghosts at dusk](screenshots/ghost-plans-dusk.png) · [Valid rail preview](screenshots/ghost-preview-valid.png) · [Invalid rail preview](screenshots/ghost-preview-invalid.png)
+
+[Equipment refueling](screenshots/site-services-fuel.png) · [Paid material collection](screenshots/site-services-collection.png)
+
+[Morning](screenshots/lighting-morning.png) · [Noon](screenshots/lighting-noon.png) · [Evening](screenshots/lighting-evening.png) · [Full-moon night](screenshots/lighting-midnight.png) · [Equipment collection ramps](screenshots/collection-lowloader-ramp.png)
 
 All images are unedited Godot captures of the playable simulation.
 

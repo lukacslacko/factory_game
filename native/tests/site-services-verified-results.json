@@ -1,0 +1,256 @@
+{
+  "version": "0.25.0",
+  "build": 218,
+  "date": "2026-10-07",
+  "issues": [
+    14,
+    15,
+    35,
+    20,
+    39
+  ],
+  "previouslyCoveredIssuesClosed": [
+    18,
+    19
+  ],
+  "explicitlyDeferredIssues": [
+    13
+  ],
+  "fullSuite": {
+    "tests": 696,
+    "passed": 696,
+    "failed": 0,
+    "cancelled": 0,
+    "skipped": 0,
+    "duration_seconds": 517.929,
+    "concurrency": 1,
+    "nodeHeapMiB": 384,
+    "inputsUnchanged": true
+  },
+  "frozenInputs": 196,
+  "builds": {
+    "nativeTypeScript": "passed",
+    "browserTypeScriptVite": "passed; existing bundle-size advisory"
+  },
+  "nativeCountedAssertions": 461,
+  "generalUI": {
+    "tabs": 12,
+    "inspectorTypes": 10
+  },
+  "nativeChecks": [
+    {
+      "name": "v025-fuel-collection-ui-final",
+      "elapsed_seconds": 1.02,
+      "peak_resident_bytes": 154157056,
+      "returncode": 0,
+      "stopped_reason": null,
+      "countedAssertions": 15
+    },
+    {
+      "name": "v025-audio-release",
+      "elapsed_seconds": 1.03,
+      "peak_resident_bytes": 131596288,
+      "returncode": 0,
+      "stopped_reason": null,
+      "countedAssertions": 79
+    },
+    {
+      "name": "v025-lighting-final",
+      "elapsed_seconds": 4.57,
+      "peak_resident_bytes": 371179520,
+      "returncode": 0,
+      "stopped_reason": null,
+      "countedAssertions": 61
+    },
+    {
+      "name": "v025-fuel-can-final",
+      "elapsed_seconds": 0.51,
+      "peak_resident_bytes": 278528,
+      "returncode": 0,
+      "stopped_reason": null,
+      "countedAssertions": 37,
+      "memorySamplingNote": "Process finished before a representative resident-memory sample; do not interpret its reported peak as a benchmark."
+    },
+    {
+      "name": "v025-camera-final",
+      "elapsed_seconds": 1.52,
+      "peak_resident_bytes": 292126720,
+      "returncode": 0,
+      "stopped_reason": null,
+      "countedAssertions": 44
+    },
+    {
+      "name": "v025-ghosts-final",
+      "elapsed_seconds": 1.52,
+      "peak_resident_bytes": 272171008,
+      "returncode": 0,
+      "stopped_reason": null,
+      "countedAssertions": 115
+    },
+    {
+      "name": "v025-general-ui-final",
+      "elapsed_seconds": 1.02,
+      "peak_resident_bytes": 204603392,
+      "returncode": 0,
+      "stopped_reason": null,
+      "countedAssertions": null
+    },
+    {
+      "name": "v025-services-renderer-final",
+      "elapsed_seconds": 5.09,
+      "peak_resident_bytes": 390381568,
+      "returncode": 0,
+      "stopped_reason": null,
+      "countedAssertions": 22
+    },
+    {
+      "name": "v025-services-bridge-final",
+      "elapsed_seconds": 5.08,
+      "peak_resident_bytes": 349962240,
+      "returncode": 0,
+      "stopped_reason": null,
+      "countedAssertions": 29
+    },
+    {
+      "name": "v025-packaged-services-release",
+      "elapsed_seconds": 6.17,
+      "peak_resident_bytes": 328548352,
+      "returncode": 0,
+      "stopped_reason": null,
+      "countedAssertions": 29
+    },
+    {
+      "name": "v025-packaged-gpu-release",
+      "elapsed_seconds": 7.65,
+      "peak_resident_bytes": 386482176,
+      "returncode": 0,
+      "stopped_reason": null,
+      "countedAssertions": 30
+    }
+  ],
+  "nativeWatchdog": {
+    "timeoutSeconds": 45,
+    "memoryLimitBytes": 2147483648,
+    "graphicsProcessesAtOnce": 1,
+    "browserLaunched": false
+  },
+  "packagedBackgroundSeconds": 2.15,
+  "packagedSnapshotsObserved": 43,
+  "audio": {
+    "originalMITAssets": 17,
+    "bytes": 1115232,
+    "provenanceHashesVerified": true,
+    "voicePool": 12,
+    "testDriver": "Dummy (silent real playback graph)",
+    "subjectiveListeningVerified": false,
+    "teardownWithoutLeakedReferences": true
+  },
+  "visualReview": "Actual Godot GPU captures of can handling at the filler, outbound collection controls, low-loader ramp support, and morning/noon/evening/readable full-moon lighting. Synthetic public fixtures; no generated concept art or private yard.",
+  "reviewedScreenshots": {
+    "native/screenshots/site-services-fuel.png": "c7141c7bade08588cd7dbc94e3f903ddcf8eb083631d1cfa885f71bd99d0fad3",
+    "native/screenshots/site-services-collection.png": "b9cdd5fc7fae38463b14d1d7caf450d97a6ad291a8f563003175754dc5fdec71",
+    "native/screenshots/collection-lowloader-ramp.png": "f6d85f56ba02436dea8bc80587421878a2b2ff24dd1f1603351a3b967b3e5af5",
+    "native/screenshots/lighting-morning.png": "1663e6bcb0bb2f0b152333d2150faad70429883cd8dcc7a944b21a09c12d6726",
+    "native/screenshots/lighting-noon.png": "36309c900634978f7164ca83c9652cd2f8c7ab1732db8ddd31d505f77442b4df",
+    "native/screenshots/lighting-evening.png": "c79e1ff9f3045d736f36bb9d4079cfe9ac4c314eb2460a68f71c9e110ee0561a",
+    "native/screenshots/lighting-midnight.png": "a10e15441c57ed709c1133d469bcfabc54660705f9b8e929f4fabb5d5b33521e"
+  },
+  "privateData": {
+    "isolatedTests": true,
+    "existingSaveReadOnlyImportPassed": true,
+    "saveAndDiagnosticHashesUnchanged": true,
+    "previousAppAndSavesBackedUp": true,
+    "leftClosed": true,
+    "excludedFromRelease": true
+  },
+  "installedSignatureVerified": true,
+  "allInstalledCandidateFilesMatched": true,
+  "installedSourceAssetHashes": {
+    "native/scripts/rail_yard.gd": "c224bd361e72be5e938c44088de56274784a277e0dcaa77cca059664b7ff0421",
+    "native/scripts/geometry.gd": "995426aadfd0079e3050f91e3c8d7009b7d94a4f77c4815d3af9e73a0f4639a6",
+    "native/scripts/ui_table.gd.uid": "78443a62e125c935c3a55e78d52276f4ee99c358f09b80c179570180e177b44d",
+    "native/scripts/rail_yard.gd.uid": "5437a3973e28c9e7db485772cb10dbe45a3df9030ba4997b7ef1ee86879e0da5",
+    "native/scripts/game_world.gd": "1ccde76c0d541b943fdcb3e7cb0e8ee3b67f087dd7ed9c4d0574d287a2b43884",
+    "native/scripts/game_models.gd.uid": "6c27c4cca3cd8c3bbaab01834f8ac638919321287183c0fbcc9275e1517713a9",
+    "native/scripts/main.gd": "594585070b0a1dda23222a2837e4773a07b9f419cc5543e1d1ad9b14934f7c9d",
+    "native/scripts/game_models.gd": "f9e1f4c53668bf003698acba2b714875153905ff7346c1c1bbbae1d39e327222",
+    "native/scripts/ground.gd": "0080760c1908d863ccc0a4011ff6eb941c28de9205452bb32095c90cd8d5fe35",
+    "native/scripts/game_world.gd.uid": "c33f3a6a3d49869dea129aa6aa29e6c37a6a1ac577eab33a1e475e47420ac8d3",
+    "native/scripts/ui_table.gd": "484c74e5ec76348af4cd5d434ef0a421ade5c5fddc078b8e04c717fed6a171da",
+    "native/scripts/game_audio.gd": "1d11350375bca4a2aab5cccb79063a2a6e717e27f15bf87a7e45cdd2dd4378ee",
+    "native/scripts/tanker_models.gd.uid": "9f72ee0dbc834bb04429f7518e12e1ba47f422b54d2e5b93a101c1ebbb14202e",
+    "native/scripts/fuel_can.gd": "654fc43dc38e6505c83dbe3e8f464d7b1051430c5af0b3190763427ce0f9f1da",
+    "native/scripts/geometry.gd.uid": "f641b2d1575689796fcd465a54b76b478b06697a20a9b01b54a56a6061742f9c",
+    "native/scripts/game_ui.gd": "709a7ebfaf4eea195ce0b8f1b8ade558f1638bb76312545222920b85dade84ab",
+    "native/scripts/collection_ui.gd": "5ecbe32c1413d74472bd5b90062e500fbcbd1cbd7b924f1b377c1f31ef174127",
+    "native/scripts/runtime_client.gd.uid": "0a1d8338c7541c17dc58c8106026affe3a7fea95392e8be3890da09deeeb9db9",
+    "native/scripts/site_lighting.gd": "009256d79428c80a7d39c8381382749609bbd8f10303af3ed1bb6802545a70f1",
+    "native/scripts/runtime_client.gd": "e5a035bb28f77490a44189c27e486bdcca189ff72af4c5e7b35b2ba5efdfeb66",
+    "native/scripts/main.gd.uid": "6b2e6f6e1ae88957bd2e70c6eb2a60318cb68404f6afedd51f98ec112ba3a3cf",
+    "native/scripts/tanker_models.gd": "3187d2bb84529e585a4fbea50ebf8bb46c0e5bc20e1034f47cd2791fbd1c6f3f",
+    "native/scripts/game_ui.gd.uid": "e571f44e57df27f0b3e768d6799f0322bcf4ad39ad01be44f78dff791590c19e",
+    "native/scripts/ground.gd.uid": "4030828fedcf825a669ec92060ba5abe6999fc84f1c909c2b77433229a2eded6",
+    "native/scripts/process_ui.gd": "7b8e9d23ba17c1b68213b64e8fc3454f48d0ed73ee6f50c1dd63a47c9f7a5b05",
+    "native/scripts/machines.gd.uid": "b0df6dbebd86b6e2405e831d451ce6e3423b7ff96bf33d00408cc261bbb00a4d",
+    "native/scripts/machines.gd": "f0eff4b57fb198e091430313ae7c30f6f3e0d11d3d1767eb4179a9093073671f",
+    "native/scripts/process_models.gd": "a6b6fcfa984071543ad04367a653d51bfce37f6b3a096ec2ab5c85c685504308",
+    "native/shaders/ground.gdshader.uid": "de5e3eb5c1e172c6df56107f01f0a25a40788df8466a4a45514c63177b9dbd41",
+    "native/shaders/daylight_sky.gdshader": "f21a565439295232f562c0bf500a5678c466c449a8cfecd744380ef6058ab845",
+    "native/shaders/ground.gdshader": "8c5bd4c43327f1d4abac1937298fb1505ad219b4297e5b5b2e65c3a7df8119b3",
+    "native/shaders/daylight_sky.gdshader.uid": "37892e6c71648996aee45ac5a6b544db13ba3b3c635596175de75a5108d0fec5",
+    "native/assets/plant01-icon.png.import": "e4dca4f51bfba395e2aaee9abec7c33d7b1baf8f3a5fab0407c8e712e9b33adf",
+    "native/assets/CREDITS.md": "543e3cc1c917a9e6bc6b7c8758d459f844200e4e99c6f85343f950b9faf6dada",
+    "native/assets/terrain_asset_manifest.json": "2e8bc7a7fe596bbdbc9a6aece0e87214d87672619e0e3b6e8e51f75952f424f1",
+    "native/assets/plant01-icon.png": "a2da1bf27d361b28d289b665f77c85eaf94838fc4eab5b7708e3021cef66bdfa",
+    "native/assets/plant01-icon.icns": "5d8348b597d69332858503aa22ac16e3746e6aa587aaa067bf3b809926b86be6",
+    "native/assets/textures/dirt_nor_gl_1k.jpg.import": "9c3ff429606c93816b8453a21721573d0f45b1a8e10161dd684028f67d447f4b",
+    "native/assets/textures/sparse_grass_nor_gl_1k.jpg.import": "dd55a7a8b4fca5997454285542fe7c39ac59cd1b01be8eebcfbd843eb44a9bb8",
+    "native/assets/textures/dirt_nor_gl_1k.jpg": "5a5f97d920fdcdf352b350b95558bf48bb306be1fe61a47418aadc60b7deb0ce",
+    "native/assets/textures/dirt_diff_2k.jpg": "126d3e4886cc94b494ba609ddc323a77ff0362a1b156c3750d5d2a0a0ead02b8",
+    "native/assets/textures/sparse_grass_nor_gl_1k.jpg": "1c840a24807346ddaaf94a5057aee4078fcec3a4cd84bfe45da7d3b480ef460b",
+    "native/assets/textures/sparse_grass_diff_2k.jpg": "3b655de96161164bf2324e136b3409ad8417c9f94750bc008e9c93ee507c2fac",
+    "native/assets/textures/dirt_diff_2k.jpg.import": "10cb08941b1f12edbdecf51138abfedb543669d1dc39fdc91af153cb9ddf7691",
+    "native/assets/textures/sparse_grass_diff_2k.jpg.import": "d04379f11c88e211c959f2cf5f9dd839305e20b0704cb484eced4d7ab82c8870",
+    "native/assets/audio/delivery.wav": "390a19e491125b3a277fa7e3b977e1b23ca8dc8269c27a461295b0506686d6a4",
+    "native/assets/audio/honk.wav": "72ba1c9d9e0800a5fd83ec527bd19817aced817024b3dafb57b4bcc2c8c00ee5",
+    "native/assets/audio/provenance.json": "d5d639ed338103e78127859560e4b631cef4462308dff38c8a7815871d0ab37b",
+    "native/assets/audio/engine-forklift.wav": "6446cac0901c6ae38cb08d250fe1ff885a8a8168e6dadfd7fb208043e9f722cf",
+    "native/assets/audio/complete.wav": "506df3c8ffc6ab6fd9830c63bf0f36cbabdb4591ce9aab74f54a1d8479756602",
+    "native/assets/audio/warning.wav": "0a455c2ed54b145404bcf18a1b1e073eaf7b5e04694275b57a55d4662cc16b23",
+    "native/assets/audio/engine-excavator.wav": "ac180df9a82054fdd265ed16687bd00c1f14245caef8ea53a384b5417707ff30",
+    "native/assets/audio/footstep-a.wav": "4b740f8c5b81812b71c2b3b5251dd62700b5f688daee5d7150b744ff92b4e9a5",
+    "native/assets/audio/can-pour.wav": "a27efcfb29f39c42d67ee4d4381927d0310c2136e33e365fd27f2336653bbe89",
+    "native/assets/audio/footstep-b.wav": "d2f7210235393bee951b891fe2d5e411a34e6e361db015516e6cb52317e1c4bc",
+    "native/assets/audio/ratchet.wav": "3272e357f5618c4c9bb7338db837b3db6bcfbb30853f7bd13a5ec745bcbdbd45",
+    "native/assets/audio/hammer.wav": "e75e721328fbb92e596319c7f4a7faaf0b20b0b853a007e8d7c74d640222019c",
+    "native/assets/audio/slab-setdown.wav": "edd0af7ad794720b979e6c1dac90e86617a7f09c21a8ff9af0419c47e2a945fb",
+    "native/assets/audio/can-fill.wav": "e942166544c2132f4f3a9be32c544dd950642be587ca706ffb214dee121942c8",
+    "native/assets/audio/engine-truck.wav": "2f173c5cae37678ee863f94759398695ad8a99eca4f6e973e8b052e8fa1e7775",
+    "native/assets/audio/engine-bus.wav": "8179b0ce7418c26bf52836a6018c198e64fb285784e9e4f714b98676b38b044a",
+    "native/assets/audio/engine-pump.wav": "1df5c5dc89ca1a7c9b9a75e793050f4bb323c6b74ba463d47d75e42ed6910617",
+    "native/assets/audio/engine-shunter.wav": "d49df015e1c5c548f6a79fb5850f200671b83b0020328f19043800bec0febee0",
+    "native/licenses/GODOT-THIRD-PARTY.json": "64f1fa6d4c76a8add500d330b70af71b87cfab1cb294cfebc87667091c4ad1dd",
+    "native/licenses/SQLJS-LICENSE.txt": "60a3f6e4d7b29b4321359e683b36cf198d24f58e24582070f56e6fa89d5ee2be",
+    "native/licenses/NODE-LICENSE.txt": "148eacf7863ef4329224a29398623077200a27194aa075569faf4a0a85566ca5",
+    "native/licenses/ESBUILD-LICENSE.txt": "b40ec5baec7bb34fa5b1c09521fa3cd52d5fad7adafed74932a2010d3612a681",
+    "native/licenses/GODOT-LICENSE.txt": "a0acc151e87517ee3411acce58ce99e17f636921b37c158f38f0b5acafd10da2",
+    "native/runtime/service.cjs": "a038b8bbb2b81a03bf39fb98d2b72877753bf24f246443edeb3087e2e470ce32",
+    "native/runtime/sql-wasm.wasm": "38c14f6e379210bc942bdc4ebca44e7bfdb4318ecc1c72ca666a28fdce96670a"
+  },
+  "archive": {
+    "name": "Plant-01-macOS-arm64-v0.25.0.zip",
+    "bytes": 151628998,
+    "sha256": "c5753e46957995c506ffb73863a259c8b9b970d9a5c8ce55f6b6d3d57888e465",
+    "privateDataExcluded": true,
+    "signatureVerified": true,
+    "entries": 125
+  },
+  "scopeLimits": [
+    "Underground cable excavation/spoil/backfill (#13) is explicitly deferred; utility commissioning remains simplified.",
+    "Paid retirement covers mobile forklifts and excavators; locomotives and freight cars retain their separate railway workflow. Nonempty drums are refused; remaining sealed machine-tank fuel is explicit in retirement mass and history.",
+    "Active/manual work and supported cargo are protected; unsafe or unreachable service/collection layouts wait with linked reasons rather than teleporting assets.",
+    "Audio automation verifies the real playback graph silently; subjective listening remains a playtest item.",
+    "Starter-yard and focused operation checks, not a multi-hour large-factory soak or cross-platform certification.",
+    "Ad-hoc-signed Apple Silicon macOS 14+ package, not notarized. Browser deployment remains v0.18.0."
+  ]
+}

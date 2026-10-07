@@ -96,3 +96,10 @@ The native Process register adds constructed 30,000 L tanks, powered rail transf
 ## Worker selection and action clearance — v0.24.0
 
 New automatic assignments use reachable walking-path distance to actual work/boarding/fuel positions, respect duties and explicit crews, and retain active assignments. Construction, handling and parking share saved action-clearance records and collision-checked idle actor refuges. Real operators are required to drive equipment; manual control, active work and cargo remain protected. Persistent linked warnings after 20 simulated seconds identify unsafe or impossible maneuvers and resolve when cleared. Native Activity and Inbox offer warning-only filters. See [the guide](worker-assignment-and-clearance.md).
+
+
+## Site services and atmosphere — v0.25.0
+
+Native equipment service now drives suitable free machines near reachable diesel drums, uses visibly held 20 L cans and retains a clearly labeled stationary emergency path for dry machines or supported loads. Outbound road collections quote costs, reserve real stored assets, load through owned equipment/workers and preserve IDs and disposal history. An operator drives retired forklifts/excavators onto actual low-loader ramps.
+
+Native spatial sounds have saved master/category/mute/background controls and bounded playback. The production launchers use the normal audio driver. Sun, moon, sky, distant shadows and connected lamps follow actual simulated time continuously; every night has a full moon. The Dusk preview control explicitly overrides that presentation until switched off. See [Fuel, collection, sound, and daylight](site-services.md). The browser remains at v0.18.0; underground cable construction (#13) is deferred by request.

@@ -2,7 +2,7 @@
 
 ## Native game
 
-The playable Godot migration uses the approved Concept C art and a separate local simulation process. Open **Plant 01.app** in the surrounding `outputs/` folder, or double-click **Open Plant 01.command** for development. No browser is required. [Download the Mac app](https://github.com/lukacslacko/factory_game/releases/tag/v0.24.0). See [native game instructions](native/README.md) and [migration notes](docs/native-migration.md). The browser game and static visual proof remain available below.
+The playable Godot migration uses the approved Concept C art and a separate local simulation process. Open **Plant 01.app** in the surrounding `outputs/` folder, or double-click **Open Plant 01.command** for development. No browser is required. [Download the Mac app](https://github.com/lukacslacko/factory_game/releases/tag/v0.25.0). See [native game instructions](native/README.md) and [migration notes](docs/native-migration.md). The browser game and static visual proof remain available below.
 
 
 A playable first version of the fantasy chemistry plant game. Build and operate the construction yard before chemical production arrives: hire a crew, receive physical materials, move equipment, pave ground, extend track, and assemble a small base.
@@ -10,6 +10,10 @@ A playable first version of the fantasy chemistry plant game. Build and operate 
 The world uses a true perspective 3D camera, with a meter grid, dimensional stock, angled lighting, and grid-aligned parked equipment. The records use the approved Condensed direction. The visual target is the latest **80% A / 20% B** selection, rather than the earlier rejected flat world studies.
 
 ![Native gameplay](native/screenshots/02-native-equipment.png)
+
+## Site services, sound, and daylight — native v0.25.0
+
+Equipment refueling now uses an operator, travel to an accessible diesel drum when needed, and a visibly held 20 L service can. Paid road collections physically remove unwanted stored material or retire a forklift or excavator, retaining asset IDs and cost history. Spatial engine and work sounds have local volume controls; sunlight, full-moon nights, shadows, and connected lamps follow the simulation clock. See the [fuel, collection, sound, and daylight guide](docs/site-services.md) for prerequisites, controls, cancellation, and charges.
 
 ## Recover and rebuild track
 
@@ -37,7 +41,7 @@ New mainline and original-siding connections use explicit work possessions. Prep
 
 Hire **Qualified railway drivers** through the normal crew-bus flow. The shunter inspector offers driver assignment, named parking, forward/reverse manual moves, explicit release of manual control and physical can refueling. An **Engine shed** kit builds a 6 × 14 m shelter around connected internal track through real foundation, column, frame, roof, wall and door work, with a saved locomotive bay.
 
-**+ Tanker train** orders process water or bulk diesel in identified 30,000-liter cars. Review liquid weight, car tare, train length and service cost before ordering. Tankers keep their liquid contained during reception and shunting; pumping, tanks, piping, valves and gauges remain separate chemical-plant issues. Loaded cars cannot be collected as empties.
+**+ Tanker train** orders process water or bulk diesel in identified 30,000-liter cars. Review liquid weight, car tare, train length and service cost before ordering. Tankers keep their liquid contained during reception and shunting. Native v0.23.0 adds the pumps, tanks, piping, valves, and gauges described in the fluid walkthrough. Loaded cars cannot be collected as empties.
 
 All six rail material types stack up to eight pieces (2.85 m high) on deliveries and in stockyards, with finite footprints and actual carrier/lift weight limits. Larger orders share one multi-car train when the complete train fits the chosen receiving interval.
 
@@ -49,7 +53,7 @@ An independent [Godot visual study](native-proof/README.md) recreates the concep
 
 ## Browser legacy game
 
-The private game Site is **https://plant-01-starter-yard.lukacslacko.chatgpt.site**. The browser deployment remains **0.18.0**; the native release is **0.24.0**. Browser deployment status is recorded in `docs/publishing.md`. Sign in with the account that owns the Site. Local and hosted browser saves are separate; use Export save / Import save to transfer a yard.
+The private game Site is **https://plant-01-starter-yard.lukacslacko.chatgpt.site**. The browser deployment remains **0.18.0**; the native release is **0.25.0**. Browser deployment status is recorded in `docs/publishing.md`. Sign in with the account that owns the Site. Local and hosted browser saves are separate; use Export save / Import save to transfer a yard.
 
 On this Mac, double-click **Start Plant 01.command**. It starts the included local server and opens the game at **http://127.0.0.1:4173/**. Keep its Terminal window open while playing; Control-C stops the server.
 
@@ -225,7 +229,7 @@ The freight charge covers transport. Unloading uses purchased site equipment and
 
 Utility services still use a scripted visiting crew and a commissioned site connection; individual pipes, wires, supply loading, and utility metering are not modeled. Routes avoid carrier bounding rectangles, buildings, and stock. Traffic checks use compound footprints and short swept motion samples. People walk around stopped vehicles, equipment routes favor fewer bends, and carriers follow fixed lane and yard routes with crossing and yard maneuver reservations. This is not a vehicle physics engine: arbitrary road networks, multi-vehicle dispatch, individual chain attachment, and manual boom-joint controls remain future work. A player can still block a fixed delivery route with construction or manually parked equipment; the affected vehicle waits and identifies its blocker. Parked grid alignment does not require vehicles to snap to a cardinal heading while turning.
 
-Construction uses one material unit per hauling cycle. Kit assembly and fastening have visible work time rather than individual bolts. Recovery of assembled buildings returns a reusable kit. Empty fuel drums remain in storage; supplier returns are not implemented. Submitted orders cannot yet be canceled. These are implementation limits, not revisions to the original design vision.
+Construction uses one material unit per hauling cycle. Kit assembly and fastening have visible work time rather than individual bolts. Recovery of assembled buildings returns a reusable kit. Empty fuel drums remain in storage until removed; native v0.25.0 supports paid collection, while supplier return credits are not implemented. Incoming purchase orders cannot yet be canceled; native outbound collections have their own pause and cancellation controls. These are implementation limits, not revisions to the original design vision.
 
 ## Develop and verify
 

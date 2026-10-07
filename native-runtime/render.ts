@@ -1,3 +1,4 @@
+import { collectionLots } from '../src/collection';
 /** Engine-neutral render records. Coordinates remain the simulation's meters and radians;
  * Godot converts positive planar yaw to its negative Y rotation. No browser/Three dependency. */
 import type { State, ShedPartKind } from '../src/types';
@@ -30,6 +31,7 @@ import {
 import { shedComponentPose, shedPostPoints, shedPartLimits } from '../src/shed-geometry';
 import { RAIL_PANEL_PITCH } from '../src/railwork';
 import { railLocationPath, railLocationPose, railLocationStatus } from '../src/rail-locations';
+import { workerFuelCan } from './fuel-can-render';
 
 export function renderState(s: State) {
   // Simulation advances a carrying pose before moving the machine in that tick.
@@ -94,27 +96,24 @@ export function renderState(s: State) {
       const job = s.jobs.find((j) => j.status === 'doing' && j.worker === w.id);
       const groundTask = groundTasks.find(t => t!.workerId === w.id);
       const processTask = processOperations.find(t => t.workerId === w.id && !t.finished);
+      const collectionTask = s.collections?.find(c=>c.task?.helperId===w.id || c.task?.operatorId===w.id)?.task;
       const pose = { x: w.x, z: w.z, y: w.y || surface(w), yaw: w.yaw ?? 0 };
+      const fuelCan = workerFuelCan(s, w, job);
       return {
         ...w,
         ...pose,
         kind: 'worker',
         visible: !w.vehicle && !['home', 'returning', 'aboard'].includes(w.shiftPhase || 'working'),
-        walking: !!w.path?.length || Math.abs(w.velocity || 0) > 0.01,
+        walking: !!w.path?.length || Math.abs(w.velocity || 0) > 0.01 || (collectionTask?.phase==='equipment-exit' && collectionTask.clock>2),
         workPhase:
-          (processTask ? 'rail-fastening' : undefined) || (groundTask?.phase === 'working' ? 'rail-fastening' : undefined) || job?.railWork?.phase || job?.processAssembly?.phase || job?.shedAssembly?.phase || job?.handling?.phase || job?.phase,
+          (collectionTask && ['rig','secure'].includes(collectionTask.phase) ? 'rail-fastening' : undefined) || (processTask ? 'rail-fastening' : undefined) || (groundTask?.phase === 'working' ? 'rail-fastening' : undefined) || job?.railWork?.phase || job?.processAssembly?.phase || job?.shedAssembly?.phase || job?.handling?.phase || job?.phase,
         workClock:
-          processTask?.clock || groundTask?.clock || job?.railWork?.clock || job?.processAssembly?.clock ||
+          fuelCan?.clock || collectionTask?.clock || processTask?.clock || groundTask?.clock || job?.railWork?.clock || job?.processAssembly?.clock ||
           job?.shedAssembly?.clock ||
           job?.handling?.clock ||
           job?.elapsed ||
           0,
-        fuelCan:
-          (s.shunters || []).some(e => e.refueling?.workerId === w.id && e.refueling.carried > 0)
-            ? {liters: s.shunters!.find(e => e.refueling?.workerId === w.id)!.refueling!.carried, phase: 'Carry fuel'}
-            : job?.kind === 'refuel' && (job.fuelLiters || 0) > 0
-            ? { liters: job.fuelLiters, phase: job.phase }
-            : undefined,
+        fuelCan,
       };
     }),
     ...(s.railServiceCrew || []).map(w => {
@@ -150,6 +149,7 @@ export function renderState(s: State) {
         shed = job?.shedAssembly;
       const order = s.orders.find((o) => o.unload?.equipmentId === e.id),
         unload = order?.unload;
+      const collectionTask = s.collections?.find(c=>c.task?.equipmentId===e.id)?.task;
       let lift = e.lift ?? 0.12,
         reach = e.reach ?? 2.7,
         upperYaw = 0;
@@ -272,6 +272,12 @@ export function renderState(s: State) {
         else if (unload?.phase === 'rig')
           lift = 0.12 + (unload.sourceY - pose.y + offset - 0.12) * smoothstep(unload.clock / 2.5);
       }
+      if (collectionTask?.cargo && e.cargo) {
+        loadPose={...collectionTask.cargo};
+        reach=Math.hypot(loadPose.x-pose.x,loadPose.z-pose.z);
+        lift=loadPose.y-pose.y+(e.kind==='excavator'?stackHeight(e.cargo.item,e.cargo.qty)+0.7:0);
+        if(e.kind==='excavator') upperYaw=-angleDelta(pose.yaw,Math.atan2(loadPose.z-pose.z,loadPose.x-pose.x));
+      }
       if (e.cargo && !rail && !handling) {
         loadPose ||= {
           ...localPoint(pose, e.reach ?? 2.7, 0),
@@ -283,6 +289,7 @@ export function renderState(s: State) {
           parentEquipmentId: e.id,
           item: e.cargo.item,
           qty: e.cargo.qty,
+          hand: collectionTask?.lineIndex!==undefined?s.collections?.find(c=>c.task===collectionTask)?.lines[collectionTask.lineIndex]?.trackHand:undefined,
           pose: loadPose,
           carried: true,
         });
@@ -299,8 +306,8 @@ export function renderState(s: State) {
         forkSupportY: e.kind === 'forklift' ? pose.y + lift : undefined,
         upperYaw,
         cargoPose: loadPose,
-        workPhase: rail?.phase || handling?.phase || shed?.phase || unload?.phase,
-        workClock: rail?.clock || handling?.clock || shed?.clock || unload?.clock || 0,
+        workPhase: rail?.phase || handling?.phase || shed?.phase || unload?.phase || collectionTask?.phase,
+        workClock: rail?.clock || handling?.clock || shed?.clock || unload?.clock || collectionTask?.clock || 0,
       };
     }),
   ];
@@ -321,10 +328,11 @@ export function renderState(s: State) {
       const deck = rail
         ? { ...freight, y: 1.3, pitch: 0 }
         : deckPose({ ...freight, y: o.drive?.y ?? surface, pitch: o.drive?.pitch ?? 0 });
-      const cargo = shipmentLots(o)
+      const cargo = (o.collectionId ? collectionLots(s,o) : shipmentLots(o))
         .filter((l) => l.qty > 0 && !o.railFreight?.cars[l.carIndex || 0]?.returned)
         .map((l) => ({
           ...l,
+          hand: 'trackHand' in l ? l.trackHand : 1,
           ...(rail
             ? {
                 ...localPoint(

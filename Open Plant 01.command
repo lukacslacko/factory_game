@@ -12,4 +12,4 @@ if [[ ! -x /Applications/Godot.app/Contents/MacOS/Godot ]]; then
   print 'Install Godot in Applications before opening Plant 01.'
   exit 1
 fi
-exec /Applications/Godot.app/Contents/MacOS/Godot --path "$project_dir/native" --audio-driver Dummy
+exec /Applications/Godot.app/Contents/MacOS/Godot --path "$project_dir/native"

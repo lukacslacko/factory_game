@@ -185,11 +185,9 @@ test('hold prevents automatic work while preserving real refueling and direct op
     .reduce((n, t) => n + (t.liters || 0), 0);
   assert.equal(S.refuel(s, machine.id), '');
   tickUntil(s, () => machine.fuel === machine.tank);
-  assert.equal(
-    fuelBefore -
-      s.stacks.filter((t) => t.item === 'diesel').reduce((n, t) => n + (t.liters || 0), 0),
-    machine.tank,
-  );
+  assert.ok(Math.abs(fuelBefore -
+    s.stacks.filter((t) => t.item === 'diesel').reduce((n, t) => n + (t.liters || 0), 0) -
+    machine.tank) < 1e-7);
   const operator = s.workers.find((w) => w.role === 'operator')!;
   assert.equal(S.enterVehicle(s, operator.id, machine.id), '');
   tickUntil(s, () => operator.vehicle === machine.id && !operator.transition);

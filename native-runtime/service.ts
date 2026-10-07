@@ -221,6 +221,8 @@ function reportingRows() {
     railReservations: railReservationRows(state),
     railReturns: state.railReturns||[],
     materials: state.stacks,
+    collections: state.collections || [],
+    retiredEquipment: state.retiredEquipment || [],
     deliveries: state.orders,
     activity: state.events.slice(-1000).reverse(),
     costs: state.costs,
@@ -338,6 +340,7 @@ const readonly = new Set([
   'tables',
   'sql',
   'purchase_preview',
+  'collection_quote',
   'export',
   'export_costs',
   'diagnostics',
@@ -428,6 +431,11 @@ async function dispatch(action: string, a: any) {
     }
     case 'shutdown':
       return { shuttingDown: true };
+    case 'collection_quote': return Sim.quoteCollection(state, a);
+    case 'collection_request': {const result=Sim.requestCollection(state,a);check(result.error);return result;}
+    case 'collection_cancel': check(Sim.cancelCollection(state, a.id)); return {};
+    case 'collection_pause': check(Sim.pauseCollection(state, a.id)); return {};
+    case 'collection_resume': check(Sim.resumeCollection(state, a.id)); return {};
     case 'purchase_batch':
       return {
         orders: Sim.purchaseBatch(state, a.lines, a.mode, {
@@ -746,6 +754,8 @@ async function dispatch(action: string, a: any) {
           };
         }
       }
+      const historicalLines=(state.collections||[]).flatMap(c=>c.lines.filter(l=>l.stackId===id && l.sourceSnapshot).map(l=>({c,l})));
+      if(historicalLines.length){const first=historicalLines[0];return {type:'collectedMaterial',entity:{...first.l.sourceSnapshot,qty:0,reserved:0,collectionId:first.c.id,collectionIds:[...new Set(historicalLines.map(({c})=>c.id))],collected:historicalLines.reduce((n,{l})=>n+l.collected,0)}};}
       const operation = tables.process.operations.find(o=>o.id===id);
       if (operation) return {type:'processOperation',entity:operation};
       throw new Error('Entity not found.');

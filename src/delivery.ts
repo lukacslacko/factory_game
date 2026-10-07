@@ -1,3 +1,4 @@
+import { tickCollection, collectionOwnsEquipment, collectionOwnsStack } from './collection';
 import type { TrafficBox } from './traffic';
 import { requestActionClearance, clearActionClearance, actionEnvelopeBlockers } from './action-clearance';
 import { appendRailLayers, incomingRailLayers } from './rail-stock';
@@ -312,6 +313,7 @@ export function equipmentReservedForDelivery(s: State, e: Equipment, ignoreOrder
 function materialMachine(s: State, o: Order, preferred?: string, manual = false) {
   const mass = MATERIALS[selectedPendingLine(o)!.item as Item].mass;
   const qualified = (e: Equipment) =>
+    !collectionOwnsEquipment(s, e.id) &&
     (!equipmentHasAssignedWork(s, e) ||
       equipmentCanReceiveRailSupply(s, e, selectedPendingLine(o)!.item as Item)) &&
     !e.transportOrder &&
@@ -503,6 +505,7 @@ function chooseStorage(
     .filter(
       (t) =>
         t.item === item &&
+        !collectionOwnsStack(s,t.id) &&
         (!item.startsWith('rail') || item === 'rail' || (t.trackHand ?? 1) === 1) &&
         inDestination(t) &&
         t.qty > 0 &&
@@ -1778,6 +1781,12 @@ export function migrateRoadDrive(s: State, o: Order) {
   }
 }
 export function tickDelivery(s: State, o: Order, dt: number, api: DeliveryAPI) {
+  if (o.collectionId) {
+    const collection = s.collections?.find(c => c.id === o.collectionId);
+    if (collection?.status === 'paused') return;
+    if (o.status === 'unloading' || o.status === 'done' || o.carrierDeparted) { tickCollection(s, o, dt, api); if(collection)o.note=collection.note; return; }
+    if (o.status === 'departing') tickCollection(s, o, dt, api);
+  }
   // Site placement retains its machine/operator after the empty carrier leaves.
   if (o.unload && (o.status === 'departing' || o.status === 'done')) unloadTick(s, o, dt, api);
   if (o.status === 'done' || o.carrierDeparted) return;
@@ -1798,7 +1807,7 @@ export function tickDelivery(s: State, o: Order, dt: number, api: DeliveryAPI) {
     };
     migrateRoadDrive(s, o);
   }
-  if (kind === 'lowloader' && o.status !== 'ordered' && !o.equipmentId) {
+  if (!o.collectionId && kind === 'lowloader' && o.status !== 'ordered' && !o.equipmentId) {
     purchasedMachine(s, o, api);
     const e = s.equipment.find((e) => e.id === o.equipmentId)!,
       p = localPoint(berth(o), -1.5, 0);
@@ -1849,11 +1858,11 @@ export function tickDelivery(s: State, o: Order, dt: number, api: DeliveryAPI) {
     o.vehicle = { x: spawn.x, z: spawn.z };
     api.notice(
       s,
-      kind === 'rail' ? 'Train approaching' : 'Road delivery approaching',
-      `${orderDescription(o)} · ${o.id}`,
-      o.id,
+      o.collectionId ? 'Collection truck approaching' : kind === 'rail' ? 'Train approaching' : 'Road delivery approaching',
+      o.collectionId ? `Paid outbound collection · ${o.collectionId} · ${o.id}` : `${orderDescription(o)} · ${o.id}`,
+      o.collectionId || o.id,
     );
-    if (kind === 'lowloader') purchasedMachine(s, o, api);
+    if (!o.collectionId && kind === 'lowloader') purchasedMachine(s, o, api);
   }
   if(o.status==='departing' && o.railFreight?.arrivalRailMove && !o.railFreight.detached) {
     if(!advanceAttachedRailDeparture(s,o,dt)) return;
@@ -1864,7 +1873,7 @@ export function tickDelivery(s: State, o: Order, dt: number, api: DeliveryAPI) {
     if(!advanceRailArrival(s,o,dt)) return;
     o.status='unloading'; o.railFreight.arrivalRailMove=o.railFreight.incomingRailMove; o.railFreight.incomingRailMove=undefined;
     o.note='At receiving track; release supplier locomotive or initiate unloading'; o.handling=0;
-    if(!o.invoiced) {api.cost(s,'Purchases',o.id,`${orderDescription(o)} + transport`,o.total);o.invoiced=true;}
+    if(!o.invoiced && !o.collectionId) {api.cost(s,'Purchases',o.id,`${orderDescription(o)} + transport`,o.total);o.invoiced=true;}
     api.event(s,'Delivery',o.id,'Arrived; awaiting site unloading resources.');s.revision++;return;
   }
   if (o.status === 'approaching' || o.status === 'departing') {
@@ -1968,7 +1977,7 @@ export function tickDelivery(s: State, o: Order, dt: number, api: DeliveryAPI) {
     d.yardPermit = undefined;
     o.note = kind === 'bus' ? 'Stopped at curb; passengers alighting' : 'At receiving berth';
     o.handling = 0;
-    if (!o.invoiced) {
+    if (!o.invoiced && !o.collectionId) {
       api.cost(
         s,
         'Purchases',
@@ -1985,7 +1994,7 @@ export function tickDelivery(s: State, o: Order, dt: number, api: DeliveryAPI) {
     return;
   }
   // Legacy in-transit saves resume at their berth; invoice exactly once there too.
-  if (!o.invoiced) {
+  if (!o.invoiced && !o.collectionId) {
     api.cost(
       s,
       'Purchases',

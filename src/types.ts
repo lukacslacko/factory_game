@@ -1,3 +1,4 @@
+import type { Collection, RetiredEquipment } from './collection-types';
 import type { TrackPiece } from './track';
 import type { ProcessState } from './process-types';
 export type Point = { x: number; z: number };
@@ -370,6 +371,20 @@ export interface ProcessAssembly {
   workerPoint?: Point;
   part?: { index: number; kind: string; pose: RailWorkPose; from: RailWorkPose; to: RailWorkPose };
 }
+export interface EquipmentFuelWork {
+  /** An empty fueled machine drives to its drum; dry or loaded machines receive explicit can service. */
+  mode: 'station' | 'emergency';
+  barrelId: string;
+  station?: Point & { yaw: number; reverse: boolean };
+  emergencyReason?: string;
+  delivered: number;
+  /** Filled amount and amount poured in the current physical can; fuelLiters is the remainder. */
+  canAmount?: number;
+  canDelivered?: number;
+  retryAt?: number;
+  blockedSince?: number;
+  warned?: boolean;
+}
 export interface Job extends Rect {
   /** Created directly in creative mode, without consuming delivered stock. */
   creative?: boolean;
@@ -426,6 +441,7 @@ export interface Job extends Rect {
   retryAt?: number;
   retryRevision?: number;
   fuelLiters?: number;
+  fuelWork?: EquipmentFuelWork;
   railWork?: RailWork;
   handling?: ConstructionHandling;
   shedAssembly?: ShedAssembly;
@@ -607,6 +623,8 @@ export interface RailFreight {
   coupling?: RailCoupling;
 }
 export interface Order {
+  /** Outbound paid collection; never an incoming purchase. */
+  collectionId?: string;
   /** Original parcel sizes: storage limits may increase without repacking an existing carrier. */
   stackLimits?: Partial<Record<Item, number>>;
   railFreight?: RailFreight;
@@ -775,6 +793,8 @@ export interface State {
   jobs: Job[];
   jobGroups?: JobGroup[];
   orders: Order[];
+  collections?: Collection[];
+  retiredEquipment?: RetiredEquipment[];
   events: Event[];
   costs: Cost[];
   movements: Movement[];

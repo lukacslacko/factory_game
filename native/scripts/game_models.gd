@@ -3,6 +3,7 @@ const G=preload("res://scripts/geometry.gd")
 const M=preload("res://scripts/machines.gd")
 const R=preload("res://scripts/rail_yard.gd")
 const Process=preload("res://scripts/process_models.gd")
+const FuelCan=preload("res://scripts/fuel_can.gd")
 static var palette:Dictionary={}
 
 static func materials()->Dictionary:
@@ -26,6 +27,7 @@ static func actor(parent:Node3D,kind:String,data:Dictionary)->Node3D:
 	else:
 		result=M._worker(parent,Vector3.ZERO,0,m,str(data.get("name",data.get("id","Worker"))))
 		_worker_joints(result)
+	if kind in ["excavator","forklift"]:FuelCan.add_filler(result,kind)
 	_asset_labels(result,str(data.get("id","")))
 	result.set_meta("forward","-Z")
 	return result
@@ -83,6 +85,8 @@ static func _articulated_arm(parent:Node3D,m:Dictionary)->void:
 
 static func animate_actor(model:Node3D,p:Dictionary,delta:float)->void:
 	var kind:=str(model.get_meta("kind",""))
+	var fuel_cap:Node3D=model.get_node_or_null("FuelFiller/Cap")
+	if fuel_cap:fuel_cap.visible=str(p.get("refueling","")).is_empty()
 	var operator:Node3D=model.get_node_or_null("Upper/Cab/Operator") if kind=="excavator" else model.get_node_or_null("Operator")
 	if operator: operator.visible=not str(p.get("operator","")).is_empty()
 	if kind=="excavator":
@@ -121,16 +125,7 @@ static func animate_actor(model:Node3D,p:Dictionary,delta:float)->void:
 			_place_link(links.get_node("Link"+str(side)+"B"),base+Vector3(0,.50,0),tip-Vector3(0,.50,0),.085)
 			var pin:Node3D=links.get_node("Pin"+str(side));pin.position=(base+tip)*.5
 	else:
-		var can:Node3D=model.get_node_or_null("ArmR/FuelCan")
-		var fuel:Dictionary=p.get("fuelCan",{})
-		if not fuel.is_empty() and not can:
-			can=Node3D.new();can.name="FuelCan";(model.get_node("ArmR") as Node3D).add_child(can)
-			G.beveled_box(can,Vector3(.07,-.57,-.11),Vector3(.20,.24,.14),G.mat("b36c32",.59,.24))
-			G.rod(can,Vector3(.015,-.45,-.11),Vector3(.015,-.415,-.11),.012,materials().steel)
-			G.rod(can,Vector3(.125,-.45,-.11),Vector3(.125,-.415,-.11),.012,materials().steel)
-			G.rod(can,Vector3(.015,-.415,-.11),Vector3(.125,-.415,-.11),.012,materials().steel)
-			G.cylinder(can,Vector3(.14,-.44,-.11),.020,.05,materials().black,10)
-		if can:can.visible=not fuel.is_empty()
+		FuelCan.animate(model,p,delta)
 		var walking:=bool(p.get("walking",false)); var work:=str(p.get("workPhase","")).contains("rig") or str(p.get("workPhase","")).contains("fasten") or str(p.get("workPhase","")).contains("join")
 		var phase:=float(p.get("travel",0))*5.4
 		var amount:=.39 if walking else 0.0
@@ -469,20 +464,28 @@ static func _loading_ramps(root:Node3D,m:Dictionary)->void:
 	# Machinery trailers have an open platform, unlike freight sideboards.
 	for child in deck.get_children():
 		if child is Node3D and (child as Node3D).position.y>1.0:deck.remove_child(child);child.free()
+	# Match the simulation's rear deck at -5.25 m and its 4.5 m ramp run.
+	# The freight truck platform ends sooner, so extend this open machine bed.
+	var rear:float=5.25/1.40
+	var extra:float=rear-2.965
+	G.beveled_box(root,Vector3(0,.72,2.965+extra*.5),Vector3(2.03,.20,extra),m.steel)
+	G.beveled_box(root,Vector3(0,.80,2.965+extra*.5),Vector3(2.03,.04,extra),m.wood)
+	for side:int in [-1,1]:M._wheel(root,Vector3(side*1.02,.44,rear-.45),.44,.28,m)
 	for side in [-1,1]:
 		var ramp:=Node3D.new();ramp.name="RampL" if side<0 else "RampR";root.add_child(ramp)
-		ramp.position=Vector3(float(side)*.66,.82,2.965)
-		var length:float=4.5/1.40
-		G.beveled_box(ramp,Vector3(0,-.035,length*.5),Vector3(.56,.07,length),m.steel)
-		for z in range(22):G.beveled_box(ramp,Vector3(0,.006,(float(z)+.5)*length/22),Vector3(.52,.04,.045),m.bright_steel)
+		ramp.position=Vector3(float(side)*.78,.82,rear)
+		var length:float=Vector2(4.5/1.40,.82).length()
+		G.beveled_box(ramp,Vector3(0,-.035,length*.5),Vector3(.70,.07,length),m.steel)
+		for z in range(22):G.beveled_box(ramp,Vector3(0,.006,(float(z)+.5)*length/22),Vector3(.66,.04,.045),m.bright_steel)
 		G.cylinder(ramp,Vector3.ZERO,.07,.64,m.steel,12).rotation.z=PI*.5
+		ramp.set_meta("length",length)
 		ramp.rotation.x=-PI*.5
 
 static func animate_carrier(model:Node3D,p:Dictionary)->void:
 	if str(model.get_meta("kind",""))!="lowloader":return
 	for name in ["RampL","RampR"]:
 		var ramp:Node3D=model.get_node_or_null(name)
-		if ramp:ramp.rotation.x=lerpf(-PI*.5,atan2(.82,4.5),clampf(float(p.get("ramp",0)),0,1))
+		if ramp:ramp.rotation.x=lerpf(-PI*.5,atan2(.82,4.5/1.40),clampf(float(p.get("ramp",0)),0,1))
 
 static func rig_cargo(cargo:Node3D,equipment:Node3D)->void:
 	var rig:Node3D=cargo.get_node_or_null("SuspensionSlings")
