@@ -6,6 +6,8 @@ export function electricalNetwork(s: State) {
     .filter((b) => b.kind === 'power')
     .map((b) => ({
       ...b,
+      name: b.name || 'Incoming electrical station',
+      kind: b.kind,
       energized: !!s.utilities.power && b.connected,
       capacityKw: ELECTRICAL_CAPACITY_KW,
       demandKw: 0,
@@ -27,17 +29,17 @@ export function electricalNetwork(s: State) {
     if (seen.has(id))
       return { runIds: [], reason: 'Electrical junction cycle; circuit cannot be energized' };
     if (sources.some((q) => q.id === id)) return { root: id, runIds: [] };
-    if (!s.buildings.some((b) => b.id === id && b.kind === 'lamp'))
-      return { runIds: [], reason: 'Upstream incoming cabinet or lamp junction is missing' };
+    if (!s.buildings.some((b) => b.id === id && ['lamp', 'electricalJunction'].includes(b.kind)))
+      return { runIds: [], reason: 'Upstream incoming cabinet or electrical junction is missing' };
     const run = runs.find((r) => r.targetId === id);
-    if (!run) return { runIds: [], reason: 'Upstream lamp junction has no commissioned supply' };
+    if (!run) return { runIds: [], reason: 'Upstream junction has no commissioned supply' };
     const next = new Set(seen);
     next.add(id);
     const up = resolve(run.sourceId, next);
     return { ...up, runIds: [run.id, ...up.runIds] };
   }
   const consumers = s.buildings
-    .filter((b) => ['lamp', 'transferPump'].includes(b.kind))
+    .filter((b) => ['lamp', 'transferPump', 'electricalJunction'].includes(b.kind))
     .sort(
       (a, b) =>
         (a.kind === 'lamp' ? 0 : 1) - (b.kind === 'lamp' ? 0 : 1) || a.id.localeCompare(b.id),
@@ -46,7 +48,7 @@ export function electricalNetwork(s: State) {
       const run = runs.find((r) => r.targetId === b.id),
         up = run ? resolve(run.sourceId, new Set([b.id])) : undefined;
       const source = sources.find((q) => q.id === up?.root),
-        ratedKw = b.kind === 'lamp' ? 0.1 : 2,
+        ratedKw = b.kind === 'electricalJunction' ? 0 : b.kind === 'lamp' ? 0.1 : 2,
         pump = s.process?.pumps.find((p) => p.id === b.id);
       const loadKw =
         b.kind === 'lamp' ? ratedKw : pump?.enabled && pump.hose === 'connected' ? ratedKw : 0;
@@ -69,6 +71,13 @@ export function electricalNetwork(s: State) {
       }
       return {
         id: b.id,
+        name:
+          b.name ||
+          (b.kind === 'electricalJunction'
+            ? 'Electrical junction cabinet'
+            : b.kind === 'lamp'
+              ? 'Light pole'
+              : 'Transfer pump'),
         kind: b.kind,
         x: b.x,
         z: b.z,
@@ -86,7 +95,7 @@ export function electricalNetwork(s: State) {
       };
     });
   const junctions = consumers
-    .filter((c) => c.kind === 'lamp' && c.connected)
+    .filter((c) => c.kind === 'electricalJunction' || (c.kind === 'lamp' && c.connected))
     .map((c) => ({
       ...c,
       capacityKw: ELECTRICAL_CAPACITY_KW,
@@ -109,8 +118,11 @@ export function electricalConsumerPower(s: State, id: string) {
     electricalNetwork(s).consumers.find((c) => c.id === id) || {
       id,
       kind: 'unknown',
+      name: id,
       connected: false,
       powered: false,
+      sourceId: undefined,
+      rootSourceId: undefined,
       runIds: [] as string[],
       loadKw: 0,
       ratedKw: 0,

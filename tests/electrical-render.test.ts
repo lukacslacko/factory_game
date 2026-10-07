@@ -131,9 +131,19 @@ test('Electrical tool consumes real swept pose and remains stable with accumulat
   e.yaw = 58;
   e.reach = 3;
   e.lift = 0.4;
-  assert.deepEqual(electricalToolPose(run, e), { point: run.toolPoint, reach: 3, lift: 0.4 });
+  assert.deepEqual(electricalToolPose(run, e), {
+    point: run.toolPoint,
+    reach: 3,
+    lift: 0.4,
+    bucketPitch: 0.55,
+    bucketBottomReference: true,
+  });
   const actor = renderState(s).actors.find((a) => a.id === e.id)! as any;
-  assert.ok(Math.abs(actor.upperYaw!) <= Math.PI);
+  assert.equal(
+    actor.upperYaw,
+    0,
+    'The renderer must not slew instantly toward a future target while the actual chassis is still turning',
+  );
   assert.equal(actor.soilInBucketM3, 0.12);
   assert.equal(actor.lift, 0.4);
 });
@@ -201,4 +211,69 @@ test('One-cell vertical circuit follows cabinet and load terminal boundaries', (
   const trench = electricalRender(s).trenches[0];
   assert.deepEqual(trench.cuts, [{ x: 31.2, z: 30, w: 0.6, d: 1, depth: 0.6 }]);
   assert.ok(trench.cableSegments.every((segment) => segment.a.x === segment.b.x));
+});
+
+test('Digging projection lifts conserved soil before swinging and uses only accepted core time', () => {
+  const { run } = fixture();
+  const e = { x: 28, z: 30, yaw: 0, lift: -0.4, reach: 3.5 };
+  run.toolPoint = { x: 31.5, z: 30.5 };
+  run.phase = 'dig';
+  run.clock = 3;
+  assert.equal(electricalToolPose(run, e)!.bucketPitch, 0.55);
+  run.phase = 'dig-lift';
+  run.clock = 1.25;
+  run.soilInBucketM3 = 0.12;
+  e.lift = 0.35;
+  const held = electricalToolPose(run, e)!;
+  assert.equal(held.lift, 0.35);
+  assert.equal(held.bucketPitch, 0.55);
+  assert.deepEqual(
+    electricalToolPose(run, e),
+    held,
+    'A blocked accepted clock cannot keep animating',
+  );
+  run.phase = 'swing-spoil';
+  e.lift = 1.1;
+  assert.equal(electricalToolPose(run, e)!.lift, 1.1);
+  run.phase = 'dump-spoil';
+  run.clock = 0;
+  assert.equal(electricalToolPose(run, e)!.bucketPitch, 0.55);
+  run.clock = 2;
+  assert.ok(Math.abs(electricalToolPose(run, e)!.bucketPitch + 0.6) < 1e-9);
+  run.phase = 'dig-return';
+  run.clock = 0;
+  assert.ok(Math.abs(electricalToolPose(run, e)!.bucketPitch + 0.6) < 1e-9);
+  run.clock = 2;
+  assert.ok(Math.abs(electricalToolPose(run, e)!.bucketPitch - 0.1) < 1e-9);
+  run.phase = 'crew-clear';
+  run.clock = 0;
+  assert.ok(
+    Math.abs(electricalToolPose(run, e)!.bucketPitch + 0.6) < 1e-9,
+    'The last dump also uncurls continuously before retreat',
+  );
+});
+test('Backfill bucket retains a bottom-height reference through pickup, lift, swing, and return', () => {
+  const { run } = fixture();
+  run.toolPoint = { x: 32, z: 32 };
+  const e = { x: 28, z: 30, reach: 4.5, lift: 1.1 };
+  for (const phase of [
+    'backfill-pick',
+    'backfill-lift',
+    'swing-trench',
+    'backfill',
+    'backfill-return',
+  ] as const) {
+    run.phase = phase;
+    run.clock = 1;
+    const pose = electricalToolPose(run, e)!;
+    assert.equal(pose.bucketBottomReference, true);
+    assert.equal(pose.reach, 4.5);
+    assert.equal(pose.lift, 1.1);
+  }
+  run.phase = 'lift-paving';
+  assert.equal(
+    electricalToolPose(run, e)!.bucketBottomReference,
+    false,
+    'Rigged paving retains its suspension reference',
+  );
 });

@@ -794,6 +794,16 @@ test('native electrical commands plan explicit circuits, expose links and meters
     {id:Sim.id(state,'building'),kind:'lamp',x:36,z:30,w:1,d:1,rotation:0,connected:false,name:'Light',source:'opening'});
   await c.ok('import',{json:Sim.save(state)});
   const args={sourceId:state.buildings[0].id,targetId:state.buildings[1].id,cells:Array.from({length:5},(_,i)=>({x:31+i,z:30}))};
+  await c.ok('electrical_rename',{id:args.targetId,name:'North tanker bay light'});
+  const named=(await c.ok('tables',{table:'electricalConsumers'}))[0];
+  assert.equal(named.name,'North tanker bay light');assert.equal(named.id,args.targetId);
+  const namedState=JSON.parse((await c.ok('export')).json);
+  const invalidName=await c.request('electrical_rename',{id:args.targetId,name:' '});assert.equal(invalidName.ok,false);
+  assert.deepEqual(JSON.parse((await c.ok('export')).json),namedState,'Rejected name is fully nonmutating');
+  const namedSql=await c.ok('sql',{sql:'SELECT id,name,kind,rootSourceId,loadKw FROM electrical_consumers;'});
+  assert.ok(JSON.stringify(namedSql).includes('North tanker bay light'));
+  await c.ok('sql',{sql:'SELECT name,kind,availableKw FROM electrical_junctions;'});
+
   const before=JSON.parse((await c.ok('export')).json);
   const preview=await c.ok('electrical_preview',args);assert.equal(preview.valid,true);assert.equal(preview.meters,5);
   assert.deepEqual(JSON.parse((await c.ok('export')).json),before,'Preview must not reserve stock or alter the yard');

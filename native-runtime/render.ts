@@ -301,7 +301,7 @@ export function renderState(s: State) {
       }
       const electricalWork=s.electrical?.runs.find(r=>r.equipmentId===e.id && !['commissioned','canceled'].includes(r.status));
       const electricalTool=electricalWork&&electricalToolPose(electricalWork,e);
-      if(electricalTool && !e.path.length && e.kind==='excavator') {lift=electricalTool.lift;reach=electricalTool.reach;upperYaw=-angleDelta(pose.yaw,Math.atan2(electricalTool.point.z-e.z,electricalTool.point.x-e.x));}
+      if(electricalTool && !e.path.length && e.kind==='excavator') {lift=electricalTool.lift;reach=electricalTool.reach;upperYaw=0;}
       if(electricalWork && e.kind==='excavator' && e.cargo){
         lift=(e.lift??.12)+(e.cargo.item==='cableReel'?.47:stackHeight(e.cargo.item,e.cargo.qty))+.7;
         reach=e.reach??2.7;
@@ -316,6 +316,8 @@ export function renderState(s: State) {
         lift,
         reach,
         soilInBucketM3: electricalWork?.soilInBucketM3 || 0,
+        bucketPitch: electricalTool?.bucketPitch,
+        bucketBottomReference: electricalTool?.bucketBottomReference || false,
         toolLift: lift,
         toolReach: reach,
         forkSupportY: e.kind === 'forklift' ? pose.y + lift : undefined,

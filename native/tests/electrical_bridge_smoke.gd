@@ -93,6 +93,31 @@ func _run()->void:
 	await process_frame
 	await _load(opening)
 	var source_id:String=str(opening.buildings[0].id);var target_id:String=str(opening.buildings[1].id)
+	await _ok("electrical_rename",{"id":source_id,"name":"West incoming station"})
+	await _ok("electrical_rename",{"id":target_id,"name":"North yard light"})
+	await create_timer(.2).timeout
+	_check(Electrical.record(game.ui,source_id,"sources").get("name")=="West incoming station","Real station name reaches native selectors")
+	_check(Electrical.record(game.ui,target_id,"consumers").get("name")=="North yard light","Real consumer name reaches native selectors")
+	game.target=Vector3(33,0,31);game.distance=35;game.pitch=deg_to_rad(43);game._update_camera(0,true)
+	game._command("electrical_pick",{"role":"source","sourceId":"","targetId":target_id})
+	var source_screen:Vector2=game.camera.unproject_position(Vector3(30.5,.5,30.5))
+	_check(game.world.pick_screen(game.camera,source_screen)==source_id,"Real world ray picking identifies station model")
+	var press:=InputEventMouseButton.new();press.button_index=MOUSE_BUTTON_LEFT;press.pressed=true;press.position=source_screen
+	game._unhandled_input(press)
+	var release:=InputEventMouseButton.new();release.button_index=MOUSE_BUTTON_LEFT;release.pressed=false;release.position=source_screen
+	game._unhandled_input(release)
+	_check(game.ui.electrical_ui.source_selected==source_id and game.ui.electrical_ui.target_selected==target_id,"Actual map mouse events retain source and destination IDs")
+	_check(game.ui.electrical_ui.plan_window.visible,"Actual map click returns to visible cable planner")
+	game.ui.electrical_ui.plan_window.queue_free();await process_frame
+	game._command("electrical_pick",{"role":"target","sourceId":source_id,"targetId":""})
+	var target_screen:Vector2=game.camera.unproject_position(Vector3(36.5,.4,30.5))
+	press.position=target_screen;release.position=target_screen
+	game._unhandled_input(press);game._unhandled_input(release)
+	_check(game.ui.electrical_ui.target_selected==target_id and game.ui.electrical_ui.source_selected==source_id,"Actual destination map click preserves chosen source")
+	_check(not game.ui.electrical_ui.draw_button.disabled,"Real map selections enable circuit drawing")
+	await _capture("electrical-plan-selectors","Yard")
+	game.ui.electrical_ui.plan_window.queue_free();await process_frame
+
 	var cells:Array=[]
 	for x:int in range(31,36):cells.append({"x":x,"z":30})
 	var args:Dictionary={"sourceId":source_id,"targetId":target_id,"cells":cells}
@@ -114,14 +139,14 @@ func _run()->void:
 	_check(game.ui.tables.size()==5 and game.ui.tables[3].rows.size()==1,"Live physical installation appears in dense Electrical register")
 	await _capture("electrical-register","Electrical")
 	await _ok("electrical_cancel",{"id":run_id});await _ok("speed",{"value":10});await _ok("pause",{"paused":false})
-	deadline=Time.get_ticks_msec()+12000
+	deadline=Time.get_ticks_msec()+35000
 	while Time.get_ticks_msec()<deadline:
 		await create_timer(.35).timeout
 		after=await _state()
 		if after.electrical.runs[0].status=="canceled":break
 	await _ok("pause",{"paused":true});after=await _state()
 	var canceled:Dictionary=after.electrical.runs[0]
-	_check(canceled.status=="canceled","Physical laying can safely finish its open cell and cancel")
+	_check(canceled.status=="canceled","Physical laying safely restores the whole open trench and cancels")
 	var restored:bool=true
 	for cell:Dictionary in canceled.cells:
 		if float(cell.excavation)>float(cell.backfilled)+.001 or float(cell.get("spoilM3",0))>.001:restored=false

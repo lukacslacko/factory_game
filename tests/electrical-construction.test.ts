@@ -6,6 +6,7 @@ import { electricalValidationProblem } from '../src/electrical-validation';
 import { electricalConsumerPower } from '../src/electrical-network';
 import { equipmentSweepBlocked, workerMoveBlocked } from '../src/traffic';
 import { angleDelta } from '../src/motion';
+import { setJobEquipment } from '../src/jobs';
 function fixture() {
   const s = S.createState(),
     e = seedHandlingResources(s, 'excavator');
@@ -99,6 +100,26 @@ test('real engineer and excavator deliver a finite reel, excavate, lay, backfill
   for (let n = 0; n < 15000 && s.electrical!.runs[0].status !== 'commissioned'; n++) {
     const r = s.electrical!.runs[0];
     phases.add(r.phase);
+    if (r.phase === 'collect-cable' || r.phase === 'lay') {
+      assert.ok(
+        r.cells.every((c) => c.excavation === 1),
+        'whole trench opens before cable pulling',
+      );
+      assert.ok(
+        r.cells.every((c) => c.backfilled === 0),
+        'cable is laid through the open run',
+      );
+    }
+    if (r.phase.startsWith('backfill')) {
+      assert.ok(
+        r.cells.every((c) => c.cableInstalled),
+        'no backfill before the full cable run is laid',
+      );
+      assert.ok(
+        r.sourceTerminated && r.targetTerminated,
+        'both endpoints terminate before restoration',
+      );
+    }
     if (r.status === 'working' && !saved.has(r.phase)) {
       s = S.load(S.save(s));
       saved.add(r.phase);
@@ -175,6 +196,16 @@ test('commissioned wire is physically isolated, dug up and returned to finite re
       s = S.load(S.save(s));
       r = s.electrical!.runs[0];
     }
+    if (r.phase === 'recover-cable')
+      assert.ok(
+        r.cells.every((c) => c.excavation === 1),
+        'the full isolated route is opened before cable retrieval',
+      );
+    if (r.phase.startsWith('backfill'))
+      assert.ok(
+        r.cells.every((c) => !c.cableInstalled),
+        'normal recovery retrieves the full cable run before restoration',
+      );
     safeTick(s);
     const progress = s.jobs.find((j) => j.id === r.jobId)!.progress;
     assert.ok(progress >= previousProgress, 'recovery progress counts restored cells forward');
@@ -392,4 +423,132 @@ test('canceling queued recovery keeps the live circuit physically unchanged and 
   assert.equal(s.stacks[0].cableMeters, 48);
   assert.match(r.reason, /before physical source isolation/);
   assert.doesNotThrow(() => S.load(S.save(s)));
+});
+
+test('continuous cable pulling walks an open five-meter trench with only one initial reel visit', () => {
+  const { s, source, target } = fixture();
+  target.z = 26;
+  assert.equal(
+    S.planElectrical(s, {
+      sourceId: source.id,
+      targetId: target.id,
+      cells: Array.from({ length: 5 }, (_, i) => ({ x: 20, z: 21 + i })),
+    }).error,
+    undefined,
+  );
+  const r = s.electrical!.runs[0];
+  let collecting = 0,
+    previous = '';
+  for (let n = 0; n < 22000 && r.status !== 'commissioned'; n++) {
+    if (r.phase === 'collect-cable' && previous !== r.phase) collecting++;
+    if (r.phase === 'pull-cable') {
+      assert.ok(r.cells.every((c) => c.excavation === 1 && c.backfilled === 0));
+      assert.ok(r.cells.slice(0, r.cellIndex).every((c) => c.cableInstalled));
+    }
+    previous = r.phase;
+    safeTick(s);
+  }
+  assert.equal(r.status, 'commissioned', JSON.stringify(r));
+  assert.equal(
+    collecting,
+    1,
+    'engineer continuously pulls cable instead of fetching individual meter lengths',
+  );
+  assert.equal(s.electrical!.meterLedger.filter((row) => row.from.endsWith('/HAND')).length, 5);
+});
+test('canceling late excavation restores every open cell and lifted paving through reload', () => {
+  let { s, source, target } = fixture();
+  target.z = 27;
+  for (let z = 21; z <= 26; z++) s.paving[`20,${z}`] = 'opening';
+  assert.equal(
+    S.planElectrical(s, {
+      sourceId: source.id,
+      targetId: target.id,
+      cells: Array.from({ length: 6 }, (_, i) => ({ x: 20, z: 21 + i })),
+    }).error,
+    undefined,
+  );
+  until(
+    s,
+    () => s.electrical!.runs[0].cellIndex === 4 && s.electrical!.runs[0].phase === 'dig-lift',
+    26000,
+  );
+  let r = s.electrical!.runs[0];
+  assert.equal(r.cells.filter((c) => c.excavation > 0 && c.backfilled === 0).length, 5);
+  assert.ok(r.soilInBucketM3 > 0);
+  assert.equal(S.cancelElectrical(s, r.id), undefined);
+  s = S.load(S.save(s));
+  r = s.electrical!.runs[0];
+  until(s, () => r.status === 'canceled', 26000);
+  assert.equal(r.soilInBucketM3, 0);
+  assert.equal(r.cableInHand, 0);
+  assert.ok(
+    r.cells.every((c) => c.spoilM3 === 0 && c.excavation === c.backfilled && !c.slabCarried),
+  );
+  for (let z = 21; z <= 26; z++) assert.equal(s.paving[`20,${z}`], 'opening');
+  s = S.load(S.save(s));
+  r = s.electrical!.runs[0];
+  assert.equal(S.resumeElectrical(s, r.id), undefined);
+  until(s, () => r.status === 'commissioned', 30000);
+  assert.equal(wireTotal(s), 50);
+});
+test('soil is lifted above grade before every lateral excavator bucket swing', () => {
+  let { s, request } = fixture();
+  assert.equal(S.planElectrical(s, request).error, undefined);
+  const phases = new Set<string>();
+  let r = s.electrical!.runs[0];
+  for (let n = 0; n < 22000 && r.status !== 'commissioned'; n++) {
+    const e = s.equipment[0];
+    phases.add(r.phase);
+    if (r.phase === 'dig-lift' || r.phase === 'backfill-lift') {
+      assert.ok(r.soilInBucketM3 > 0, 'lift keeps excavated soil inside the bucket');
+      if (!phases.has('saved-' + r.phase)) {
+        phases.add('saved-' + r.phase);
+        s = S.load(S.save(s));
+        r = s.electrical!.runs[0];
+      }
+    }
+    if (r.phase === 'swing-spoil' || r.phase === 'swing-trench') {
+      assert.ok((e.lift || 0) >= 1.09, `bucket cannot travel laterally underground in ${r.phase}`);
+      assert.ok(r.soilInBucketM3 > 0);
+    }
+    safeTick(s);
+  }
+  assert.equal(r.status, 'commissioned', JSON.stringify(r));
+  assert.ok(phases.has('dig-lift') && phases.has('backfill-lift'));
+});
+
+test('manual excavator assignment takes over after the current safe excavation pass', () => {
+  const { s, e, source, target } = fixture();
+  target.z = 26;
+  const replacement = { ...e, id: S.id(s, 'equipment'), x: 40.5, z: 40.5, path: [] };
+  s.equipment.push(replacement);
+  s.workers.push({
+    ...s.workers[0],
+    id: S.id(s, 'worker'),
+    name: 'Worker #3',
+    x: 38.5,
+    z: 40.5,
+    path: [],
+  });
+  assert.equal(
+    S.planElectrical(s, {
+      sourceId: source.id,
+      targetId: target.id,
+      cells: Array.from({ length: 5 }, (_, i) => ({ x: 20, z: 21 + i })),
+    }).error,
+    undefined,
+  );
+  const r = s.electrical!.runs[0];
+  until(s, () => r.phase === 'dig-lift');
+  assert.equal(r.equipmentId, e.id);
+  assert.equal(setJobEquipment(s, r.jobId, replacement.id), '');
+  until(s, () => r.equipmentId === replacement.id, 12000);
+  assert.equal(
+    r.cells.filter((c) => c.excavation === 1).length,
+    1,
+    'manual change applies at the first empty-bucket boundary, not after the whole trench',
+  );
+  until(s, () => r.status === 'commissioned', 24000);
+  assert.equal(r.equipmentId, replacement.id);
 });

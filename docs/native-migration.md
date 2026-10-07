@@ -110,3 +110,12 @@ Native spatial sounds have saved master/category/mute/background controls and bo
 Issue #13 adds explicit low-voltage underground circuits, conserved cable reels and adjacent spoil, excavator/operator/engineer work, paving restoration, physical recovery, and per-consumer electrical interlocks. Lights can extend a protected branch from their base; all branches share the root station's 16 kW service. Existing saves without circuits require real connections rather than receiving invisible free wiring. The example has an explicitly recorded opening circuit. See [electrical operations](electrical-operations.md).
 
 The creator's earlier game was running during this update. Install the new build alongside it as **Plant 01 v0.26.0.app**; leave the running app and its saves untouched. Save and quit the old instance before continuing in the new one.
+
+
+## Whole-trench electrical work and selection — v0.27.0
+
+Electrical runs now excavate their entire route before cable pulling, terminate before backfilling, and commission after restoration and testing. Purchased junction cabinet kits create intentional branching points within the same 16 kW supply. Safe cancellation restores every open cell; saved continuation and physical cable recovery retain exact material quantities. Excavator buckets lift out before swinging soil, with smoothly synchronized arm and load motion.
+
+The native circuit planner supports both searchable names/IDs/types and direct map picking, plus Locate selected and asset renaming. Source/destination choices survive switching between these methods. See [electrical operations](electrical-operations.md). The browser remains v0.18.0.
+
+Install **Plant 01 v0.27.0.app** beside the existing application. Do not launch two instances against the same save directory. Save and quit the old instance before continuing in the new one; this update leaves the currently running game and its saves untouched.

@@ -21,14 +21,17 @@ export type ElectricalPhase =
   | 'approach'
   | 'lift-paving'
   | 'dig'
+  | 'dig-lift'
   | 'swing-spoil'
   | 'dump-spoil'
   | 'dig-return'
   | 'crew-clear'
   | 'collect-cable'
   | 'lay'
+  | 'pull-cable'
   | 'backfill-approach'
   | 'backfill-pick'
+  | 'backfill-lift'
   | 'swing-trench'
   | 'backfill'
   | 'backfill-return'
@@ -59,6 +62,8 @@ export interface ElectricalRun {
   cells: ElectricalCell[];
   phase: ElectricalPhase;
   status: 'planned' | 'working' | 'commissioned' | 'canceling' | 'canceled';
+  /** Whole-run sequence: open the route, pull/retrieve cable, then restore it. */
+  workStage?: 'excavate' | 'lay' | 'restore';
   cellIndex: number;
   clock: number;
   created: number;

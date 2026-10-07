@@ -35,6 +35,8 @@ var preview_dirty: bool = false
 var preview_clock: float = 0.0
 var preview_key: String = ""
 var preview_request: int = 0
+var electrical_pick_role: String=""
+var electrical_pick_node: Node3D
 var cable_source_id: String=""
 var cable_target_id: String=""
 var cable_anchor: Dictionary={}
@@ -269,6 +271,10 @@ func _reply(message: Dictionary) -> void:
 			world.preview_track(preview.get("geometries",[]),str(preview.get("error","")).is_empty())
 		return
 	ui.receive_reply(message)
+	if message.get("ok",false) and message.get("action") in ["new_game","import","load","restore_backup"]:
+		ui._select_tool("select");cable_source_id="";cable_target_id=""
+		ui.electrical_ui.source_selected="";ui.electrical_ui.target_selected=""
+		if is_instance_valid(ui.electrical_ui.plan_window):ui.electrical_ui.plan_window.queue_free()
 	if not message.get("ok", false):
 		ui.show_error(str(message.get("error", "Instruction could not be completed.")))
 	elif message.get("action") in ["new_game", "continue", "import"]:
@@ -283,6 +289,16 @@ func _connection(connected: bool, description: String) -> void:
 		ui.show_error(description)
 
 func _command(action: String, args: Dictionary = {}) -> void:
+	if action=="electrical_pick":
+		_begin_electrical_pick(args);return
+	if action=="electrical_pick_cancel":
+		_end_electrical_pick(true);return
+	if action=="electrical_locate":
+		ui._select_tool("select")
+		ui.electrical_ui.source_selected=str(args.get("sourceId",""));ui.electrical_ui.target_selected=str(args.get("targetId",""))
+		_focus_entity(str(args.get("id","")))
+		ui.status_label.text="Located selected asset. Cable… reopens your saved source and destination choices."
+		return
 	if action=="electrical_draw":
 		cable_source_id=str(args.get("sourceId",""));cable_target_id=str(args.get("targetId",""))
 		ui._select_tool("cable")
@@ -330,6 +346,7 @@ func _focus_entity(id: String) -> void:
 	distance = minf(distance, 38.0)
 
 func _select_tool(value: String) -> void:
+	_end_electrical_pick(false)
 	_clear_cable_preview()
 	tool = value
 	placing = false
@@ -343,6 +360,51 @@ func _select_tool(value: String) -> void:
 	if value == "select":
 		return
 	follow = false
+
+func _eligible_electrical_assets() -> Array[Dictionary]:
+	return ElectricalUI.source_records(ui) if electrical_pick_role=="source" else ElectricalUI.records(ui,"consumers")
+
+func _begin_electrical_pick(args: Dictionary) -> void:
+	ui._select_tool("select")
+	cable_source_id=str(args.get("sourceId",""));cable_target_id=str(args.get("targetId",""))
+	electrical_pick_role=str(args.get("role","source"))
+	follow=false
+	electrical_pick_node=Node3D.new();electrical_pick_node.name="ElectricalAssetSelection";add_child(electrical_pick_node)
+	var material:=StandardMaterial3D.new();material.shading_mode=BaseMaterial3D.SHADING_MODE_UNSHADED
+	material.albedo_color=Color("72d4a3") if electrical_pick_role=="source" else Color("79cce7")
+	material.no_depth_test=false
+	var mesh:=BoxMesh.new();mesh.size=Vector3.ONE
+	var instances:=MultiMeshInstance3D.new();instances.cast_shadow=GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	instances.multimesh=MultiMesh.new();instances.multimesh.transform_format=MultiMesh.TRANSFORM_3D;instances.multimesh.mesh=mesh;instances.material_override=material
+	electrical_pick_node.add_child(instances)
+	var candidates: Array[Dictionary]=_eligible_electrical_assets()
+	instances.multimesh.instance_count=candidates.size()*4
+	var index: int=0
+	for asset: Dictionary in candidates:
+		var x: float=float(asset.get("x",0));var z: float=float(asset.get("z",0));var w: float=float(asset.get("w",1));var d: float=float(asset.get("d",1))
+		var y: float=_cable_surface(asset)+.08
+		for edge: Array in [[Vector3(w+.2,.04,.1),Vector3(x+w*.5,y,z-.1)],[Vector3(w+.2,.04,.1),Vector3(x+w*.5,y,z+d+.1)],[Vector3(.1,.04,d+.2),Vector3(x-.1,y,z+d*.5)],[Vector3(.1,.04,d+.2),Vector3(x+w+.1,y,z+d*.5)]]:
+			instances.multimesh.set_instance_transform(index,Transform3D(Basis.IDENTITY.scaled(edge[0]),edge[1]));index+=1
+	ui.set_electrical_pick_hint("Pick %s · click an outlined electrical object. Drag to pan; scroll to zoom. Esc returns to the plan."%electrical_pick_role)
+	if candidates.is_empty():ui.show_error("No eligible %s objects. Build or commission the required electrical asset first."%electrical_pick_role)
+
+func _end_electrical_pick(reopen: bool) -> void:
+	var was_picking: bool=not electrical_pick_role.is_empty()
+	electrical_pick_role=""
+	if is_instance_valid(electrical_pick_node):remove_child(electrical_pick_node);electrical_pick_node.queue_free()
+	electrical_pick_node=null
+	if is_instance_valid(ui):ui.set_electrical_pick_hint("")
+	if reopen and was_picking:ui.electrical_ui.plan_dialog(ui,cable_source_id,cable_target_id)
+
+func _pick_electrical_asset(id: String) -> void:
+	var asset: Dictionary={}
+	for candidate: Dictionary in _eligible_electrical_assets():
+		if str(candidate.id)==id:asset=candidate;break
+	if asset.is_empty():
+		ui.show_error("Choose an outlined %s object; other objects do not change your selections."%electrical_pick_role);return
+	if electrical_pick_role=="source":cable_source_id=id
+	else:cable_target_id=id
+	_end_electrical_pick(true)
 
 func _clear_cable_preview() -> void:
 	cable_anchor={};cable_end={};cable_cells.clear();cable_sources.clear();cable_targets.clear()
@@ -362,7 +424,7 @@ func _start_cable_preview() -> void:
 	var source: Dictionary=_electrical_asset(cable_source_id,"sources")
 	var consumer: Dictionary=_electrical_asset(cable_target_id,"consumers")
 	if source.is_empty() or consumer.is_empty() or cable_source_id.is_empty() or cable_target_id.is_empty():
-		ui.show_error("Choose an incoming station or wired light base and a light or pump in Electrical first.")
+		ui.show_error("Choose an incoming station or commissioned junction and a destination junction, light, or pump in Electrical first.")
 		tool="select";ui.active_tool="select";return
 	cable_sources=ElectricalUI.terminal_cells(source);cable_targets=ElectricalUI.terminal_cells(consumer)
 	cable_vertical_first=false
@@ -375,7 +437,7 @@ func _start_cable_preview() -> void:
 	cable_preview_mesh.multimesh=MultiMesh.new();cable_preview_mesh.multimesh.transform_format=MultiMesh.TRANSFORM_3D
 	cable_preview_mesh.multimesh.mesh=mesh;cable_preview_mesh.material_override=cable_preview_material
 	cable_preview_node.add_child(cable_preview_mesh)
-	for pair: Array in [[cable_sources,Color("8ec6a5"),"SOURCE "+cable_source_id],[cable_targets,Color("82becd"),"CONSUMER "+cable_target_id]]:
+	for pair: Array in [[cable_sources,Color("8ec6a5"),"SOURCE "+ElectricalUI.asset_label(ui,source)],[cable_targets,Color("82becd"),"DESTINATION "+ElectricalUI.asset_label(ui,consumer)]]:
 		var cells: Array=pair[0]
 		for cell: Dictionary in cells:
 			var marker:=MeshInstance3D.new();var tile:=BoxMesh.new();tile.size=Vector3(.78,.025,.78);marker.mesh=tile
@@ -430,7 +492,7 @@ func _cable_hint() -> void:
 	if cable_checked_key==JSON.stringify(_cable_args()):
 		text+="Valid. " if cable_error.is_empty() else cable_error+" · "
 	else:text+="Checking route… "
-	text+="Click a green source terminal, or drag to a blue consumer terminal." if cable_anchor.is_empty() else "Click a blue consumer terminal to plan. R swaps elbow; Esc cancels."
+	text+="Click a green source terminal, or drag to a blue destination terminal." if cable_anchor.is_empty() else "Click a blue destination terminal to plan. R swaps elbow; Esc cancels."
 	ui.set_electrical_hint(text)
 
 func _request_cable_preview() -> void:
@@ -556,7 +618,7 @@ func _placement_preview(point: Vector3) -> void:
 		return
 	var rect := _rect(click_point if placing else point,point)
 	if tool not in ["slab", "zone"]:
-		var sizes := {"office":Vector2i(6,3),"sanitary":Vector2i(3,2),"shed":Vector2i(8,6),"engineShed":Vector2i(6,14),"store":Vector2i(6,4),"processTank":Vector2i(4,4),"transferPump":Vector2i(2,2),"lamp":Vector2i(1,1),"fence":Vector2i(3,1),"power":Vector2i(1,1),"water":Vector2i(1,1),"railStraight":Vector2i(5,2),"railCurve":Vector2i(20,20),"railTurnout":Vector2i(20,7),"railConverging":Vector2i(20,7),"parking":Vector2i(3,5),"relocate":Vector2i(5,2)}
+		var sizes := {"electricalJunction":Vector2i(1,1),"office":Vector2i(6,3),"sanitary":Vector2i(3,2),"shed":Vector2i(8,6),"engineShed":Vector2i(6,14),"store":Vector2i(6,4),"processTank":Vector2i(4,4),"transferPump":Vector2i(2,2),"lamp":Vector2i(1,1),"fence":Vector2i(3,1),"power":Vector2i(1,1),"water":Vector2i(1,1),"railStraight":Vector2i(5,2),"railCurve":Vector2i(20,20),"railTurnout":Vector2i(20,7),"railConverging":Vector2i(20,7),"parking":Vector2i(3,5),"relocate":Vector2i(5,2)}
 		var size: Vector2i = sizes.get(tool,Vector2i(1,1))
 		if tool == "relocate":
 			for stack: Dictionary in state.get("stacks",[]):
@@ -636,7 +698,9 @@ func _unhandled_input(event: InputEvent) -> void:
 					var picked: String = world.pick_screen(camera,mouse.position) if world.has_method("pick_screen") else ""
 					if picked.is_empty():
 						picked = world.pick_ground(point)
-					if not picked.is_empty():
+					if not electrical_pick_role.is_empty():
+						_pick_electrical_asset(picked)
+					elif not picked.is_empty():
 						_select_entity(picked)
 					elif not controlled_worker.is_empty():
 						client.send("move_worker", {"id":controlled_worker,"x":point.x,"z":point.z})
@@ -680,6 +744,8 @@ func _unhandled_input(event: InputEvent) -> void:
 			return
 		match event.keycode:
 			KEY_ESCAPE:
+				if not electrical_pick_role.is_empty():
+					_end_electrical_pick(true);return
 				ui._select_tool("select")
 				controlled_worker = ""
 				_select_entity("")
@@ -773,6 +839,7 @@ func _camera_key_pressed(key: Key) -> bool:
 func _process(dt: float) -> void:
 	elapsed += dt
 	if is_instance_valid(cable_preview_node):cable_preview_node.visible=ui.active_tab=="Yard"
+	if is_instance_valid(electrical_pick_node):electrical_pick_node.visible=ui.active_tab=="Yard"
 	if tool=="cable":
 		cable_preview_age+=dt
 		if not cable_cells.is_empty() and cable_preview_age>=1.:cable_preview_dirty=true

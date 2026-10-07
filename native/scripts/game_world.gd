@@ -270,7 +270,7 @@ func advance(delta:float)->void:
 		if not models.has(id):continue
 		var record:Dictionary=records[id]; var a:Dictionary=record.from; var b:Dictionary=record.to
 		var p:Dictionary=b.duplicate()
-		for field in ["x","z","y","lift","reach","travel","pitch","clock","workClock","forkSupportY","ramp"]:
+		for field in ["x","z","y","lift","reach","travel","pitch","clock","workClock","forkSupportY","ramp","bucketPitch"]:
 			if b.has(field):p[field]=lerpf(float(a.get(field,b[field])),float(b[field]),alpha)
 		p["yaw"]=lerp_angle(float(a.get("yaw",0)),float(b.get("yaw",0)),alpha)
 		if b.has("bogies"):

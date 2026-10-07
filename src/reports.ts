@@ -16,6 +16,7 @@ import { parkingStatus } from './workforce';
 import { equipmentAssignment, jobRows, automaticEquipmentForWork } from './jobs';
 import { equipmentRole, equipmentActivities, equipmentWorkSummary } from './equipment-roles';
 export const SQL_EXAMPLES = [
+  {name:'Electrical junctions',sql:'SELECT id, name, kind, connected, powered, rootSourceId, availableKw, reason FROM electrical_junctions;'},
   {name:'Electrical loads',sql:'SELECT id, kind, connected, powered, sourceId, loadKw, reason FROM electrical_consumers;'},
   {name:'Cable meter trail',sql:'SELECT time, runId, meters, \"from\", \"to\", reason FROM cable_movements ORDER BY time DESC;'},
   {name: 'Paid collections', sql: 'SELECT id, status, phase, massKg, total FROM collections ORDER BY created DESC;'},
@@ -75,6 +76,7 @@ export async function query(s: State, sql: string) {
   const electrical = electricalNetwork(s);
   const tables: Record<string, Record<string, unknown>[]> = {
     electrical_sources: electrical.sources.map(r=>({...r})),
+    electrical_junctions: electrical.junctions.map(r=>({...r})),
     electrical_consumers: electrical.consumers.map(r=>({...r})),
     electrical_runs: electrical.runs.map(({cells,reservations,...r})=>({...r})),
     electrical_cells: electrical.runs.flatMap(r=>r.cells.map((c,index)=>({...c,runId:r.id,index,spoil_x:c.spoilRect.x,spoil_z:c.spoilRect.z}))),
@@ -351,8 +353,9 @@ export async function query(s: State, sql: string) {
       'staging_batch_qty',
     ],
     process_tanks: ['id','product','liters','capacity','x','z','status'],
-    electrical_sources:['id','energized','capacityKw','demandKw','availableKw'],
-    electrical_consumers:['id','kind','connected','powered','sourceId','loadKw','ratedKw','reason'],
+    electrical_sources:['id','name','kind','energized','capacityKw','demandKw','availableKw'],
+    electrical_junctions:['id','name','kind','connected','powered','sourceId','rootSourceId','capacityKw','availableKw','reason'],
+    electrical_consumers:['id','name','kind','connected','powered','sourceId','loadKw','ratedKw','reason'],
     electrical_runs:['id','jobId','sourceId','targetId','status','phase','length','installedMeters','reason'],
     electrical_cells:['runId','index','x','z','excavation','backfilled','cableInstalled','soilRemovedM3','spoilM3'],
     cable_movements:['id','runId','time','meters','from','to','reason'],

@@ -25,14 +25,17 @@ const phases = [
   'approach',
   'lift-paving',
   'dig',
+  'dig-lift',
   'swing-spoil',
   'dump-spoil',
   'dig-return',
   'crew-clear',
   'collect-cable',
   'lay',
+  'pull-cable',
   'backfill-approach',
   'backfill-pick',
+  'backfill-lift',
   'swing-trench',
   'backfill',
   'backfill-return',
@@ -123,6 +126,8 @@ export function electricalValidationProblem(s: State): string | undefined {
         return 'invalid electrical control flag';
     for (const value of [r.retryAt, r.blockedSince, r.finished])
       if (value !== undefined && (!number(value) || value < 0)) return 'invalid electrical timing';
+    if (r.workStage !== undefined && !['excavate', 'lay', 'restore'].includes(r.workStage))
+      return 'invalid electrical construction stage';
     ids.add(r.id);
     const j = s.jobs.find((j) => j.id === r.jobId);
     if (
@@ -141,10 +146,11 @@ export function electricalValidationProblem(s: State): string | undefined {
     )
       return 'electrical work ownership mismatch';
     const source = s.buildings.find(
-        (b) => b.id === r.sourceId && ['power', 'lamp'].includes(b.kind),
+        (b) => b.id === r.sourceId && ['power', 'lamp', 'electricalJunction'].includes(b.kind),
       ),
       target = s.buildings.find(
-        (b) => b.id === r.targetId && ['lamp', 'transferPump'].includes(b.kind),
+        (b) =>
+          b.id === r.targetId && ['lamp', 'transferPump', 'electricalJunction'].includes(b.kind),
       );
     const historical = r.status === 'canceled' && !r.cells.some((c) => c.cableInstalled);
     if ((!source || !target) && !historical) return 'electrical circuit endpoint missing';

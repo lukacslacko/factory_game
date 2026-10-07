@@ -2,7 +2,7 @@
 
 ## Native game
 
-The playable Godot migration uses the approved Concept C art and a separate local simulation process. Open **Plant 01.app** in the surrounding `outputs/` folder, or double-click **Open Plant 01.command** for development. No browser is required. [Download the Mac app](https://github.com/lukacslacko/factory_game/releases/tag/v0.26.0). See [native game instructions](native/README.md) and [migration notes](docs/native-migration.md). The browser game and static visual proof remain available below.
+The playable Godot migration uses the approved Concept C art and a separate local simulation process. Open **Plant 01.app** in the surrounding `outputs/` folder, or double-click **Open Plant 01.command** for development. No browser is required. [Download the Mac app](https://github.com/lukacslacko/factory_game/releases/tag/v0.27.0). See [native game instructions](native/README.md) and [migration notes](docs/native-migration.md). The browser game and static visual proof remain available below.
 
 
 A playable first version of the fantasy chemistry plant game. Build and operate the construction yard before chemical production arrives: hire a crew, receive physical materials, move equipment, pave ground, extend track, and assemble a small base.
@@ -10,6 +10,10 @@ A playable first version of the fantasy chemistry plant game. Build and operate 
 The world uses a true perspective 3D camera, with a meter grid, dimensional stock, angled lighting, and grid-aligned parked equipment. The records use the approved Condensed direction. The visual target is the latest **80% A / 20% B** selection, rather than the earlier rejected flat world studies.
 
 ![Native gameplay](native/screenshots/02-native-equipment.png)
+
+## Electrical construction and selection — native v0.27.0
+
+Electrical work excavates the full run, pulls cable along the open trench, connects both ends, then backfills, restores paving, and tests. The bucket lifts clear before swinging to the spoil pile. Procured junction cabinets create explicit branch points sharing the incoming 16 kW supply. Choose either endpoint through searchable names/IDs or by clicking the map; locate and rename controls keep larger yards manageable. See the [electrical walkthrough](docs/electrical-operations.md).
 
 ## Underground electrical circuits — native v0.26.0
 
@@ -61,7 +65,7 @@ An independent [Godot visual study](native-proof/README.md) recreates the concep
 
 Current electrical controls are implemented in Godot. The source browser UI is retained for reference; use the native app for current gameplay.
 
-The private game Site is **https://plant-01-starter-yard.lukacslacko.chatgpt.site**. The browser deployment remains **0.18.0**; the native release is **0.26.0**. Browser deployment status is recorded in `docs/publishing.md`. Sign in with the account that owns the Site. Local and hosted browser saves are separate; use Export save / Import save to transfer a yard.
+The private game Site is **https://plant-01-starter-yard.lukacslacko.chatgpt.site**. The browser deployment remains **0.18.0**; the native release is **0.27.0**. Browser deployment status is recorded in `docs/publishing.md`. Sign in with the account that owns the Site. Local and hosted browser saves are separate; use Export save / Import save to transfer a yard.
 
 On this Mac, double-click **Start Plant 01.command**. It starts the included local server and opens the game at **http://127.0.0.1:4173/**. Keep its Terminal window open while playing; Control-C stops the server.
 

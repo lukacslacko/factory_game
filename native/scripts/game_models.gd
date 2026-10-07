@@ -5,6 +5,8 @@ const R=preload("res://scripts/rail_yard.gd")
 const Process=preload("res://scripts/process_models.gd")
 const Electrical=preload("res://scripts/electrical_models.gd")
 const FuelCan=preload("res://scripts/fuel_can.gd")
+const BOOM_LENGTH:float=3.0
+const STICK_LENGTH:float=2.5
 static var palette:Dictionary={}
 
 static func materials()->Dictionary:
@@ -65,24 +67,32 @@ static func _seated_operator(parent:Node3D,at:Vector3,m:Dictionary)->void:
 static func _articulated_arm(parent:Node3D,m:Dictionary)->void:
 	var rig:=Node3D.new(); rig.name="ArmRig"; rig.position=Vector3(.42,1.52,-1); parent.add_child(rig)
 	var boom:=Node3D.new(); boom.name="Boom"; rig.add_child(boom)
-	M._profile(boom,[Vector2(.02,-.10),Vector2(-2.60,-.10),Vector2(-2.68,.08),Vector2(-2.46,.25),Vector2(-.10,.20)],.37,m.yellow_light)
+	var boom_shape:=Node3D.new();boom.add_child(boom_shape);boom_shape.scale.z=BOOM_LENGTH/2.65
+	M._profile(boom_shape,[Vector2(.02,-.10),Vector2(-2.60,-.10),Vector2(-2.68,.08),Vector2(-2.46,.25),Vector2(-.10,.20)],.37,m.yellow_light)
 	G.cylinder(boom,Vector3.ZERO,.12,.53,m.steel).rotation.z=PI*.5
 	for side in [-1,1]: G.cylinder(boom,Vector3(side*.28,0,0),.07,.022,m.bright_steel).rotation.z=PI*.5
-	G.rod(boom,Vector3(.24,.1,-.3),Vector3(.24,.25,-1.9),.08,m.yellow)
-	G.rod(boom,Vector3(.24,.25,-1.4),Vector3(.24,.16,-2.46),.035,m.bright_steel)
-	var stick:=Node3D.new(); stick.name="Stick"; stick.position=Vector3(0,0,-2.65); boom.add_child(stick)
-	M._profile(stick,[Vector2(.08,-.12),Vector2(-2.15,-.12),Vector2(-2.28,.02),Vector2(-2.08,.17),Vector2(-.05,.16)],.25,m.yellow)
+	G.rod(boom_shape,Vector3(.24,.1,-.3),Vector3(.24,.25,-1.9),.08,m.yellow)
+	G.rod(boom_shape,Vector3(.24,.25,-1.4),Vector3(.24,.16,-2.46),.035,m.bright_steel)
+	var stick:=Node3D.new(); stick.name="Stick"; stick.position=Vector3(0,0,-BOOM_LENGTH); boom.add_child(stick)
+	var stick_shape:=Node3D.new();stick.add_child(stick_shape);stick_shape.scale.z=STICK_LENGTH/2.2
+	M._profile(stick_shape,[Vector2(.08,-.12),Vector2(-2.15,-.12),Vector2(-2.28,.02),Vector2(-2.08,.17),Vector2(-.05,.16)],.25,m.yellow)
 	G.cylinder(stick,Vector3.ZERO,.11,.45,m.steel).rotation.z=PI*.5
-	G.rod(stick,Vector3(.17,.20,-.1),Vector3(.17,.19,-1.60),.055,m.yellow)
-	G.rod(stick,Vector3(.17,.19,-1.2),Vector3(.17,.10,-2.08),.025,m.bright_steel)
+	G.rod(stick_shape,Vector3(.17,.20,-.1),Vector3(.17,.19,-1.60),.055,m.yellow)
+	G.rod(stick_shape,Vector3(.17,.19,-1.2),Vector3(.17,.10,-2.08),.025,m.bright_steel)
 	for x in [-.20,.20]:
-		G.rod(boom,Vector3(x,.13,-.25),Vector3(x,.24,-2.55),.015,m.black)
-		G.rod(stick,Vector3(x,.14,-.20),Vector3(x,.12,-2.1),.013,m.black)
-	var bucket:=Node3D.new(); bucket.name="Bucket"; bucket.position=Vector3(0,0,-2.2); stick.add_child(bucket)
-	M._profile(bucket,[Vector2(.1,.11),Vector2(.33,-.10),Vector2(.21,-.42),Vector2(-.09,-.59),Vector2(-.68,-.58),Vector2(-.81,-.34),Vector2(-.47,.07)],.73,m.steel)
-	G.beveled_box(bucket,Vector3(0,-.46,-.42),Vector3(.62,.09,.42),m.black)
-	for x in [-.27,-.09,.09,.27]: G.beveled_box(bucket,Vector3(x,-.55,-.81),Vector3(.10,.07,.25),m.bright_steel)
+		G.rod(boom_shape,Vector3(x,.13,-.25),Vector3(x,.24,-2.55),.015,m.black)
+		G.rod(stick_shape,Vector3(x,.14,-.20),Vector3(x,.12,-2.1),.013,m.black)
+	var bucket:=Node3D.new(); bucket.name="Bucket"; bucket.position=Vector3(0,0,-STICK_LENGTH); stick.add_child(bucket)
+	M._profile(bucket,[Vector2(.1,.11),Vector2(.33,-.10),Vector2(.21,-.42),Vector2(-.09,-.59),Vector2(-.68,-.58),Vector2(-.81,-.34),Vector2(-.47,.07)],.52,m.steel)
+	G.beveled_box(bucket,Vector3(0,-.46,-.42),Vector3(.44,.09,.42),m.black)
+	for x in [-.18,-.06,.06,.18]: G.beveled_box(bucket,Vector3(x,-.55,-.81),Vector3(.08,.07,.25),m.bright_steel)
 	G.cylinder(bucket,Vector3.ZERO,.09,.48,m.steel).rotation.z=PI*.5
+
+static func bucket_bottom(pitch:float)->float:
+	var bottom:float=INF
+	for yz:Vector2 in [Vector2(.11,.1),Vector2(-.10,.33),Vector2(-.42,.21),Vector2(-.59,-.09),Vector2(-.58,-.68),Vector2(-.34,-.81),Vector2(.07,-.47),Vector2(-.585,-.935),Vector2(-.585,-.685),Vector2(-.515,-.935),Vector2(-.515,-.685)]:
+		bottom=minf(bottom,yz.x*cos(pitch)-yz.y*sin(pitch))
+	return bottom
 
 static func animate_actor(model:Node3D,p:Dictionary,delta:float)->void:
 	var kind:=str(model.get_meta("kind",""))
@@ -94,18 +104,25 @@ static func animate_actor(model:Node3D,p:Dictionary,delta:float)->void:
 		var upper:Node3D=model.get_node("Upper")
 		upper.rotation.y=float(p.get("upperYaw",0))
 		var rig:Node3D=upper.get_node("ArmRig")
+		var bucket_pitch:float=float(p.get("bucketPitch",.95 if bool(model.get_meta("suspended_load",false)) else .10))
 		var goal:=Vector3(0,float(p.get("lift",1.8)),-maxf(1.05,float(p.get("reach",2.7))))-rig.position
 		rig.rotation.y=atan2(-goal.x,-goal.z)
-		var r:=Vector2(goal.x,goal.z).length(); var dy:=goal.y
-		var distance:=clampf(Vector2(r,dy).length(),.65,4.82)
-		var angle:=atan2(dy,r)+acos(clampf((2.65*2.65+distance*distance-2.2*2.2)/(2*2.65*distance),-1,1))
-		var boom:Node3D=rig.get_node("Boom"); var stick:Node3D=boom.get_node("Stick")
+		var r:=Vector2(goal.x,goal.z).length();var dy:=goal.y
+		if bool(p.get("bucketBottomReference",false)):
+			# Core reach targets the cutting lip; core lift is the lowest metal
+			# surface. Offset the hinge for the actual curled bucket geometry.
+			var lip_z:float=-.55*sin(bucket_pitch)-.81*cos(bucket_pitch)
+			r+=lip_z
+			dy-=bucket_bottom(bucket_pitch)
+		var distance:=clampf(Vector2(r,dy).length(),absf(BOOM_LENGTH-STICK_LENGTH)+.01,BOOM_LENGTH+STICK_LENGTH-.01)
+		var angle:=atan2(dy,r)+acos(clampf((BOOM_LENGTH*BOOM_LENGTH+distance*distance-STICK_LENGTH*STICK_LENGTH)/(2*BOOM_LENGTH*distance),-1,1))
+		var boom:Node3D=rig.get_node("Boom");var stick:Node3D=boom.get_node("Stick")
 		boom.rotation.x=angle
-		var elbow_y:=2.65*sin(angle); var elbow_r:=2.65*cos(angle)
+		var elbow_y:=BOOM_LENGTH*sin(angle);var elbow_r:=BOOM_LENGTH*cos(angle)
 		var stick_angle:=atan2(dy-elbow_y,r-elbow_r)
 		stick.rotation.x=stick_angle-angle
 		var bucket:Node3D=stick.get_node("Bucket")
-		bucket.rotation.x=-stick_angle+(.95 if bool(model.get_meta("suspended_load",false)) else .10)
+		bucket.rotation.x=-stick_angle+bucket_pitch
 		Electrical.bucket_soil(bucket,float(p.get("soilInBucketM3",0)))
 	elif kind=="forklift":
 		var carriage:Node3D=model.get_node("Carriage")
@@ -313,6 +330,7 @@ static func _locomotive(parent:Node3D,owned:bool=false)->Node3D:
 
 static func building(parent:Node3D,data:Dictionary)->Node3D:
 	if str(data.get("kind",""))=="power":return Electrical.station(parent,data)
+	if str(data.get("kind",""))=="electricalJunction":return Electrical.junction(parent,data)
 	if Process.handles(str(data.get("kind",""))):return Process.building(parent,data)
 	var kind:=str(data.get("kind","")); var root:=Node3D.new(); parent.add_child(root)
 	var b:=R.Batch.new(); var m:=materials()

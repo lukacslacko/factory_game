@@ -27,6 +27,7 @@ export type Item =
   | 'store'
   | 'lamp'
   | 'cableReel'
+  | 'electricalJunction'
   | 'diesel'
   | 'fence';
 export type BuildKind = Item | 'power' | 'water';

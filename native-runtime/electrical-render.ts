@@ -137,10 +137,13 @@ export function electricalToolPose(
     !point ||
     ![
       'dig',
+      'dig-lift',
       'swing-spoil',
       'dump-spoil',
       'dig-return',
+      'crew-clear',
       'backfill-pick',
+      'backfill-lift',
       'swing-trench',
       'backfill',
       'backfill-return',
@@ -151,5 +154,30 @@ export function electricalToolPose(
     return;
   // The simulation already sweeps/aligns its actual tool, and only advances its
   // accepted clock. Reuse that pose instead of playing an independent animation.
-  return { reach: e.reach ?? Math.hypot(point.x - e.x, point.z - e.z), lift: e.lift ?? 0.4, point };
+  const progress = (seconds: number) => {
+    const t = Math.min(1, Math.max(0, run.clock / seconds));
+    return t * t * (3 - 2 * t);
+  };
+  // Curl only follows accepted simulation time: a blocked operation freezes
+  // both the physical soil transfer and its bucket motion. lift is the lowest
+  // bucket surface, rather than the hinge (which sits above the teeth).
+  const bucketPitch =
+    run.phase === 'dig' || run.phase === 'backfill-pick'
+      ? 0.1 + 0.45 * progress(3)
+      : ['dig-lift', 'backfill-lift', 'swing-spoil', 'swing-trench'].includes(run.phase)
+        ? 0.55
+        : run.phase === 'dump-spoil'
+          ? 0.55 - 1.15 * progress(2)
+          : run.phase === 'backfill'
+            ? 0.55 - 1.15 * progress(3)
+            : ['dig-return', 'backfill-return', 'crew-clear'].includes(run.phase)
+              ? -0.6 + 0.7 * progress(2)
+              : 0.1;
+  return {
+    reach: e.reach ?? Math.hypot(point.x - e.x, point.z - e.z),
+    lift: e.lift ?? 1.1,
+    point,
+    bucketPitch,
+    bucketBottomReference: !['lift-paving', 'restore-paving'].includes(run.phase),
+  };
 }

@@ -10,6 +10,7 @@ class WorldStub:
 	extends Node3D
 	func preview(_value:Dictionary,_valid:bool)->void:pass
 	func set_selected(_id:String)->void:pass
+	func entity_position(_id:String)->Vector3:return Vector3(38,0,28)
 class ClientSpy:
 	extends Node
 	var messages:Array[Dictionary]=[]
@@ -45,10 +46,13 @@ func _run()->void:
 	root.size=Vector2i(1440,810);root.gui_embed_subwindows=true
 	var fixture:Dictionary=JSON.parse_string(FileAccess.get_file_as_string("res://tests/renderer-fixtures.json")).empty.duplicate(true)
 	var source:Dictionary=_building("BLD-1001","power",20,20)
+	source.name="West incoming station"
 	source.merge({"capacityKw":16,"demandKw":.1,"availableKw":15.9,"energized":true})
 	var lamp:Dictionary=_building("BLD-1002","lamp",30,24)
+	lamp.name="North yard light"
 	lamp.merge({"ratedKw":.1,"loadKw":.1,"connected":true,"powered":true,"sourceId":"BLD-1001","rootSourceId":"BLD-1001","runIds":["ELEC-1001"],"availableKw":15.9})
 	var pump:Dictionary=_building("BLD-1003","transferPump",38,28)
+	pump.name="Tanker bay pump"
 	pump.merge({"ratedKw":2,"loadKw":0,"connected":false,"powered":false,"runIds":[],"reason":"No commissioned underground circuit"})
 	fixture.state.buildings=[source,lamp,pump]
 	fixture.state.stacks=[{"id":"STK-1001","item":"cableReel","qty":1,"reserved":0,"x":42,"z":30,"w":1,"d":1,"cableMeters":37,"cableReservedMeters":8}]
@@ -88,8 +92,26 @@ func _run()->void:
 	ui.electrical_ui.plan_dialog(ui)
 	_check(ui.electrical_ui.plan_window.visible and ui.electrical_ui.draw_button.disabled,"Plan dialog opens visibly with no implicit source or consumer")
 	_check(ui.electrical_ui.source_choice.item_count==3,"Source picker includes commissioned light-base junctions")
+	ui.electrical_ui.source_filter.text="west BLD-1001"
+	ui.electrical_ui.source_filter.text_changed.emit(ui.electrical_ui.source_filter.text)
+	_check(ui.electrical_ui.source_choice.item_count==2,"Name and ID search combine without remembering coordinates")
+	ui.electrical_ui.source_filter.text="North"
+	ui.electrical_ui.source_filter.text_changed.emit(ui.electrical_ui.source_filter.text)
+	_check(ui.electrical_ui.source_choice.item_count==2 and ui.electrical_ui.source_choice.get_item_metadata(1)=="BLD-1002","Source search finds named commissioned junction")
+	ui.electrical_ui.source_filter.text=""
+	ui.electrical_ui.source_filter.text_changed.emit(ui.electrical_ui.source_filter.text)
+	ui.electrical_ui.target_filter.text="tanker"
+	ui.electrical_ui.target_filter.text_changed.emit(ui.electrical_ui.target_filter.text)
+	_check(ui.electrical_ui.target_choice.item_count==2 and ui.electrical_ui.target_choice.get_item_metadata(1)=="BLD-1003","Destination search finds named equipment")
+
 	_choose(ui.electrical_ui.source_choice,"BLD-1002");_choose(ui.electrical_ui.target_choice,"BLD-1003")
 	_check(not ui.electrical_ui.draw_button.disabled,"Explicit source and consumer enables route drawing")
+	ui.electrical_ui.target_filter.text="does not match"
+	ui.electrical_ui.target_filter.text_changed.emit(ui.electrical_ui.target_filter.text)
+	_check(ui._selection(ui.electrical_ui.target_choice)=="BLD-1003","Filtering never silently replaces an explicit destination")
+	ui.electrical_ui.target_filter.text=""
+	ui.electrical_ui.target_filter.text_changed.emit(ui.electrical_ui.target_filter.text)
+
 	ui.electrical_ui.draw_button.pressed.emit()
 	_check(actions.back()=={"action":"electrical_draw","args":{"sourceId":"BLD-1002","targetId":"BLD-1003"}},"Draw command retains chosen branch junction and consumer")
 	await process_frame
@@ -105,12 +127,46 @@ func _run()->void:
 	ui.show_entity("STK-1001")
 	_check(_text(ui.inspector_body).contains("37.0") and _text(ui.inspector_body).contains("8.0"),"Partial reel and reservations stay inspectable")
 	ui.show_entity("BLD-1002");_check(_button(ui.inspector_body,"Extend cable from this light base…")!=null,"Wired lamp inspector exposes explicit extension")
+	_press(ui.inspector_body,"Rename electrical asset…")
+	var rename_window:Window
+	for window:Window in ui.find_children("*","Window",true,false):
+		if window.title.begins_with("Name electrical asset"):rename_window=window
+	_check(rename_window!=null,"Electrical names are editable in a visible native dialog")
+	if rename_window:
+		var edit:LineEdit=rename_window.find_children("*","LineEdit",true,false)[0]
+		_check(edit.text=="North yard light" and edit.max_length==80,"Rename starts with the recognizable current label")
+		edit.text=" ";edit.text_changed.emit(edit.text)
+		_check(_button(rename_window,"Save name").disabled,"Blank names cannot be submitted")
+		edit.text="East yard light";edit.text_changed.emit(edit.text);_press(rename_window,"Save name")
+		_check(actions.back()=={"action":"electrical_rename","args":{"id":"BLD-1002","name":"East yard light"}},"Renaming submits label with unchanged asset ID")
+	await process_frame
+
 	var guide:String=" ".join(Electrical.help_paragraphs())
 	_check(guide.contains("site engineer") and guide.contains("junction") and guide.contains("spoil") and guide.contains("does not share trenches"),"Guide explains real crew, inherited capacity and trench constraints")
 	var game:=MainHarness.new();root.add_child(game);game.ui=ui;game.state=fixture.state
 	game.world=WorldStub.new();game.add_child(game.world);game.client=ClientSpy.new();game.add_child(game.client)
 	game.add_child(game.camera);game.add_child(game.sun);game.add_child(game.moon)
 	ui.tool_selected.connect(game._select_tool)
+	game._command("electrical_pick",{"role":"source","sourceId":"BLD-1001","targetId":"BLD-1003"})
+	_check(game.electrical_pick_role=="source" and game.tool=="select" and ui.active_tab=="Yard","Map picking allows normal camera navigation in Yard")
+	_check(game.electrical_pick_node!=null and not ui.electrical_pick_hint.is_empty(),"Eligible map footprints and persistent selection instructions are visible")
+	game._pick_electrical_asset("STK-1001")
+	_check(game.electrical_pick_role=="source" and game.cable_source_id=="BLD-1001","Unrelated map objects do not overwrite the selected source")
+	game._pick_electrical_asset("BLD-1002")
+	_check(game.electrical_pick_role.is_empty() and game.electrical_pick_node==null,"Selecting eligible object clears temporary map mode")
+	_check(ui.electrical_ui.source_selected=="BLD-1002" and ui.electrical_ui.target_selected=="BLD-1003" and ui.electrical_ui.plan_window.visible,"Map pick returns to planner with other endpoint preserved")
+	_check(not ui.electrical_ui.draw_button.disabled,"Map and list selections produce the same usable stable IDs")
+	ui.electrical_ui.plan_window.queue_free();await process_frame
+	game._command("electrical_pick",{"role":"target","sourceId":"BLD-1002","targetId":"BLD-1003"})
+	game._end_electrical_pick(true)
+	_check(ui.electrical_ui.source_selected=="BLD-1002" and ui.electrical_ui.target_selected=="BLD-1003","Canceling map selection preserves both prior endpoints")
+	ui.electrical_ui.plan_window.queue_free();await process_frame
+	game._command("electrical_locate",{"id":"BLD-1003","sourceId":"BLD-1002","targetId":"BLD-1003"})
+	_check(game.target==Vector3(38,0,28),"Locate uses the asset's actual map position")
+	ui.electrical_ui.resume_plan_dialog(ui)
+	_check(ui._selection(ui.electrical_ui.source_choice)=="BLD-1002" and ui._selection(ui.electrical_ui.target_choice)=="BLD-1003","Reopening Cable after Locate retains both choices")
+	ui.electrical_ui.plan_window.queue_free();await process_frame
+
 	game._command("electrical_draw",{"sourceId":"BLD-1002","targetId":"BLD-1003"})
 	_check(game.tool=="cable" and ui.active_tab=="Yard","Draw switches into actual Yard cable tool")
 	_check(not game.cable_preview_material.no_depth_test and game.cable_preview_mesh.cast_shadow==GeometryInstance3D.SHADOW_CASTING_SETTING_OFF,"Preview is depth-tested and casts no false shadow")

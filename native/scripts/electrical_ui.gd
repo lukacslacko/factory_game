@@ -6,6 +6,10 @@ var target_choice: OptionButton
 var draw_button: Button
 var choice_note: Label
 var capacity_note: Label
+var source_filter: LineEdit
+var target_filter: LineEdit
+var source_selected: String=""
+var target_selected: String=""
 
 static func data(ui) -> Dictionary:
 	return ui.metadata.get("electrical",{})
@@ -24,7 +28,8 @@ static func record(ui, id: String, key: String="runs") -> Dictionary:
 
 static func source_records(ui) -> Array[Dictionary]:
 	var result: Array[Dictionary]=records(ui,"sources")
-	result.append_array(records(ui,"junctions"))
+	for junction: Dictionary in records(ui,"junctions"):
+		if junction.get("connected",false):result.append(junction)
 	return result
 
 static func terminal_cells(building: Dictionary) -> Array[Dictionary]:
@@ -61,16 +66,17 @@ static func manhattan_cells(start: Dictionary, end: Dictionary, vertical_first: 
 func build_register(ui) -> void:
 	capacity_note=ui._note(ui.register_body,"")
 	var tools:=HFlowContainer.new();ui.register_body.add_child(tools)
-	ui._button(tools,"Plan underground cable…",func()->void:plan_dialog(ui))
+	ui._button(tools,"Plan underground cable…",func()->void:resume_plan_dialog(ui))
 	ui._button(tools,"Order cable reels…",func()->void:
 		ui._open_purchase()
 		if ui.purchase_quantity.has("cableReel"):ui.purchase_quantity.cableReel.get_line_edit().grab_focus())
 	ui._button(tools,"Order 16 kW utility station…",func()->void:station_dialog(ui))
+	ui._button(tools,"Build junction cabinet",func()->void:ui._select_tool("electricalJunction"))
 	ui._button(tools,"Electrical help",func()->void:help_dialog(ui))
-	ui._note(ui.register_body,"Each circuit connects an incoming cabinet or commissioned light-base junction to one light or rail pump. Select a route to inspect real trench, spoil, cable, crew, and commissioning progress. No nearby or crossing cable creates a connection.")
-	_table(ui,"Utility stations",["ID","Position","Capacity kW","Demand kW","Available kW","State"])
-	_table(ui,"Light-base junctions · capacity is inherited from the incoming cabinet",["ID","Incoming station","Available kW","State"])
-	_table(ui,"Consumers",["ID","Kind","Rated kW","Demand kW","Source","Incoming station","Cable route","Powered","State / reason"])
+	ui._note(ui.register_body,"Each circuit connects an incoming cabinet or commissioned junction to another junction cabinet, light, or rail pump. Select a route to inspect real trench, spoil, cable, crew, and commissioning progress. No nearby or crossing cable creates a connection.")
+	_table(ui,"Utility stations",["ID","Position","Capacity kW","Demand kW","Available kW","State","Name"])
+	_table(ui,"Junction cabinets and light bases · capacity is inherited from the incoming cabinet",["ID","Incoming station","Available kW","State","Name"])
+	_table(ui,"Consumers",["ID","Kind","Rated kW","Demand kW","Source","Incoming station","Cable route","Powered","State / reason","Name"])
 	_table(ui,"Underground cable runs",["ID","Source","Consumer","Length m","Installed m","State","Work","Phase / waiting"])
 	_table(ui,"Cable meter ledger · reels, worker, and buried cable remain accounted for",["Time","Run","From","To","Meters","Reason"])
 	for table: Control in ui.tables:table.tree.custom_minimum_size.y=48
@@ -87,15 +93,15 @@ func refresh_register(ui) -> void:
 	var rows: Array[Dictionary]=[]
 	for e: Dictionary in sources:
 		capacity+=float(e.get("capacityKw",16));demand+=float(e.get("demandKw",0))
-		rows.append(ui._row(str(e.id),[e.id,ui._position(e),e.get("capacityKw",16),e.get("demandKw",0),e.get("availableKw",0),"Energized" if e.get("energized",false) else "Service not commissioned"],[],{"0":str(e.id)}))
+		rows.append(ui._row(str(e.id),[e.id,ui._position(e),e.get("capacityKw",16),e.get("demandKw",0),e.get("availableKw",0),"Energized" if e.get("energized",false) else "Service not commissioned",e.get("name",ui._name(str(e.get("kind","power"))))],[],{"0":str(e.id)}))
 	if is_instance_valid(capacity_note):capacity_note.text="%.2f / %.2f kW connected load · %d utility station(s) · lights and pumps require a tested physical circuit."%[demand,capacity,sources.size()]
 	ui._set_table(0,rows);rows=[]
 	for e: Dictionary in records(ui,"junctions"):
-		rows.append(ui._row(str(e.id),[e.id,e.get("rootSourceId","—"),e.get("availableKw",0),"Powered" if e.get("powered",false) else e.get("reason","Not powered")],[],{"0":str(e.id),"1":str(e.get("rootSourceId",""))}))
+		rows.append(ui._row(str(e.id),[e.id,e.get("rootSourceId","—"),e.get("availableKw",0),"Powered" if e.get("powered",false) else e.get("reason","Not powered"),e.get("name",ui._name(str(e.get("kind","electricalJunction"))))],[],{"0":str(e.id),"1":str(e.get("rootSourceId",""))}))
 	ui._set_table(1,rows);rows=[]
 	for e: Dictionary in records(ui,"consumers"):
 		var run_ids: Array=e.get("runIds",[])
-		rows.append(ui._row(str(e.id),[e.id,ui._name(str(e.get("kind",""))),e.get("ratedKw",e.get("loadKw",0)),e.get("loadKw",0),e.get("sourceId","—"),e.get("rootSourceId",e.get("sourceId","—"))," · ".join(run_ids),"Yes" if e.get("powered",false) else "No",e.get("reason",e.get("status",""))],[],{"0":str(e.id),"4":str(e.get("sourceId","")),"5":str(e.get("rootSourceId",e.get("sourceId",""))),"6":str(run_ids[0]) if not run_ids.is_empty() else ""}))
+		rows.append(ui._row(str(e.id),[e.id,ui._name(str(e.get("kind",""))),e.get("ratedKw",e.get("loadKw",0)),e.get("loadKw",0),e.get("sourceId","—"),e.get("rootSourceId",e.get("sourceId","—"))," · ".join(run_ids),"Yes" if e.get("powered",false) else "No",e.get("reason",e.get("status","")),e.get("name",ui._name(str(e.get("kind",""))))],[],{"0":str(e.id),"4":str(e.get("sourceId","")),"5":str(e.get("rootSourceId",e.get("sourceId",""))),"6":str(run_ids[0]) if not run_ids.is_empty() else ""}))
 	ui._set_table(2,rows);rows=[]
 	for e: Dictionary in records(ui,"runs"):
 		if not ui._status_matches("done" if e.get("status")=="commissioned" else str(e.get("status",""))):continue
@@ -108,38 +114,107 @@ func refresh_register(ui) -> void:
 		rows.push_front(ui._row(str(e.get("id","")),[ui._clock(e.get("time",0)),e.get("runId",""),e.get("from",""),e.get("to",""),e.get("meters",0),e.get("reason","")],[],{"1":str(e.get("runId","")),"2":str(e.get("from","")).get_slice("/",0),"3":str(e.get("to","")).get_slice("/",0)}))
 	ui._set_table(4,rows)
 
+static func asset_label(ui, asset: Dictionary) -> String:
+	var kind: String=ui._name(str(asset.get("kind","")))
+	var name: String=str(asset.get("name",kind))
+	if name.is_empty():name=kind
+	return "%s · %s · %s"%[name,asset.get("id",""),kind] if name!=kind else "%s · %s"%[name,asset.get("id","")]
+
+static func matches_asset(ui, asset: Dictionary, query: String) -> bool:
+	var haystack: String=(asset_label(ui,asset)+" "+ui._position(asset)).to_lower()
+	for word: String in query.to_lower().strip_edges().split(" ",false):
+		if not haystack.contains(word):return false
+	return true
+
+func _fill_choices(ui, role: String) -> void:
+	var option: OptionButton=source_choice if role=="source" else target_choice
+	var filter: LineEdit=source_filter if role=="source" else target_filter
+	var selected: String=source_selected if role=="source" else target_selected
+	var assets: Array[Dictionary]=source_records(ui) if role=="source" else records(ui,"consumers")
+	assets.sort_custom(func(a: Dictionary,b: Dictionary)->bool:return asset_label(ui,a).naturalnocasecmp_to(asset_label(ui,b))<0)
+	option.clear();option.add_item("Choose a source…" if role=="source" else "Choose a destination…");option.set_item_metadata(0,"")
+	var selected_found: bool=false
+	for asset: Dictionary in assets:
+		if not matches_asset(ui,asset,filter.text) and str(asset.id)!=selected:continue
+		var label: String=asset_label(ui,asset)
+		label+=" · %.2f kW available"%float(asset.get("availableKw",0)) if role=="source" else " · "+("Connected" if asset.get("connected",false) else "Needs cable")
+		option.add_item(label);option.set_item_metadata(option.item_count-1,str(asset.id))
+		if str(asset.id)==selected:option.select(option.item_count-1);selected_found=true
+	if not selected.is_empty() and not selected_found:
+		option.add_item(selected+" · unavailable; choose another asset")
+		option.set_item_metadata(option.item_count-1,selected);option.set_item_disabled(option.item_count-1,true);option.select(option.item_count-1)
+
+static func _style_name_input(input: LineEdit) -> void:
+	input.add_theme_color_override("font_color",Color("34503e"))
+	input.add_theme_color_override("font_placeholder_color",Color("617660"))
+	input.add_theme_color_override("caret_color",Color("34503e"))
+	input.add_theme_color_override("font_selected_color",Color.WHITE)
+	input.add_theme_color_override("selection_color",Color("48765f"))
+
+func _choice_section(ui, parent: Node, role: String) -> void:
+	ui._label(parent,"Source · incoming station or commissioned junction" if role=="source" else "Destination · junction cabinet, light, or pump")
+	var search:=LineEdit.new();search.placeholder_text="Search by name, ID, or type…";search.clear_button_enabled=true;parent.add_child(search)
+	search.size_flags_horizontal=Control.SIZE_EXPAND_FILL
+	_style_name_input(search)
+	var option: OptionButton=_option(ui,parent,[]);option.fit_to_longest_item=false;option.clip_text=true
+	if role=="source":source_filter=search;source_choice=option
+	else:target_filter=search;target_choice=option
+	var buttons:=HBoxContainer.new();parent.add_child(buttons)
+	ui._button(buttons,"Pick source on map" if role=="source" else "Pick destination on map",func()->void:
+		ui._send("electrical_pick",{"role":role,"sourceId":source_selected,"targetId":target_selected})
+		plan_window.queue_free())
+	ui._button(buttons,"Locate selected",func()->void:
+		var id: String=source_selected if role=="source" else target_selected
+		if not id.is_empty():
+			ui._send("electrical_locate",{"id":id,"sourceId":source_selected,"targetId":target_selected});plan_window.queue_free())
+	search.text_changed.connect(func(_text: String)->void:_fill_choices(ui,role);_update_choices(ui))
+	option.item_selected.connect(func(_index: int)->void:
+		if role=="source":source_selected=ui._selection(option)
+		else:target_selected=ui._selection(option)
+		_update_choices(ui))
+	_fill_choices(ui,role)
+
+func resume_plan_dialog(ui) -> void:
+	plan_dialog(ui,source_selected,target_selected)
+
 func plan_dialog(ui, source_id: String="", target_id: String="") -> void:
 	if is_instance_valid(plan_window):plan_window.queue_free()
-	var dialog: Dictionary=ui._rail_dialog("Plan underground electrical circuit",Vector2i(690,450));plan_window=dialog.window
-	ui._note(dialog.body,"Choose the incoming station or a wired light-base junction and the exact light or pump. In Yard, click a highlighted outside terminal at the source, then click a highlighted terminal at the consumer, or drag between them. R swaps the elbow; Escape cancels the preview. The route follows 1 m cells and is validated before work is planned.")
-	ui._label(dialog.body,"Source · incoming station or commissioned light-base junction")
-	source_choice=_option(ui,dialog.body,["Choose an incoming station or wired light base…"]);source_choice.set_item_metadata(0,"")
-	var sources: Array[Dictionary]=source_records(ui)
-	for e: Dictionary in sources:
-		source_choice.add_item("%s · %s · %.2f kW available%s"%[e.id,ui._position(e),float(e.get("availableKw",0))," · inherited from "+str(e.get("rootSourceId","")) if e.get("kind")=="lamp" else ""]);source_choice.set_item_metadata(source_choice.item_count-1,str(e.id))
-		if str(e.id)==source_id:source_choice.select(source_choice.item_count-1)
-	ui._label(dialog.body,"Consumer · one light or rail transfer pump")
-	target_choice=_option(ui,dialog.body,["Choose the consumer to connect…"]);target_choice.set_item_metadata(0,"")
-	for e: Dictionary in records(ui,"consumers"):
-		target_choice.add_item("%s · %s · %.2f kW rated · %s"%[e.id,ui._name(str(e.get("kind",""))),float(e.get("ratedKw",e.get("loadKw",0))),"Connected" if e.get("connected",false) else "Not connected"]);target_choice.set_item_metadata(target_choice.item_count-1,str(e.id))
-		if str(e.id)==target_id:target_choice.select(target_choice.item_count-1)
+	var dialog: Dictionary=ui._rail_dialog("Plan underground electrical circuit",Vector2i(760,460));plan_window=dialog.window
+	source_selected=source_id;target_selected=target_id
+	ui._note(dialog.body,"Search by name or ID for a large site, or pick either object directly in Yard. Both methods select the same stable asset IDs. Locate selected keeps your choices and takes you to that object; reopen Cable to continue. Then draw between the highlighted terminals. R swaps the elbow; Escape cancels the preview.")
+	_choice_section(ui,dialog.body,"source")
+	dialog.body.add_child(HSeparator.new())
+	_choice_section(ui,dialog.body,"target")
 	choice_note=ui._note(dialog.body,"")
-	draw_button=ui._button(dialog.body,"Draw this circuit in Yard",func()->void:
-		ui._send("electrical_draw",{"sourceId":ui._selection(source_choice),"targetId":ui._selection(target_choice)})
+	draw_button=ui._button(dialog.footer,"Draw this circuit in Yard",func()->void:
+		ui._send("electrical_draw",{"sourceId":source_selected,"targetId":target_selected})
 		plan_window.queue_free())
-	source_choice.item_selected.connect(func(_index: int)->void:_update_choices(ui))
-	target_choice.item_selected.connect(func(_index: int)->void:_update_choices(ui))
-	ui._button(dialog.body,"Electrical help",func()->void:help_dialog(ui))
 	ui._button(dialog.footer,"Close",func()->void:plan_window.queue_free())
 	_update_choices(ui);plan_window.popup_centered()
 
 func _update_choices(ui) -> void:
-	var source_id: String=ui._selection(source_choice);var target_id: String=ui._selection(target_choice)
-	draw_button.disabled=source_id.is_empty() or target_id.is_empty()
-	if source_choice.item_count==1:choice_note.text="No incoming station or wired light base. Order station service, and let its utility crew install it first."
-	elif target_choice.item_count==1:choice_note.text="Build a light pole or rail transfer pump first. Only these consumers are supported by the starter electrical system."
-	elif draw_button.disabled:choice_note.text="Select both named assets. Highlighted terminal cells will show where their circuit can start and end."
-	else:choice_note.text="%s → %s. Keep the trench, neighboring spoil cells, staged paving, machine approach, and reel storage clear."%[source_id,target_id]
+	var source: Dictionary={};var target: Dictionary={}
+	for asset: Dictionary in source_records(ui):
+		if str(asset.id)==source_selected:source=asset
+	for asset: Dictionary in records(ui,"consumers"):
+		if str(asset.id)==target_selected:target=asset
+	draw_button.disabled=source.is_empty() or target.is_empty() or source_selected==target_selected
+	if source_records(ui).is_empty():choice_note.text="No incoming station or commissioned junction. Order station service and let its utility crew install it first."
+	elif records(ui,"consumers").is_empty():choice_note.text="Build a junction cabinet, light pole, or rail transfer pump first."
+	elif draw_button.disabled:choice_note.text="Select different source and destination objects using search or the map. Each circuit has one explicit source and destination."
+	else:choice_note.text=asset_label(ui,source)+" → "+asset_label(ui,target)+". Keep the trench and adjacent spoil/handling space clear."
+
+func rename_dialog(ui, asset: Dictionary) -> void:
+	var dialog: Dictionary=ui._rail_dialog("Name electrical asset · "+str(asset.id),Vector2i(570,235))
+	ui._note(dialog.body,"Use a recognizable name, such as North yard lights or Tanker bay pump. IDs and wiring stay unchanged; duplicate names remain distinguishable by ID.")
+	var name:=LineEdit.new();name.max_length=80;_style_name_input(name);name.text=str(asset.get("name",ui._name(str(asset.get("kind","")))));dialog.body.add_child(name)
+	var save: Button=ui._button(dialog.footer,"Save name",func()->void:ui._send("electrical_rename",{"id":str(asset.id),"name":name.text});dialog.window.queue_free())
+	save.disabled=name.text.strip_edges().is_empty()
+	name.text_changed.connect(func(text: String)->void:save.disabled=text.strip_edges().is_empty())
+	name.text_submitted.connect(func(_text: String)->void:
+		if not save.disabled:save.pressed.emit())
+	ui._button(dialog.footer,"Cancel",func()->void:dialog.window.queue_free())
+	dialog.window.popup_centered();name.grab_focus();name.select_all()
 
 static func station_dialog(ui) -> void:
 	var dialog: Dictionary=ui._rail_dialog("Order low-power electrical service",Vector2i(590,310))
@@ -151,7 +226,7 @@ static func station_dialog(ui) -> void:
 	for order: Dictionary in ui.state.get("orders",[]):
 		if order.get("item")=="power" and order.get("status")!="done":incoming=str(order.id)
 	if not existing.is_empty() or not incoming.is_empty():
-		ui._note(dialog.body,"This starter site supports one incoming station. Inspect the installed or incoming connection, then extend its supply using separately built cable branches from commissioned light bases. Each branch inherits the same remaining 16 kW capacity.")
+		ui._note(dialog.body,"This starter site supports one incoming station. Inspect the installed or incoming connection, then extend its supply using separately built cable branches from commissioned junction cabinets or light bases. Each branch inherits the same remaining 16 kW capacity.")
 		var station_id: String=existing if not existing.is_empty() else incoming
 		ui._button(dialog.footer,"Inspect existing station" if not existing.is_empty() else "Inspect incoming service",func()->void:ui._user_entity(station_id);dialog.window.queue_free())
 	else:
@@ -163,6 +238,8 @@ func asset_inspector(ui, asset: Dictionary) -> void:
 	var id: String=str(asset.id);var source: Dictionary=record(ui,id,"sources");var junction: Dictionary=record(ui,id,"junctions");var consumer: Dictionary=record(ui,id,"consumers")
 	if source.is_empty() and consumer.is_empty():return
 	ui._label(ui.inspector_body,"Electrical connection")
+	ui._detail("Name",asset.get("name",ui._name(str(asset.get("kind","")))))
+	ui._button(ui.inspector_body,"Rename electrical asset…",func()->void:rename_dialog(ui,asset))
 	if not source.is_empty():
 		ui._detail("Modeled capacity","%.2f kW"%float(source.get("capacityKw",16)))
 		ui._detail("Connected demand","%.2f kW"%float(source.get("demandKw",0)))
@@ -184,7 +261,9 @@ func asset_inspector(ui, asset: Dictionary) -> void:
 		ui._detail("Junction incoming station",junction.get("rootSourceId","—"))
 		ui._detail("Inherited available capacity","%.2f kW"%float(junction.get("availableKw",0)))
 		ui._reference_controls(ui.inspector_body,[junction.get("rootSourceId","")])
-		ui._button(ui.inspector_body,"Extend cable from this light base…",func()->void:plan_dialog(ui,id))
+		if junction.get("connected",false):
+			ui._button(ui.inspector_body,"Extend cable from this junction…" if asset.get("kind")=="electricalJunction" else "Extend cable from this light base…",func()->void:plan_dialog(ui,id))
+		else:ui._note(ui.inspector_body,"Commission an incoming circuit to this cabinet before using it as a branch source.")
 	ui._button(ui.inspector_body,"Open Electrical register",func()->void:ui._switch_tab("Electrical"))
 
 static func run_inspector(ui, run: Dictionary) -> void:
@@ -198,6 +277,7 @@ static func run_inspector(ui, run: Dictionary) -> void:
 		spoil+=float(cell.get("spoilM3",0))
 	ui._detail("Cable","%d / %d m installed"%[installed,cells.size()])
 	ui._detail("Open trench cells",open);ui._detail("Spoil on site","%.3f m³"%spoil)
+	ui._detail("Construction stage",run.get("workStage","Opening / legacy phase"))
 	ui._detail("Cable in hand","%.1f m"%float(run.get("cableInHand",0)))
 	ui._detail("Terminations","Source %s · consumer %s"%["done" if run.get("sourceTerminated",false) else "pending","done" if run.get("targetTerminated",false) else "pending"])
 	ui._detail("Electrical test","Passed" if run.get("tested",false) else "Pending")
@@ -210,17 +290,18 @@ static func run_inspector(ui, run: Dictionary) -> void:
 	if status in ["commissioned","canceled"] and installed>0:
 		ui._button(ui.inspector_body,"Recover installed circuit",func()->void:ui._send("electrical_recover",{"id":id}))
 	elif status not in ["canceling","canceled"]:ui._button(ui.inspector_body,"Cancel recovery safely" if recovering else "Cancel remaining circuit work",func()->void:ui._send("electrical_cancel",{"id":id}))
-	ui._note(ui.inspector_body,"Canceling safely restores open ground and keeps installed cable recorded as uncommissioned. Resume continues that same circuit. Recovery sends the engineer to physically isolate both terminals before digging; queued work alone does not disconnect power. It then digs, retrieves measured cable into a real reel, and restores the ground. Recover downstream branches first and keep a reel with enough spare capacity accessible. Active installation must be safely canceled before recovery.")
+	ui._note(ui.inspector_body,"Canceling safely restores open ground and keeps installed cable recorded as uncommissioned. Resume continues that same circuit. Recovery sends the engineer to physically isolate both terminals before digging; queued work alone does not disconnect power. It then digs, retrieves measured cable into a real reel, and restores the ground. Recover downstream branches first and keep a reel with enough spare capacity accessible. Canceling restores every open trench cell. Active installation must be safely canceled before recovery.")
 	ui._button(ui.inspector_body,"Electrical help",func()->void:help_dialog(ui))
 
 static func help_paragraphs() -> Array[String]:
 	return [
-		"Order the 16 kW utility station from Electrical. Its external utility crew arrives by road and installs the connection. A station does not power the whole yard automatically. This first system connects individual light poles and rail transfer pumps; buildings with other uses are not electrical consumers yet.",
-		"Purchase 50 m cable reels, an excavator, fuel, and your own crew. An equipment operator moves the excavator; an available site engineer performs the electrical work. Deliveries must be unloaded into real accessible storage. In the equipment inspector, enable Construction under Automatic work, or assign the machine through the linked Work task.",
-		"Choose Plan underground cable, then explicitly select the source station or a commissioned light-base junction and the consumer. A light-base junction passes on its incoming station's remaining capacity; it does not create another 16 kW supply. Each branch still needs its own complete physical cable run. Yard highlights their outside terminal cells. Click a source terminal, then a consumer terminal, or drag between them. R swaps which direction the elbow takes. A green route has passed the host's current placement checks; amber is still checking and red explains an invalid route. Escape abandons the preview without placing work.",
-		"The plan reserves meter cells, neighboring spoil space, any temporary lifted paving, cable, crew, and a real machine approach. Keep these areas clear. The crew brings and stages reels, lifts paving where necessary, digs the trench, lays measured cable, backfills with the actual spoil, restores paving, makes both terminations, and tests the circuit. Crossing or touching another circuit does not join it, and this first system does not share trenches. Completed cable is buried and hidden; select its run or consumer for a temporary dashed route overlay. Click an open trench, spoil, or route marker to inspect that circuit.",
-		"A light or pump needs a complete tested circuit and spare station capacity before it has power. The station's 16 kVA rating is modeled as a 16 kW limit; the register shows each consumer's load and the remaining capacity. Inspect linked route, station, consumer, worker, equipment, and Work IDs to understand a delay. Lamp illumination still follows the day/night clock; a powered pump also needs its normal fluid route, controls, and interlocks.",
-		"Cancel remaining circuit work to stop safely; open ground is restored and cable already installed stays recorded but uncommissioned. Resume canceled circuit continues that route. Recover installed circuit first isolates both ends, then excavates and returns each exposed meter to a real reel before restoring the ground. Recover downstream branches first; a reel with enough free capacity must be accessible. Safely cancel unfinished installation before recovering its installed cable. A fully recovered route has no installed cable to recover again. The cable meter ledger tracks reel withdrawals and installed/recovered cable rather than inventing electric energy metering. These operations preserve their identities and progress when saved."
+		"Order the 16 kW utility station from Electrical. Its external crew arrives by road and installs the connection. A station does not power the whole yard automatically. The starter system connects junction cabinets, light poles, and rail transfer pumps; other buildings are not electrical consumers yet.",
+		"Purchase 50 m cable reels, an excavator, fuel, an equipment operator, and a site engineer. Deliveries must be unloaded into accessible storage. Enable Construction under the excavator's Automatic work, or assign it through the linked Work task. For branches, purchase an Electrical junction cabinet kit and use Electrical → Build junction cabinet. Its foundation and cabinet are physical construction work, like other assets.",
+		"Choose Plan underground cable. For either endpoint, search by name, ID, or type, or choose Pick source/destination on map and click an outlined object. Drag to pan and scroll to zoom while choosing; Escape or Back to cable plan returns without changing the prior selection. Locate selected takes you to that object; Cable… reopens the same choices. Rename electrical asset in an object's inspector gives it a memorable label while retaining its stable ID. Railway's existing named locations retain their names and IDs.",
+		"Draw this circuit in Yard highlights both assets' outside terminal cells. Click a green source terminal, then a blue destination terminal, or drag between them. R swaps the elbow; Escape abandons the preview. Green means the host accepted the route, amber is checking, and red explains a conflict. A junction must receive a complete commissioned circuit before it can supply another branch. A wired lamp base can also pass supply onward. Every branch shares the original station's remaining 16 kW; no junction creates power.",
+		"One work order excavates the entire run to the selected endpoint or junction before laying cable. The excavator lifts soil clear before swinging it to adjacent spoil. The engineer then pulls cable progressively along the open trench from a real staged reel, without returning to the reel for every meter. Both ends are connected, then the crew backfills the run with its conserved spoil, restores lifted paving, and tests the circuit. Power becomes available only when everything is finished. Keep neighboring spoil, reel staging, and machine/walking approaches clear. Open trenches block movement. Crossing or touching cables does not join them; this first system does not share trenches.",
+		"Electrical shows linked source, destination, crew, machine, reels, phase, installed meters, and spoil. A light requires 0.1 kW; an enabled pump with its tanker hose connected requires 2 kW. A powered pump also needs its normal fluid route, controls, and interlocks. The station's 16 kVA rating is modeled as a 16 kW limit. Inspect the linked IDs to understand a delay, or export the local rolling diagnostic log.",
+		"Cancel remaining circuit work to stop safely. The crew returns held cable and restores every open trench and paving cell before releasing the assignment. Installed cable stays recorded but uncommissioned; Resume continues the same run. Recover installed circuit first physically isolates both ends, then excavates, retrieves measured cable into real reels, and restores the ground. Recover downstream branches before their feed and keep enough accessible reel capacity. Safely cancel installation before recovery. Saving retains work phases and every meter. Creative mode commissions an explicitly drawn valid circuit instantly; recovery still uses the physical crew."
 	]
 
 static func help_dialog(ui) -> void:

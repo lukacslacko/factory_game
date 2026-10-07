@@ -757,10 +757,10 @@ function completeCreativePlacement(s: State, jobs: Job[]) {
         w: j.w,
         d: j.d,
         rotation: j.rotation,
-        name: label(j.kind),
+        name: j.kind==='electricalJunction'?BUILDINGS.electricalJunction.name:label(j.kind),
         source: j.id,
         connected:
-          j.kind === 'lamp' ? false : j.kind === 'sanitary' ? s.utilities.water : true,
+          ['lamp','transferPump','electricalJunction'].includes(j.kind) ? false : j.kind === 'sanitary' ? s.utilities.water : true,
       });
     }
     if(isProcessKind(j.kind)) { const b=s.buildings.at(-1)!;b.componentIds=processComponentIds(b.kind,b.id); reconcileProcessAssets(s); }
@@ -2556,6 +2556,7 @@ function assign(s: State, j: Job) {
       j.reason = 'Structure no longer exists';
       return;
     }
+    const electricalConflict=electricalRemovalConflict(s,b.id);if(electricalConflict){j.reason=electricalConflict;return;}
     if(isProcessKind(b.kind)){const error=processRecoveryConflict(s,b.id);if(error){j.reason=error;return;}}
     j.item = b.kind as Item;
     if (!(j.item in MATERIALS)) {
@@ -3399,6 +3400,7 @@ function tickJob(s: State, j: Job, dt: number) {
         }
         const { spot, merge, path, withdrawal } = destination;
         const b = recoveryTarget(s, j.target)!;
+        const electricalConflict=electricalRemovalConflict(s,b.id);if(electricalConflict){j.reason=electricalConflict;return;}
         if(isProcessKind(b.kind)){const error=processRecoveryConflict(s,b.id);if(error){j.reason=error;return;}}
         if (b.kind === 'slab') delete s.paving[key(b.x, b.z)];
         else if (b.kind === 'rail') {
@@ -3491,10 +3493,10 @@ function tickJob(s: State, j: Job, dt: number) {
           w: j.w,
           d: j.d,
           rotation: j.rotation,
-          name: label(j.kind),
+          name: j.kind==='electricalJunction'?BUILDINGS.electricalJunction.name:label(j.kind),
           source: j.id,
           connected:
-            j.kind === 'lamp'
+            ['lamp','transferPump','electricalJunction'].includes(j.kind)
               ? false
               : j.kind === 'sanitary'
                 ? s.utilities.water
@@ -3850,7 +3852,7 @@ export function load(json: string): State {
   s.version = 4;
   if (!s.electrical) {
     s.electrical = {runs:[],meterLedger:[]};
-    if (s.utilities.power && s.buildings.some(b=>b.kind==='lamp'||b.kind==='transferPump'))
+    if (s.utilities.power && s.buildings.some(b=>['lamp','transferPump','electricalJunction'].includes(b.kind)))
       notice(s,'Electrical circuits required','Lights and tanker pumps now need commissioned underground circuits. Open Electrical to plan connections from the incoming cabinet.','');
   }
   reconcileElectricalLoads(s);

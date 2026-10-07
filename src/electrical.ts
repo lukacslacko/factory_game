@@ -131,6 +131,7 @@ export function planElectricalRun(
     cells: preview.cells,
     phase: 'reserve',
     status: 'planned',
+    workStage: 'excavate',
     cellIndex: 0,
     clock: 0,
     created: s.time,
@@ -279,11 +280,16 @@ export function resumeElectricalRun(s: State, id: string): string | undefined {
   if (r.recovering && !r.cells.some((c) => c.cableInstalled))
     return 'This circuit has already been fully recovered.';
   if (
-    !s.buildings.some((b) => b.id === r.sourceId && ['power', 'lamp'].includes(b.kind)) ||
-    !s.buildings.some((b) => b.id === r.targetId && ['lamp', 'transferPump'].includes(b.kind))
+    !s.buildings.some(
+      (b) => b.id === r.sourceId && ['power', 'lamp', 'electricalJunction'].includes(b.kind),
+    ) ||
+    !s.buildings.some(
+      (b) => b.id === r.targetId && ['lamp', 'transferPump', 'electricalJunction'].includes(b.kind),
+    )
   )
     return 'The circuit endpoint is missing.';
   r.status = 'planned';
+  r.workStage = 'excavate';
   r.phase = 'reserve';
   r.clock = 0;
   r.cancelRequested = false;
@@ -361,6 +367,7 @@ export function recoverElectricalRun(s: State, id: string, api: ElectricalAPI): 
   j.progress = 0;
   r.recovering = true;
   r.status = 'planned';
+  r.workStage = 'excavate';
   r.phase = 'reserve';
   r.clock = 0;
   r.cancelRequested = false;
@@ -432,7 +439,7 @@ function reserve(s: State, r: ElectricalRun) {
   return true;
 }
 function assign(s: State, r: ElectricalRun, j: Job, api: ElectricalAPI) {
-  if (!reserve(s, r)) {
+  if (!r.cancelRequested && r.workStage !== 'restore' && !reserve(s, r)) {
     blocked(
       s,
       r,
@@ -539,6 +546,10 @@ function align(
 ) {
   const yaw = Math.atan2(p.z - e.z, p.x - e.x),
     pose = { ...e };
+  if (!e.cargo && Math.abs(angleDelta(e.yaw || 0, yaw)) > 0.025 && (e.lift ?? 1.1) < 1.09) {
+    e.lift = Math.min(1.1, (e.lift ?? 0) + dt * 0.6);
+    return false;
+  }
   turn(pose, yaw, dt, 1.1);
   const blocker = equipmentSweepBlocked(s, e, pose);
   if (blocker) {
@@ -643,6 +654,7 @@ function chooseDock(s: State, e: Equipment, p: Point, api: ElectricalAPI, reelHa
       r.cells
         .filter(
           (c, i) =>
+            r.workStage !== 'restore' ||
             i >= r.cellIndex ||
             c.excavation - c.backfilled > 1e-7 ||
             c.spoilM3 > 1e-7 ||
@@ -657,6 +669,10 @@ function chooseDock(s: State, e: Equipment, p: Point, api: ElectricalAPI, reelHa
       [-1, 0],
       [0, 1],
       [0, -1],
+      [Math.SQRT1_2, Math.SQRT1_2],
+      [-Math.SQRT1_2, Math.SQRT1_2],
+      [Math.SQRT1_2, -Math.SQRT1_2],
+      [-Math.SQRT1_2, -Math.SQRT1_2],
     ]) {
       const dock = { x: p.x + dx * radius, z: p.z + dz * radius, yaw: Math.atan2(-dz, -dx) };
       if (
@@ -743,6 +759,40 @@ function chooseDock(s: State, e: Equipment, p: Point, api: ElectricalAPI, reelHa
       if (route) return dock;
     }
 }
+/** The full cable pass needs the excavation machine clear of every crew face.
+ * Pick a checked parking route rather than blindly reversing after the last
+ * spoil swing, whose bearing can point directly into a neighboring building. */
+function crewParking(s: State, r: ElectricalRun, e: Equipment, api: ElectricalAPI) {
+  const work = [
+    ...r.cells.map((c) => ({ ...c, w: 1, d: 1 })),
+    ...s.buildings.filter((b) => b.id === r.sourceId || b.id === r.targetId),
+  ];
+  for (const distance of [3.5, 4.5, 6, 8]) {
+    const points = [
+      localPoint(e, -distance, 0),
+      ...[
+        [1, 0],
+        [-1, 0],
+        [0, 1],
+        [0, -1],
+        [Math.SQRT1_2, Math.SQRT1_2],
+        [-Math.SQRT1_2, Math.SQRT1_2],
+        [Math.SQRT1_2, -Math.SQRT1_2],
+        [-Math.SQRT1_2, -Math.SQRT1_2],
+      ].map(([dx, dz]) => ({ x: e.x + dx * distance, z: e.z + dz * distance })),
+    ];
+    for (const p of points) {
+      if (work.some((a) => dist(p, center(a)) < 4)) continue;
+      const pose = { ...p, yaw: e.yaw || 0 };
+      if (equipmentMoveBlocked(s, e, pose)) continue;
+      if (
+        machineRoute(s, e, p, api.obstacles(s), 400, true) ||
+        machineRoute(s, { ...e, reverse: !e.reverse }, p, api.obstacles(s), 400, true)
+      )
+        return p;
+    }
+  }
+}
 function safeGroundPoint(s: State, e: Equipment, w: Worker, p: Point, current: State = s) {
   for (const distance of [4.5, 6, 8])
     for (const [dx, dz] of [
@@ -787,22 +837,64 @@ function reelFor(s: State, r: ElectricalRun) {
 function activeReel(s: State, r: ElectricalRun) {
   return r.reservations.find((q) => q.meters > 0);
 }
-function finishCell(s: State, r: ElectricalRun, j: Job, api: ElectricalAPI) {
-  const c = r.cells[r.cellIndex];
-  if (c.originalPaving && c.slabLifted && !c.slabRestored) {
-    setPhase(s, r, j, 'restore-paving');
+/** Every excavation pass finishes before cable pulling starts. Changing the
+ * active cell only happens with an empty bucket and no carried paving. */
+function needsCable(r: ElectricalRun, c: ElectricalCell) {
+  return r.recovering ? c.cableInstalled : !c.cableInstalled;
+}
+function resetDock(r: ElectricalRun) {
+  r.dock = r.workPoint = r.reelClear = undefined;
+}
+function selectCell(r: ElectricalRun, index: number) {
+  r.cellIndex = index;
+  resetDock(r);
+}
+function needsRestoration(c: ElectricalCell) {
+  return (
+    c.excavation - c.backfilled > 1e-7 || c.spoilM3 > 1e-7 || !!(c.slabLifted && !c.slabRestored)
+  );
+}
+function startRestoration(s: State, r: ElectricalRun, j: Job, api: ElectricalAPI) {
+  r.workStage = 'restore';
+  const index = r.cells.findIndex(needsRestoration);
+  if (index < 0) {
+    if (r.cancelRequested) finishCanceled(s, r, j, api);
+    else if (r.cells.some((c) => needsCable(r, c))) nextExcavation(s, r, j, api);
+    else if (r.recovering) finishCanceled(s, r, j, api);
+    else if (!r.sourceTerminated || !r.targetTerminated) setPhase(s, r, j, 'terminate-source');
+    else setPhase(s, r, j, 'test');
     return;
   }
-  if (r.cancelRequested) {
-    finishCanceled(s, r, j, api);
+  selectCell(r, index);
+  setPhase(s, r, j, 'backfill-approach');
+}
+function startCablePass(s: State, r: ElectricalRun, j: Job, api: ElectricalAPI) {
+  // Safely adopt older saves that finished one cell at a time, and never pull a
+  // new length toward an unexcavated section after a canceled run resumes.
+  if (r.cells.some((c) => needsCable(r, c) && c.excavation - c.backfilled < 1 - 1e-7)) {
+    nextExcavation(s, r, j, api);
     return;
   }
-  r.cellIndex++;
-  r.dock = undefined;
-  r.workPoint = undefined;
-  r.reelClear = undefined;
+  r.workStage = 'lay';
+  const index = r.cells.findIndex((c) => needsCable(r, c));
+  if (index < 0) {
+    if (r.recovering || r.cancelRequested) startRestoration(s, r, j, api);
+    else setPhase(s, r, j, 'terminate-source');
+    return;
+  }
+  selectCell(r, index);
+  setPhase(s, r, j, 'collect-cable');
+}
+function nextExcavation(s: State, r: ElectricalRun, j: Job, api: ElectricalAPI) {
   const requested = jobEquipmentAssignment(s, j).equipmentId;
-  if (requested && requested !== r.equipmentId && r.cellIndex < r.cells.length) {
+  if (
+    !r.cancelRequested &&
+    requested &&
+    requested !== r.equipmentId &&
+    !r.soilInBucketM3 &&
+    !r.cableInHand &&
+    !s.equipment.find((e) => e.id === r.equipmentId)?.cargo
+  ) {
     releaseCrew(s, r, j);
     r.workerId = r.operatorId = r.equipmentId = undefined;
     j.status = 'todo';
@@ -810,10 +902,78 @@ function finishCell(s: State, r: ElectricalRun, j: Job, api: ElectricalAPI) {
     setPhase(s, r, j, 'reserve');
     return;
   }
-  if (r.cellIndex >= r.cells.length) {
-    if (r.recovering) finishCanceled(s, r, j, api);
-    else setPhase(s, r, j, 'terminate-source');
-  } else setPhase(s, r, j, 'approach');
+  if (r.cancelRequested) {
+    startRestoration(s, r, j, api);
+    return;
+  }
+  const index = r.cells.findIndex(
+    (c) => needsCable(r, c) && c.excavation - c.backfilled < 1 - 1e-7,
+  );
+  if (index < 0) {
+    startCablePass(s, r, j, api);
+    return;
+  }
+  r.workStage = 'excavate';
+  selectCell(r, index);
+  setPhase(s, r, j, 'approach');
+}
+function continueAfterReel(s: State, r: ElectricalRun, j: Job, api: ElectricalAPI) {
+  if (r.cancelRequested) startRestoration(s, r, j, api);
+  else if (r.workStage === 'lay') startCablePass(s, r, j, api);
+  else nextExcavation(s, r, j, api);
+}
+function finishCell(s: State, r: ElectricalRun, j: Job, api: ElectricalAPI) {
+  const c = r.cells[r.cellIndex];
+  if (c.originalPaving && c.slabLifted && !c.slabRestored) {
+    setPhase(s, r, j, 'restore-paving');
+    return;
+  }
+  const requested = jobEquipmentAssignment(s, j).equipmentId;
+  if (requested && requested !== r.equipmentId && r.cells.some(needsRestoration)) {
+    releaseCrew(s, r, j);
+    r.workerId = r.operatorId = r.equipmentId = undefined;
+    j.status = 'todo';
+    r.status = r.cancelRequested ? 'canceling' : 'planned';
+    setPhase(s, r, j, 'reserve');
+    return;
+  }
+  startRestoration(s, r, j, api);
+}
+/** A cable is pulled continuously from the staged reel: the engineer does not
+ * return to collect disconnected one-meter pieces. The meter ledger records the
+ * advancing pull front while the remaining cable stays on its physical reel. */
+function pullCable(s: State, r: ElectricalRun, j: Job, api: ElectricalAPI) {
+  const reservation = activeReel(s, r);
+  if (!reservation) {
+    blocked(s, r, j, api, 'Reserved cable is exhausted before the circuit was complete');
+    return false;
+  }
+  if (!r.stagedReels.includes(reservation.stackId)) {
+    r.reelId = reservation.stackId;
+    setPhase(s, r, j, 'board');
+    return false;
+  }
+  r.reelId = reservation.stackId;
+  const reel = reelFor(s, r)!;
+  if ((reel.cableMeters || 0) < 1 || reservation.meters < 1) {
+    blocked(s, r, j, api, 'The reserved reel has insufficient physical cable');
+    return false;
+  }
+  reel.cableMeters! -= 1;
+  reel.cableReservedMeters!--;
+  reservation.meters--;
+  if (!reel.cableReservedMeters) reel.reserved = 0;
+  r.cableInHand = 1;
+  meterMovement(
+    s,
+    r,
+    api,
+    reel.id,
+    `${j.id}/HAND`,
+    1,
+    'Pull continuous cable from the staged physical reel along the open trench',
+  );
+  return true;
 }
 export function tickElectricalJob(s: State, j: Job, dt: number, api: ElectricalAPI): boolean {
   if (j.kind !== 'cableRun') return false;
@@ -823,7 +983,13 @@ export function tickElectricalJob(s: State, j: Job, dt: number, api: ElectricalA
     r.cancelRequested = true;
     r.status = 'canceling';
   }
-  if (r.cancelRequested && j.status === 'todo') {
+  if (
+    r.cancelRequested &&
+    j.status === 'todo' &&
+    !r.cableInHand &&
+    !r.soilInBucketM3 &&
+    !r.cells.some(needsRestoration)
+  ) {
     finishCanceled(s, r, j, api);
     return true;
   }
@@ -844,6 +1010,28 @@ export function tickElectricalJob(s: State, j: Job, dt: number, api: ElectricalA
     blocked(s, r, j, api, 'Return the assigned electrical crew to automatic duty');
     return true;
   }
+  r.workStage ??= [
+    'backfill-approach',
+    'backfill-pick',
+    'backfill-lift',
+    'swing-trench',
+    'backfill',
+    'backfill-return',
+    'restore-paving',
+  ].includes(r.phase)
+    ? 'restore'
+    : [
+          'collect-cable',
+          'pull-cable',
+          'lay',
+          'recover-cable',
+          'return-cable',
+          'terminate-source',
+          'terminate-target',
+          'test',
+        ].includes(r.phase)
+      ? 'lay'
+      : 'excavate';
   const step = (phase: ElectricalPhase) => setPhase(s, r, j, phase);
   const c = r.cells[r.cellIndex];
   r.clock += dt;
@@ -857,6 +1045,21 @@ export function tickElectricalJob(s: State, j: Job, dt: number, api: ElectricalA
           (!c.slabLifted || c.slabRestored)
         : c.cableInstalled && c.backfilled >= 1,
     ).length / r.cells.length;
+  if (!r.recovering)
+    j.progress = Math.min(
+      0.99,
+      r.cells.reduce(
+        (total, cell) =>
+          total +
+          0.3 * cell.excavation +
+          0.35 * Number(cell.cableInstalled) +
+          0.3 * cell.backfilled,
+        0,
+      ) /
+        r.cells.length +
+        0.025 * Number(r.sourceTerminated) +
+        0.025 * Number(r.targetTerminated),
+    );
   if (r.phase === 'board') {
     if (op.path.length || op.transition) return true;
     if (op.vehicle !== e.id) {
@@ -867,8 +1070,8 @@ export function tickElectricalJob(s: State, j: Job, dt: number, api: ElectricalA
       boardMachine(op, e);
       return true;
     }
-    if (r.cancelRequested) {
-      finishCanceled(s, r, j, api);
+    if (r.cancelRequested || r.workStage === 'restore') {
+      startRestoration(s, r, j, api);
       return true;
     }
     if (r.recovering && (r.sourceTerminated || r.targetTerminated)) {
@@ -877,13 +1080,13 @@ export function tickElectricalJob(s: State, j: Job, dt: number, api: ElectricalA
     }
     const reservation = activeReel(s, r);
     if (!reservation) {
-      step('terminate-source');
+      nextExcavation(s, r, j, api);
       return true;
     }
     r.reelId = reservation.stackId;
     const reel = reelFor(s, r)!;
     if (r.stagedReels.includes(reel.id)) {
-      step('approach');
+      continueAfterReel(s, r, j, api);
       return true;
     }
     const chosen = chooseStage(s, r, e, api);
@@ -920,7 +1123,7 @@ export function tickElectricalJob(s: State, j: Job, dt: number, api: ElectricalA
     step('reel-rig');
   } else if (r.phase === 'reel-rig') {
     if (r.cancelRequested) {
-      finishCanceled(s, r, j, api);
+      startRestoration(s, r, j, api);
       return true;
     }
     if (r.clock < 3) return true;
@@ -993,19 +1196,23 @@ export function tickElectricalJob(s: State, j: Job, dt: number, api: ElectricalA
     e.reverse = false;
     r.dock = undefined;
     if (r.cancelRequested) {
-      finishCanceled(s, r, j, api);
+      startRestoration(s, r, j, api);
       return true;
     }
-    r.reelClear = undefined;
-    r.workPoint = undefined;
-    step('approach');
+    resetDock(r);
+    continueAfterReel(s, r, j, api);
   } else if (r.phase === 'approach' || r.phase === 'backfill-approach') {
     if (!c) {
-      step('terminate-source');
+      if (r.workStage === 'restore') startRestoration(s, r, j, api);
+      else nextExcavation(s, r, j, api);
       return true;
     }
-    if ((r.recovering ? !c.cableInstalled : c.cableInstalled) && c.backfilled >= 1) {
-      finishCell(s, r, j, api);
+    if (r.phase === 'approach' && !needsCable(r, c)) {
+      nextExcavation(s, r, j, api);
+      return true;
+    }
+    if (r.phase === 'approach' && r.cancelRequested) {
+      startRestoration(s, r, j, api);
       return true;
     }
     if (
@@ -1039,12 +1246,15 @@ export function tickElectricalJob(s: State, j: Job, dt: number, api: ElectricalA
     r.workPoint ??= safeGroundPoint(future, futureEquipment, w, p, s);
     if (!r.workPoint || !walk(s, r, j, w, r.workPoint, api)) return true;
     if (!moveTo(s, r, j, e, r.dock, api, r.dock.yaw) || !align(s, r, j, e, p, dt, api)) return true;
+    // Arrive from a raised, compact transport pose before lowering for work.
+    e.lift = (e.lift ?? 1.1) + Math.max(-dt * 0.6, Math.min(dt * 0.6, 1.1 - (e.lift ?? 1.1)));
+    if (Math.abs(e.lift - 1.1) > 0.01) return true;
     if (r.phase === 'backfill-approach') {
-      step('backfill-pick');
+      step(c.spoilM3 > 1e-8 ? 'backfill-pick' : 'backfill-return');
       return true;
     }
     if (r.cancelRequested && c.excavation === 0) {
-      finishCanceled(s, r, j, api);
+      startRestoration(s, r, j, api);
       return true;
     }
     if (c.originalPaving && !c.slabLifted) {
@@ -1109,11 +1319,12 @@ export function tickElectricalJob(s: State, j: Job, dt: number, api: ElectricalA
     }
   } else if (r.phase === 'dig-return') {
     if (!align(s, r, j, e, center({ ...c, w: 1, d: 1 }), dt, api)) return true;
+    if (r.clock < 2) return true;
     step('dig');
   } else if (r.phase === 'dig') {
     if (!patchClear(s, r, j, e, { ...c, w: 1, d: 1 }, api)) return true;
     if (r.cancelRequested && r.soilInBucketM3 === 0) {
-      step('backfill-pick');
+      startRestoration(s, r, j, api);
       return true;
     }
     if (!align(s, r, j, e, center({ ...c, w: 1, d: 1 }), dt, api)) {
@@ -1121,29 +1332,39 @@ export function tickElectricalJob(s: State, j: Job, dt: number, api: ElectricalA
       return true;
     }
     e.work = 1;
-    e.lift = 0.1 - 0.5 * smoothstep(r.clock / 3);
+    const cutDepth = 0.6 * Math.min(1, (c.soilRemovedM3 + 0.12) / ELECTRICAL_SOIL_PER_CELL);
+    e.lift = 1.1 - (1.1 + cutDepth) * smoothstep(r.clock / 3);
     if (r.clock < 3) return true;
     const amount = Math.min(0.12, ELECTRICAL_SOIL_PER_CELL - c.soilRemovedM3);
     r.soilInBucketM3 = amount;
     c.soilRemovedM3 += amount;
     c.excavation = c.soilRemovedM3 / ELECTRICAL_SOIL_PER_CELL;
+    step('dig-lift');
+  } else if (r.phase === 'dig-lift') {
+    const cutDepth = 0.6 * c.excavation;
+    e.lift = -cutDepth + (1.1 + cutDepth) * smoothstep(r.clock / 2.5);
+    if (r.clock < 2.5) return true;
     step('swing-spoil');
   } else if (r.phase === 'swing-spoil') {
     if (!align(s, r, j, e, center(c.spoilRect), dt, api)) return true;
     step('dump-spoil');
   } else if (r.phase === 'dump-spoil') {
     if (!patchClear(s, r, j, e, c.spoilRect, api)) return true;
-    e.lift = 0.4;
+    e.lift = 1.1;
     if (r.clock < 2) return true;
     c.spoilM3 += r.soilInBucketM3;
     r.soilInBucketM3 = 0;
     if (r.cancelRequested) {
-      step('backfill-pick');
+      step('crew-clear');
       return true;
     }
     step(c.excavation >= 1 - 1e-8 ? 'crew-clear' : 'dig-return');
   } else if (r.phase === 'crew-clear') {
     e.work = 0;
+    // Raise the empty bucket before folding the unequal-length boom/stick into
+    // its compact transport pose; this keeps the native IK target reachable.
+    e.lift = Math.min(1.6, (e.lift ?? 1.1) + dt * 0.5);
+    if (e.lift < 1.59) return true;
     const next = Math.max(1.8, (e.reach || 3) - dt * 0.8);
     if (equipmentReachBlocked(s, e, next)) {
       r.clock = 0;
@@ -1151,19 +1372,34 @@ export function tickElectricalJob(s: State, j: Job, dt: number, api: ElectricalA
     }
     e.reach = next;
     if (next > 1.81) return true;
-    r.reelClear ??= localPoint(e, -3.5, 0);
-    if (!moveTo(s, r, j, e, r.reelClear, api)) return true;
-    if (r.cancelRequested) {
-      r.dock = undefined;
-      step('backfill-approach');
-      return true;
+    // Between digs, route directly to the next checked dock. Before the crew
+    // starts its full cable pass, leave all trench and terminal faces clear.
+    const requested = jobEquipmentAssignment(s, j).equipmentId;
+    if (
+      !r.cancelRequested &&
+      ((requested && requested !== r.equipmentId) ||
+        !r.cells.some(
+          (cell) => needsCable(r, cell) && cell.excavation - cell.backfilled < 1 - 1e-7,
+        ))
+    ) {
+      r.reelClear ??= crewParking(s, r, e, api);
+      if (!r.reelClear) {
+        blocked(
+          s,
+          r,
+          j,
+          api,
+          'Need a clear machine parking point away from the open trench before cable pulling',
+        );
+        return true;
+      }
+      if (!moveTo(s, r, j, e, r.reelClear, api)) return true;
     }
-    r.workPoint = undefined;
-    step('collect-cable');
+    resetDock(r);
+    nextExcavation(s, r, j, api);
   } else if (r.phase === 'collect-cable') {
     if (r.cancelRequested) {
-      r.dock = undefined;
-      step('backfill-approach');
+      startRestoration(s, r, j, api);
       return true;
     }
     const reservation = activeReel(s, r);
@@ -1197,22 +1433,19 @@ export function tickElectricalJob(s: State, j: Job, dt: number, api: ElectricalA
       return true;
     }
     if (r.clock < 2) return true;
-    reel.cableMeters! -= 1;
-    reel.cableReservedMeters!--;
-    reservation.meters--;
-    if (!reel.cableReservedMeters) reel.reserved = 0;
-    r.cableInHand = 1;
-    meterMovement(
-      s,
-      r,
-      api,
-      reel.id,
-      `${j.id}/HAND`,
-      1,
-      'Engineer unwinds one meter from the real reel',
-    );
-    step('lay');
+    if (pullCable(s, r, j, api)) step('lay');
+  } else if (r.phase === 'pull-cable') {
+    if (r.cancelRequested) {
+      startRestoration(s, r, j, api);
+      return true;
+    }
+    if (r.clock < 1) return true;
+    if (pullCable(s, r, j, api)) step('lay');
   } else if (r.phase === 'lay' || r.phase === 'recover-cable') {
+    if (!c || c.excavation - c.backfilled < 1 - 1e-7) {
+      blocked(s, r, j, api, 'The cable pull front requires a fully excavated trench cell');
+      return true;
+    }
     const p = center({ ...c, w: 1, d: 1 });
     const point = electricalTerminalCells({ ...c, w: 1, d: 1 })
       .map((p) => ({ x: p.x + 0.5, z: p.z + 0.5 }))
@@ -1258,10 +1491,22 @@ export function tickElectricalJob(s: State, j: Job, dt: number, api: ElectricalA
         'Lay finite cable into excavated trench',
       );
     }
-    r.dock = undefined;
-    r.workPoint = undefined;
-    r.reelClear = undefined;
-    step('backfill-approach');
+    if (r.cancelRequested) {
+      startRestoration(s, r, j, api);
+      return true;
+    }
+    const index = r.cells.findIndex((cell) => needsCable(r, cell));
+    if (index < 0) {
+      if (r.recovering) startRestoration(s, r, j, api);
+      else step('terminate-source');
+    } else if (
+      r.cells.some((cell) => needsCable(r, cell) && cell.excavation - cell.backfilled < 1 - 1e-7)
+    ) {
+      nextExcavation(s, r, j, api);
+    } else {
+      selectCell(r, index);
+      step('pull-cable');
+    }
   } else if (r.phase === 'return-cable') {
     const reel = reelFor(s, r);
     if (!reel || reel.qty !== 1) {
@@ -1312,10 +1557,10 @@ export function tickElectricalJob(s: State, j: Job, dt: number, api: ElectricalA
         : 'Engineer returns unlaid cable to the staged reel',
     );
     r.cableInHand = 0;
-    r.dock = undefined;
-    r.workPoint = undefined;
-    r.reelClear = undefined;
-    step('backfill-approach');
+    resetDock(r);
+    if (r.cancelRequested) startRestoration(s, r, j, api);
+    else if (r.recovering) startCablePass(s, r, j, api);
+    else startRestoration(s, r, j, api);
   } else if (r.phase === 'backfill-pick') {
     if (!patchClear(s, r, j, e, c.spoilRect, api)) return true;
     if (c.spoilM3 <= 1e-8) {
@@ -1328,16 +1573,22 @@ export function tickElectricalJob(s: State, j: Job, dt: number, api: ElectricalA
       return true;
     }
     e.work = 1;
+    e.lift = 1.1 - 0.85 * smoothstep(r.clock / 3);
     if (r.clock < 3) return true;
     const amount = Math.min(0.12, c.spoilM3);
     c.spoilM3 = Math.max(0, c.spoilM3 - amount);
     r.soilInBucketM3 = amount;
+    step('backfill-lift');
+  } else if (r.phase === 'backfill-lift') {
+    e.lift = 0.25 + 0.85 * smoothstep(r.clock / 2);
+    if (r.clock < 2) return true;
     step('swing-trench');
   } else if (r.phase === 'swing-trench') {
     if (!align(s, r, j, e, center({ ...c, w: 1, d: 1 }), dt, api)) return true;
     step('backfill');
   } else if (r.phase === 'backfill') {
     if (!patchClear(s, r, j, e, { ...c, w: 1, d: 1 }, api)) return true;
+    e.lift = 1.1 - 0.85 * smoothstep(r.clock / 3);
     if (r.clock < 3) return true;
     c.backfilled = Math.min(
       c.excavation,
@@ -1346,6 +1597,8 @@ export function tickElectricalJob(s: State, j: Job, dt: number, api: ElectricalA
     r.soilInBucketM3 = 0;
     step('backfill-return');
   } else if (r.phase === 'backfill-return') {
+    e.lift = 0.25 + 0.85 * smoothstep(r.clock / 2);
+    if (r.clock < 2) return true;
     if (c.spoilM3 > 1e-8) step('backfill-pick');
     else {
       c.spoilM3 = 0;
@@ -1396,7 +1649,7 @@ export function tickElectricalJob(s: State, j: Job, dt: number, api: ElectricalA
       return true;
     }
     if (r.cancelRequested) {
-      finishCanceled(s, r, j, api);
+      startRestoration(s, r, j, api);
       return true;
     }
     if (r.phase === 'terminate-source') {
@@ -1404,12 +1657,12 @@ export function tickElectricalJob(s: State, j: Job, dt: number, api: ElectricalA
       step('terminate-target');
     } else {
       r.targetTerminated = true;
-      step('test');
+      startRestoration(s, r, j, api);
     }
   } else if (r.phase === 'test') {
     if (r.clock < 6) return true;
     if (r.cancelRequested) {
-      finishCanceled(s, r, j, api);
+      startRestoration(s, r, j, api);
       return true;
     }
     if (
@@ -1418,7 +1671,8 @@ export function tickElectricalJob(s: State, j: Job, dt: number, api: ElectricalA
         (b) =>
           b.id === r.sourceId &&
           ((b.kind === 'power' && b.connected) ||
-            (b.kind === 'lamp' && electricalConsumerPower(s, b.id).connected)),
+            (['lamp', 'electricalJunction'].includes(b.kind) &&
+              electricalConsumerPower(s, b.id).connected)),
       )
     ) {
       blocked(
@@ -1426,7 +1680,7 @@ export function tickElectricalJob(s: State, j: Job, dt: number, api: ElectricalA
         r,
         j,
         api,
-        'Incoming cabinet or upstream lamp junction must be commissioned before the circuit can be tested',
+        'Incoming cabinet or upstream junction must be commissioned before the circuit can be tested',
       );
       return true;
     }

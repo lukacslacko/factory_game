@@ -103,8 +103,30 @@ for (let i = 0; i < 36000 && Date.now() - startedAt < 45000; i++) {
   S.tick(s, 0.1);
   const run = s.electrical!.runs[0];
   if (
+    run.cellIndex === 2 &&
+    run.phase === 'dig-lift' &&
+    run.clock > 1.2 &&
+    !captured.has('electrical-dig-lifting')
+  )
+    capture('electrical-dig-lifting');
+  if (
+    run.cellIndex === 2 &&
+    run.phase === 'dig-lift' &&
+    run.clock > 2.3 &&
+    !captured.has('electrical-dig-clear')
+  )
+    capture('electrical-dig-clear');
+  if (
+    run.cellIndex === 2 &&
+    run.phase === 'swing-spoil' &&
+    run.clock > 0.8 &&
+    !captured.has('electrical-swinging')
+  )
+    capture('electrical-swinging');
+  if (
     run.cellIndex >= 2 &&
     run.phase === 'dump-spoil' &&
+    run.clock > 1.6 &&
     run.soilInBucketM3 > 0 &&
     run.cells[run.cellIndex].spoilM3 > 0.1 &&
     !captured.has('electrical-excavating')
@@ -141,9 +163,37 @@ for (let i = 0; i < 36000 && Date.now() - startedAt < 45000; i++) {
 if (s.electrical!.runs[0].status !== 'commissioned')
   fs.writeFileSync('/tmp/plant-electrical-blocked.json', JSON.stringify(s));
 assert.equal(s.electrical!.runs[0].status, 'commissioned', stateSummary(s));
-assert.equal(shots.length, 5, JSON.stringify(shots));
+assert.equal(shots.length, 8, JSON.stringify(shots));
 fs.writeFileSync(
   path.join(directory, 'electrical-index.json'),
-  JSON.stringify({ shots }, null, 2) + '\n',
+  JSON.stringify(
+    {
+      shots: shots.filter(
+        (shot) =>
+          !['electrical-dig-lifting', 'electrical-dig-clear', 'electrical-swinging'].includes(
+            shot.name,
+          ),
+      ),
+    },
+    null,
+    2,
+  ) + '\n',
+);
+fs.writeFileSync(
+  path.join(directory, 'excavator-motion-index.json'),
+  JSON.stringify(
+    {
+      shots: shots.filter((shot) =>
+        [
+          'electrical-dig-lifting',
+          'electrical-dig-clear',
+          'electrical-swinging',
+          'electrical-excavating',
+        ].includes(shot.name),
+      ),
+    },
+    null,
+    2,
+  ) + '\n',
 );
 console.log(JSON.stringify(shots));

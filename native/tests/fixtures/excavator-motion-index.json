@@ -1,0 +1,44 @@
+{
+  "shots": [
+    {
+      "name": "electrical-dig-lifting",
+      "filename": "electrical-dig-lifting.json",
+      "runId": "ELEC-0007",
+      "phase": "dig-lift",
+      "focus": {
+        "x": 33,
+        "z": 31
+      }
+    },
+    {
+      "name": "electrical-dig-clear",
+      "filename": "electrical-dig-clear.json",
+      "runId": "ELEC-0007",
+      "phase": "dig-lift",
+      "focus": {
+        "x": 33,
+        "z": 31
+      }
+    },
+    {
+      "name": "electrical-swinging",
+      "filename": "electrical-swinging.json",
+      "runId": "ELEC-0007",
+      "phase": "swing-spoil",
+      "focus": {
+        "x": 33,
+        "z": 31
+      }
+    },
+    {
+      "name": "electrical-excavating",
+      "filename": "electrical-excavating.json",
+      "runId": "ELEC-0007",
+      "phase": "dump-spoil",
+      "focus": {
+        "x": 33,
+        "z": 31
+      }
+    }
+  ]
+}

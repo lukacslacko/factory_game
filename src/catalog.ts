@@ -194,6 +194,11 @@ export const MATERIALS: Record<
     color: 0xb2b9ad,
     description: '6 m pole, base and lamp. Requires paving and electricity.',
   },
+  electricalJunction: {
+    name: 'Low-power electrical junction cabinet kit', unit: 'kits', price: 950, mass: 120,
+    w: 1, d: 1, max: 1, work: 18, color: 0x71867f,
+    description: 'A 1 × 1 m low-power junction cabinet, base and terminals. Equipment and crew install it on paving; an engineer must build and test its incoming underground circuit before it can supply branches. It adds no power or demand; all branches share the upstream 16 kW incoming supply.',
+  },
   cableReel: {
     name: 'Low-voltage cable reel · 50 m', unit: 'reels', price: 600, mass: 185,
     w: 1, d: 1, max: 1, work: 8, color: 0x947956,
@@ -243,6 +248,7 @@ export const BUILDINGS: Record<
   processGauge: { name: 'DN100 pressure gauge section', w: 1, d: 1, foundation: false },
   store: { name: 'Workshop', w: 6, d: 4, foundation: true },
   lamp: { name: 'Light pole', w: 1, d: 1, foundation: true },
+  electricalJunction: { name: 'Electrical junction cabinet', w: 1, d: 1, foundation: true },
   fence: { name: 'Fence', w: 3, d: 1, foundation: false },
 };
 export const EQUIPMENT: Record<

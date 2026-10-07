@@ -24,7 +24,7 @@ const CATALOG: Dictionary = {
 	"bufferStop":{"name":"Railway buffer stop","price":1250,"mass":850},
 	"railPoints":{"name":"Turnout points module","price":3100,"mass":1750},"railFrog":{"name":"Turnout frog module","price":2450,"mass":1520},"railClosure":{"name":"Turnout closure module","price":2100,"mass":1520},"railExit":{"name":"Turnout exit module","price":1950,"mass":1520},
 	"office":{"name":"Office container","price":7200,"mass":4800},"sanitary":{"name":"Sanitary container","price":4600,"mass":2000},"shed":{"name":"Equipment shed kit","price":5200,"mass":2200},"store":{"name":"Stores building kit","price":6400,"mass":2600},
-	"lamp":{"name":"Light pole kit","price":340,"mass":160},"diesel":{"name":"Diesel drum · 200 L","price":320,"mass":185},"fence":{"name":"Fence panel","price":115,"mass":60},"power":{"name":"Utility station · 16 kW","price":1800},"water":{"name":"Water/sewer connection","price":2300},"cableReel":{"name":"Low-voltage cable reel · 50 m","price":600,"mass":185,"w":1,"d":1,"max":1}
+	"lamp":{"name":"Light pole kit","price":340,"mass":160},"diesel":{"name":"Diesel drum · 200 L","price":320,"mass":185},"fence":{"name":"Fence panel","price":115,"mass":60},"power":{"name":"Utility station · 16 kW","price":1800},"water":{"name":"Water/sewer connection","price":2300},"electricalJunction":{"name":"Electrical junction cabinet kit","price":950,"mass":120,"w":1,"d":1,"max":1},"cableReel":{"name":"Low-voltage cable reel · 50 m","price":600,"mass":185,"w":1,"d":1,"max":1}
 }
 
 var catalog: Dictionary = CATALOG.duplicate(true)
@@ -83,6 +83,8 @@ var confirmation: ConfirmationDialog
 var pending_confirmation: Callable
 var tool_label: Label
 var electrical_tool_hint: String=""
+var electrical_pick_hint: String=""
+var electrical_pick_cancel: Button
 var release_control_button: Button
 var group_expansion: Dictionary = {}
 var rail_tool_buttons: Dictionary = {}
@@ -340,7 +342,7 @@ func _build_yard_controls() -> void:
 	tool_panel.add_child(tools)
 	var row: HBoxContainer = HBoxContainer.new()
 	tools.add_child(row)
-	var choices: Dictionary = {"select":"Select","slab":"Pave","office":"Office","sanitary":"WC","shed":"Shed","engineShed":"Engine shed","store":"Stores","lamp":"Light","fence":"Fence","power":"Power…","water":"Water","zone":"Stockyard"}
+	var choices: Dictionary = {"select":"Select","slab":"Pave","office":"Office","sanitary":"WC","shed":"Shed","engineShed":"Engine shed","store":"Stores","lamp":"Light","electricalJunction":"Junction","fence":"Fence","power":"Power…","water":"Water","zone":"Stockyard"}
 	for key: String in choices:
 		_button(row,str(choices[key]),func() -> void:
 			if key=="power":ElectricalUI.station_dialog(self)
@@ -354,7 +356,9 @@ func _build_yard_controls() -> void:
 		rail_tool_buttons[key]=rail_button
 	(rail_tool_buttons["railTurnout"] as Button).tooltip_text="One incoming track splits into two. Click the incoming endpoint and point away from it."
 	(rail_tool_buttons["railConverging"] as Button).tooltip_text="Two incoming tracks join one. Click the straight incoming endpoint and point toward the junction; incoming tracks must be 5 meters apart."
-	_button(rail_row,"Cable…",func()->void:electrical_ui.plan_dialog(self))
+	_button(rail_row,"Cable…",func()->void:electrical_ui.resume_plan_dialog(self))
+	electrical_pick_cancel=_button(rail_row,"Back to cable plan",func()->void:_send("electrical_pick_cancel",{}))
+	electrical_pick_cancel.visible=false
 	_button(rail_row,"Rotate R",func() -> void: _send("rotate",{}))
 	_button(rail_row,"Left / right",func() -> void: _send("rail_hand",{}))
 	_button(rail_row,"Buy missing",func() -> void: _send("buy_missing",{}))
@@ -1091,7 +1095,7 @@ func _render_inspector() -> void:
 				_button(inspector_body,"Recover / remove building",func() -> void: _send("remove_building",{"id":selected_id}))
 				return
 			_detail("Footprint","%s × %s m"%[entity.get("w",1),entity.get("d",1)])
-			if str(entity.get("kind","")) not in ["lamp","power"]:_detail("Utilities","Connected" if entity.get("connected",false) else "Connection required")
+			if str(entity.get("kind","")) not in ["lamp","power","electricalJunction"]:_detail("Utilities","Connected" if entity.get("connected",false) else "Connection required")
 			_detail("Source",entity.get("source",""))
 			if entity.get("kind")=="engineShed":
 				_detail("Rail parking bay",entity.get("parkingLocationId",""))
@@ -1241,6 +1245,10 @@ func _update_control_banner() -> void:
 		var vehicle_id: String = str(worker.get("vehicle",""))
 		tool_label.text="Manual driving · %s"%(vehicle_id if not vehicle_id.is_empty() else controlled_worker)
 		tool_label.tooltip_text="Automatic work stays suspended until you return this worker to automatic duty. Click the yard to drive or walk."
+	elif not electrical_pick_hint.is_empty():
+		tool_label.text="Pick electrical object · Esc returns"
+		tool_label.tooltip_text=electrical_pick_hint
+		status_label.text=electrical_pick_hint;status_label.tooltip_text=electrical_pick_hint
 	elif active_tool=="cable":
 		tool_label.text="Cable · R swaps elbow · Esc cancels"
 		tool_label.tooltip_text=electrical_tool_hint
@@ -1253,6 +1261,13 @@ func _update_control_banner() -> void:
 		if not electrical_tool_hint.is_empty() and status_label.text==electrical_tool_hint:
 			status_label.text="Ready · click an asset to inspect it or drag empty ground to move the view."
 			status_label.tooltip_text=""
+
+func set_electrical_pick_hint(text: String) -> void:
+	var old: String=electrical_pick_hint
+	electrical_pick_hint=text
+	if is_instance_valid(electrical_pick_cancel):electrical_pick_cancel.visible=not text.is_empty()
+	if text.is_empty() and is_instance_valid(status_label) and status_label.text==old:status_label.text="Ready · select an asset or drag to pan."
+	_update_control_banner()
 
 func set_electrical_hint(text: String) -> void:
 	electrical_tool_hint=text

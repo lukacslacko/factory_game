@@ -38,6 +38,31 @@ static func station(parent:Node3D,data:Dictionary)->Node3D:
 	G.rod(root,Vector3(-.22,.20,-.18),Vector3(-.22,-.02,-.18),.033,dark,16)
 	var indicator:MeshInstance3D=G.sphere(root,Vector3(.23,1.18,.319),.025,G.mat("5d9e67",.28));indicator.name="SupplyIndicator"
 	update_station(root,data);return root
+static func junction(parent:Node3D,data:Dictionary)->Node3D:
+	var root:=Node3D.new();parent.add_child(root);root.name="LowPowerJunctionCabinet"
+	root.set_meta("own_demand_kw",0.);root.set_meta("power_source",false)
+	var metal:Material=G.mat("789087",.48,.48);var dark:Material=G.mat("394b43",.58,.40);var steel:Material=G.mat("c5ceca",.24,.80)
+	# All hardware fits the surveyed1x1m foundation. This passive cabinet is
+	# visibly smaller than the incoming station and never generates power.
+	G.beveled_box(root,Vector3(0,.065,0),Vector3(.88,.13,.84),G.mat("bab5a4",.95),.025)
+	G.beveled_box(root,Vector3(0,.66,0),Vector3(.67,1.06,.48),metal,.025)
+	G.beveled_box(root,Vector3(0,1.215,0),Vector3(.73,.055,.54),dark,.015)
+	G.beveled_box(root,Vector3(0,.66,.252),Vector3(.59,.95,.022),G.mat("a7b8ac",.52,.35),.012)
+	for y:float in [.32,.94]:G.box(root,Vector3(-.305,y,.275),Vector3(.03,.10,.03),steel)
+	G.box(root,Vector3(.22,.66,.279),Vector3(.026,.13,.03),dark)
+	for x:float in [-.35,.35]:
+		for z:float in [-.31,.31]:G.cylinder(root,Vector3(x,.137,z),.019,.018,steel,6)
+	for x:float in [-.20,.20]:G.rod(root,Vector3(x,.17,-.15),Vector3(x,-.025,-.15),.024,dark,12)
+	G.box(root,Vector3(-.16,.91,.271),Vector3(.12,.14,.01),G.mat("e5bc37",.65))
+	G.label(root,"⚡",Vector3(-.16,.91,.282),22,.0022)
+	G.label(root,"LV JUNCTION",Vector3(0,1.095,.276),22,.0021)
+	var indicator:MeshInstance3D=G.sphere(root,Vector3(.20,.92,.281),.020,G.mat("71ad76",.28));indicator.name="SupplyIndicator"
+	update_junction(root,data);return root
+static func update_junction(root:Node3D,data:Dictionary)->void:
+	root.set_meta("connected",bool(data.get("connected",false)))
+	root.set_meta("powered",bool(data.get("powered",false)))
+	var indicator:Node3D=root.get_node_or_null("SupplyIndicator")
+	if indicator:indicator.visible=bool(data.get("powered",false))
 static func update_station(root:Node3D,data:Dictionary)->void:
 	root.set_meta("energized",bool(data.get("energized",false)))
 	var indicator:Node3D=root.get_node_or_null("SupplyIndicator")
@@ -169,9 +194,9 @@ static func animate_worker(worker:Node3D,data:Dictionary)->void:
 static func bucket_soil(bucket:Node3D,volume:float)->void:
 	var load:MeshInstance3D=bucket.get_node_or_null("ActualExcavatedSoil")
 	if volume>.0001 and not load:
-		load=G.beveled_box(bucket,Vector3(0,-.36,-.34),Vector3(.60,.30,.60),G.mat("6d5639",.98),.025);load.name="ActualExcavatedSoil"
+		load=G.beveled_box(bucket,Vector3(0,-.28,-.34),Vector3(.44,.40,.65),G.mat("6d5639",.98),.025);load.name="ActualExcavatedSoil"
 	if load:
-		load.visible=volume>.0001;load.scale.y=maxf(.001,volume/.108);load.set_meta("soil_m3",volume)
+		load.visible=volume>.0001;load.scale.y=maxf(.001,volume/(.44*.40*.65));load.set_meta("soil_m3",volume)
 
 static func lamp_terminal(parent:Node3D)->void:
 	var root:=Node3D.new();parent.add_child(root);root.name="ProtectedCableTerminal"

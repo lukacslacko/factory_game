@@ -1,5 +1,6 @@
 import { electricalNetwork } from '../src/electrical-network';
 import { electricalPreview } from '../src/electrical-geometry';
+import { renameElectricalAsset } from '../src/electrical-names';
 /** Native simulation host: no window, browser, DOM, or renderer. Single authenticated
  * loopback client, fixed simulation clock, bounded transport, atomic local persistence. */
 import net from 'node:net';
@@ -357,6 +358,12 @@ const readonly = new Set([
 ]);
 async function dispatch(action: string, a: any) {
   switch (action) {
+    case 'electrical_rename': {
+      const assetId = entityId(a);
+      check(renameElectricalAsset(state, assetId, a.name));
+      Sim.event(state, 'Electrical', assetId, `Asset named ${state.buildings.find(b => b.id === assetId)!.name}.`);
+      return { id: assetId };
+    }
     case 'electrical_plan': {
       const result=Sim.planElectrical(state,a);check(result.error);return result;
     }

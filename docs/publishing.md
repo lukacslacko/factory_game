@@ -222,3 +222,14 @@ Publish Apple Silicon **build 219** and public MIT source for #13. The approved 
 The complete frozen suite passes **725/725** tests and both builds. Actual native UI/render/bridge and exact packaged checks are detailed in `native/tests/electrical-verified-results.json`. Preserve the existing running game and install the new app alongside it as **Plant 01 v0.26.0.app**. Public archives keep the usual **Plant 01.app** name and exclude private data, test fixtures and development captures. The browser Site remains v0.18.0.
 
 Release: [v0.26.0](https://github.com/lukacslacko/factory_game/releases/tag/v0.26.0). `Plant-01-macOS-arm64-v0.26.0.zip` is **152,135,261 bytes**, SHA-256 **`899b5e9b05af5fdedc29eaba16b73fedb0a0e0af648384ff5f8c6948788caae8`**. All 91 packaged source/asset hashes match the verified repository; the installed versioned app matches the signed candidate.
+
+
+## Whole trenches, junctions, and electrical selection — native v0.27.0
+
+Publish Apple Silicon **build 220** and public MIT source for #45, #46 and #47. Excavator buckets gather, lift clear, swing and tip soil above ground with smooth synchronized motion. Entire electrical runs are excavated before continuous reel-fed cable pulling, connections, whole-run backfill and commissioning. Procured junction cabinets create rooted branches sharing the station's 16 kW capacity. Cancellation, safe equipment handoff, recovery and saves preserve real physical progress and materials.
+
+Players can rename electrical assets and select each circuit endpoint either through searchable name/ID/type lists or directly on the map. Locate selected, explicit source/destination highlights, stable clickable IDs, named registers and SQL retain useful context. Existing named railway locations remain the railway naming system. See [electrical operations](electrical-operations.md).
+
+Verification passes **739/739** frozen-input sequential tests, both builds and **688** counted native assertions. The exact package passes electrical GPU/bridge integration in 43.71 seconds and general integration in 9.12 seconds, including unfocused real-time simulation. Actual public-fixture digging and selection screenshots are reviewed. Install the signed app alongside the existing running version as **Plant 01 v0.27.0.app**, leave it closed, and preserve the running game and private saves untouched. The public archive retains the normal **Plant 01.app** name, excludes private data and development tests/captures, and includes the updated electrical guide. The browser Site remains v0.18.0.
+
+Release: [v0.27.0](https://github.com/lukacslacko/factory_game/releases/tag/v0.27.0). `Plant-01-macOS-arm64-v0.27.0.zip` is **152,151,760 bytes**, SHA-256 **`11c67a8c4881074e39304007bda951c9e34dc676e32edacfc53bf90dcf0acc61`**. All 91 packaged source/asset hashes match the verified repository, all 161 installed files match the signed candidate, and the installed signature verifies.
