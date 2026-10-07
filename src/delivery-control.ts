@@ -159,19 +159,28 @@ export function deliveryBlockageNotice(s: State, o: Order, reason: string, timeo
   if (b.warned || s.elapsed - b.since + 1e-7 < timeout) return;
   b.warned = true;
   const equipment = o.unload?.equipmentId || o.automaticEquipment;
+  const clearance = s.actionClearances?.find((r) => r.ownerId === o.id);
+  // The action envelope and the legacy delivery watchdog describe the same wait.
+  // Reuse one persistent notice and one warning event, whichever timer fires first.
+  if (clearance?.noticeId && s.notices.some((n) => n.id === clearance.noticeId)) return;
   const detail = `${equipment ? `${equipment} handling ${o.id}: ` : `${o.id}: `}${reason}. Select the machine to inspect its route. Pause unloading for manual repositioning once the load is safely supported, then resume to retry.`;
-  s.notices.unshift({
+  const notice = {
     id: `N-${String(s.next++).padStart(4, '0')}`,
     time: s.time,
     title: 'Delivery handling blocked',
+    severity: 'warning' as const,
     detail,
     entity: equipment || o.id,
-    state: 'todo',
+    state: 'todo' as const,
     seen: false,
-  });
+  };
+  s.notices.unshift(notice);
+  if (clearance) clearance.noticeId = notice.id;
   activity(s, o, detail, 'warning');
   s.revision++;
 }
 export function resetDeliveryBlockage(s: State, o: Order): void {
   o.unloadBlockage = undefined;
+  const equipment=o.unload?.equipmentId||o.automaticEquipment;
+  for(const n of s.notices)if(n.title==='Delivery handling blocked'&&(n.entity===o.id||n.entity===equipment))n.state='done';
 }

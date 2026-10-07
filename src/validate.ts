@@ -78,6 +78,17 @@ export function validateState(value: any): asserts value is State {
       ids.add(e.id);
     }
   }
+  if(s.actionClearances !== undefined) {
+    if(!Array.isArray(s.actionClearances)||s.actionClearances.length>20000)fail('invalid action clearances');
+    const owners=new Set<string>();
+    for(const r of s.actionClearances) {
+      if(!r || typeof r.ownerId!=='string'||r.ownerId.length>128||owners.has(r.ownerId)||typeof r.action!=='string'||r.action.length>500||!Array.isArray(r.blockerIds)||r.blockerIds.length>100||r.blockerIds.some((v:any)=>typeof v!=='string'||v.length>128)||!point(r.point)||![r.since,r.lastSeen,r.retryAt].every(finite)||r.since<0||r.lastSeen<r.since||r.lastSeen>s.elapsed+1e-6||r.since>s.elapsed+1e-6||r.retryAt>s.elapsed+10||(r.noticeId!==undefined&&typeof r.noticeId!=='string')||(r.reason!==undefined&&typeof r.reason!=='string')||(r.requesterEquipmentId!==undefined&&typeof r.requesterEquipmentId!=='string'))fail('invalid saved action clearance');
+      for(const [map,numeric] of [[r.blockerRetry,true],[r.blockerReasons,false]])if(map!==undefined&&(!map||typeof map!=='object'||Array.isArray(map)||Object.keys(map).length>100||Object.entries(map).some(([key,v])=>key.length>128||(numeric?(!finite(v)||(v as number)>s.elapsed+10):typeof v!=='string'))))fail('invalid clearance retries');
+      owners.add(r.ownerId);
+    }
+  }
+  for(const e of s.equipment)if((e.actionYieldFor!==undefined&&typeof e.actionYieldFor!=='string')||(e.actionYieldUntil!==undefined&&(!finite(e.actionYieldUntil)||e.actionYieldUntil<0)))fail('invalid action refuge');
+  for(const n of s.notices)if(n.severity!==undefined&&!['info','warning'].includes(n.severity))fail('invalid notification severity');
   for (const e of s.events)
     if (e.severity !== undefined && !['info', 'warning'].includes(e.severity))
       fail('invalid activity severity');
@@ -333,6 +344,7 @@ export function validateState(value: any): asserts value is State {
       !s.orders.some((o: any) => o.id === w.commuteOrder && o.commute?.workers?.includes(w.id))
     )
       fail('missing worker commute bus');
+    if (w.actionClearanceEquipment !== undefined && (typeof w.actionClearanceEquipment !== 'string' || w.role !== 'operator' || !s.equipment.some((e:any) => e.id === w.actionClearanceEquipment && e.actionYieldOperator === w.id))) fail('invalid clearance operator reservation');
     if (w.parkingEquipment && !s.equipment.some((e: any) => e.id === w.parkingEquipment))
       fail('missing parking equipment');
     if (w.assistingEquipment !== undefined) {
@@ -363,6 +375,7 @@ export function validateState(value: any): asserts value is State {
       !['waiting-operator', 'boarding', 'driving', 'aligning', 'parked'].includes(e.parkingState)
     )
       fail('invalid parking phase');
+    if (e.actionYieldOperator !== undefined && (typeof e.actionYieldOperator !== 'string' || !e.actionYieldFor || !s.workers.some((w:any) => w.id === e.actionYieldOperator && w.role === 'operator' && w.actionClearanceEquipment === e.id))) fail('invalid equipment clearance operator');
     if (
       e.parkingOperator &&
       !s.workers.some((w: any) => w.id === e.parkingOperator && w.role === 'operator')

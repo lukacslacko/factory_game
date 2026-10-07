@@ -4,7 +4,7 @@ import type { RailCommodity } from './rail-commodities';
 import { railFreightCarPose } from './rail-freight';
 import { localPoint } from './motion';
 import { walkRoute, staticObstacleRects } from './traffic';
-import { workerAvailable } from './workforce';
+import { selectWorker, noteWorkerAssignment } from './worker-selection';
 
 /** DN100 internal bore; fitting volumes use their actual modeled centerline lengths. */
 export const PROCESS_LINE_CAPACITY = ((Math.PI * 0.1 ** 2) / 4) * 1000;
@@ -286,32 +286,7 @@ export function configureProcessPump(
   return undefined;
 }
 function operationWorker(s: State, point: Point, workerId?: string) {
-  const obstacles = staticObstacleRects(s);
-  return s.workers
-    .filter(
-      (w) =>
-        (!workerId || w.id === workerId) &&
-        ['builder', 'engineer'].includes(w.role) &&
-        w.duty !== 'rest' &&
-        workerAvailable(s, w) &&
-        !w.job &&
-        !w.vehicle &&
-        !w.deliveryOrder &&
-        !w.transition &&
-        !w.assistingEquipment,
-    )
-    .map((w) => {
-      const route = walkRoute(s, w, point, obstacles);
-      let cost = 0,
-        at: Point = w;
-      for (const p of route || []) {
-        cost += distance(at, p);
-        at = p;
-      }
-      return { w, route, cost };
-    })
-    .filter((q) => q.route !== null)
-    .sort((a, b) => a.cost - b.cost || a.w.id.localeCompare(b.w.id))[0]?.w;
+  return selectWorker(s,[point],{preferredId:workerId,candidates:workerId?s.workers.filter(w=>w.id===workerId):undefined,eligible:w=>['builder','engineer'].includes(w.role)&&!w.assistingEquipment})?.worker;
 }
 function pumpWorkpoint(b: Building) {
   return rotated(b, -0.7, 0.5);
@@ -340,6 +315,7 @@ function startOperation(
     status: 'Walk to work point',
   };
   s.process!.operations.push(op);
+  noteWorkerAssignment(s,w,{workId:b.id});
   w.processAssignment = op.id;
   w.path = walkRoute(s, w, goal, staticObstacleRects(s)) || [];
   w.status = op.status;

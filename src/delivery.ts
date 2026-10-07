@@ -1,9 +1,13 @@
+import type { TrafficBox } from './traffic';
+import { requestActionClearance, clearActionClearance, actionEnvelopeBlockers } from './action-clearance';
 import { appendRailLayers, incomingRailLayers } from './rail-stock';
 export { orderLines, orderDescription, orderMass, itemMass } from './procurement';
 import { orderLines, orderDescription, pendingOrderLine, freightStackLimit } from './procurement';
 import { railFreightCarPose, railReceptionPlan, railStopDistance } from './rail-freight';
 import { railActorBoxes, prepareRailArrival, advanceRailArrival, advanceAttachedRailDeparture } from './rail-operations';
 import { workerAvailable, commuteDoor } from './workforce';
+import { selectWorker, noteWorkerAssignment } from './worker-selection';
+import { actionClearanceHoldsEquipment } from './action-clearance';
 import {
   equipmentAssistant,
   availableEquipmentAssistant,
@@ -195,35 +199,9 @@ export function constructionStorageClearance(s: State): Rect[] {
   }
   return areas;
 }
-function freeOperator(s: State, e?: Equipment, preferred?: string) {
-  return s.workers
-    .filter(
-      (w) =>
-        workerAvailable(s, w) &&
-        (!e?.operator || e.operator === w.id) &&
-        w.role === 'operator' &&
-        !w.job &&
-        !w.transition &&
-        !w.deliveryOrder &&
-        !w.transportOrder &&
-        (w.duty === 'auto' || (w.duty === 'manual' && w.id === preferred)) &&
-        (!w.vehicle ||
-          w.vehicle === e?.id ||
-          s.equipment.some(
-            (q) =>
-              q.id === w.vehicle &&
-              !q.job &&
-              !q.deliveryOrder &&
-              !q.transportOrder &&
-              !q.path.length,
-          )),
-    )
-    .sort(
-      (a, b) =>
-        (a.id === preferred ? -10 : a.vehicle === e?.id ? -5 : a.vehicle ? 1 : 0) -
-          (b.id === preferred ? -10 : b.vehicle === e?.id ? -5 : b.vehicle ? 1 : 0) ||
-        (e ? dist(a, e) - dist(b, e) : 0),
-    )[0];
+function freeOperator(s: State, e?: Equipment, preferred?: string, target?:Point) {
+  const goal=target||(e?machineStep(e):undefined);if(!goal)return;
+  return selectWorker(s,[goal],{preferredId:preferred,equipmentId:e?.id,allowVehicle:true,eligible:w=>(!e?.operator||e.operator===w.id)&&w.role==='operator'&&(!w.vehicle||w.vehicle===e?.id||s.equipment.some(q=>q.id===w.vehicle&&!q.job&&!q.deliveryOrder&&!q.transportOrder&&!q.path.length))})?.worker;
 }
 function walkingRoute(s: State, w: Worker, p: Point, api: DeliveryAPI) {
   return walkRoute(s, w, p, [
@@ -255,10 +233,12 @@ function release(s: State, o: Order, api: DeliveryAPI) {
       e.reach = 2.7;
     }
     if (w) {
+      noteWorkerAssignment(s,w,{equipmentId:e?.id,workId:o.id});
       w.deliveryOrder = undefined;
       w.status = 'Available in cab';
     }
     if (r) {
+      noteWorkerAssignment(s,r,{equipmentId:e?.id,workId:o.id});
       r.deliveryOrder = undefined;
       r.status = 'Available';
     }
@@ -343,7 +323,7 @@ function materialMachine(s: State, o: Order, preferred?: string, manual = false)
     e.fuel > 0.5 &&
     EQUIPMENT[e.kind].capacity >= mass;
   const ready = (e: Equipment) =>
-    !e.path.length && !['boarding', 'driving', 'aligning'].includes(e.parkingState || '');
+    !e.path.length && !e.trafficGoal && !['boarding', 'driving', 'aligning'].includes(e.parkingState || '');
   if (!manual && o.automaticEquipment) {
     const owner = s.equipment.find((e) => e.id === o.automaticEquipment),
       operator = owner && qualified(owner) ? freeOperator(s, owner, preferred) : undefined;
@@ -353,7 +333,7 @@ function materialMachine(s: State, o: Order, preferred?: string, manual = false)
     o.automaticEquipment = undefined;
   }
   const machines = s.equipment.filter(
-    (e) => qualified(e) && ready(e) && (manual || !equipmentReservedForDelivery(s, e, o.id)),
+    (e) => !actionClearanceHoldsEquipment(s,e.id) && qualified(e) && ready(e) && (manual || !equipmentReservedForDelivery(s, e, o.id)),
   );
   // Nearby feasible equipment and its real operator beat a distant machine.
   // A small forklift handling preference breaks close choices, never a yard-wide trip.
@@ -624,26 +604,13 @@ function startUnloading(s: State, o: Order, api: DeliveryAPI, preferred?: string
     e.kind === 'excavator'
       ? assignedAssistant
         ? availableEquipmentAssistant(s, e.id)
-        : s.workers
-            .filter(
-              (r) =>
-                workerAvailable(s, r) &&
-                workerSupportsEquipment(r, e.id) &&
-                r.role !== 'operator' &&
-                r.duty === 'auto' &&
-                !r.job &&
-                !r.deliveryOrder &&
-                !r.transportOrder &&
-                !r.transition &&
-                !r.vehicle,
-            )
-            .sort((a, b) => dist(a, source) - dist(b, source))[0]
+        : selectWorker(s,[riggingPoint(source,item)],{equipmentId:e.id,workId:o.id,eligible:r=>r.role!=='operator'&&workerSupportsEquipment(r,e.id),route:(r,p)=>walkingRoute(s,r,p,api)})?.worker
       : undefined;
   if (e.kind === 'excavator' && !rigger) {
     waiting(
       s,
       o,
-      equipmentAssistantReason(s, e.id) || 'Waiting for a site worker to rig the excavator lift',
+      equipmentAssistantReason(s, e.id) || 'Waiting for a reachable site worker to rig the excavator lift',
       'rigger',
       api,
     );
@@ -707,6 +674,8 @@ function startUnloading(s: State, o: Order, api: DeliveryAPI, preferred?: string
       ? (dest.merge.baseHeight || 0) + dest.merge.qty * parcelPitch(item)
       : 0,
   };
+  noteWorkerAssignment(s,w,{equipmentId:e.id,workId:o.id});
+  if(rigger)noteWorkerAssignment(s,rigger,{equipmentId:e.id,workId:o.id});
   o.allocated = { ...dest.rect };
   o.automaticEquipment = e.id;
   if (manual) {
@@ -916,7 +885,7 @@ function unloadTick(s: State, o: Order, dt: number, api: DeliveryAPI) {
     if (blocker) {
       e.blockedBy = blocker;
       o.note = blockedTurnMessage(s, blocker);
-      deliveryBlockageNotice(s, o, o.note);
+      requestActionClearance(s,{ownerId:o.id,requesterEquipmentId:e.id,blockerId:blocker,action:"Align for unloading",envelopes:[...equipmentBoxes(e),...equipmentBoxes(e,candidate)]});
       retryAlignedApproach(s, o, e, t.pickup, -Math.PI / 2, api);
       return;
     }
@@ -1034,7 +1003,7 @@ function unloadTick(s: State, o: Order, dt: number, api: DeliveryAPI) {
     else {
       e.blockedBy = reachBlocker;
       o.note = `Waiting for ${reachBlocker} to clear the reach carriage`;
-      deliveryBlockageNotice(s, o, o.note);
+      requestActionClearance(s,{ownerId:o.id,requesterEquipmentId:e.id,blockerId:reachBlocker,action:"Move loaded reach carriage",envelopes:[...equipmentBoxes(e),...equipmentBoxes({...e,reach:nextReach})]});
     }
     cargoFollow(t, e, y);
     e.lift = y;
@@ -1088,7 +1057,7 @@ function unloadTick(s: State, o: Order, dt: number, api: DeliveryAPI) {
     if (blocker) {
       e.blockedBy = blocker;
       o.note = blockedTurnMessage(s, blocker);
-      deliveryBlockageNotice(s, o, o.note);
+      requestActionClearance(s,{ownerId:o.id,requesterEquipmentId:e.id,blockerId:blocker,action:"Align delivery setdown",envelopes:[...equipmentBoxes(e),...equipmentBoxes(e,candidate)]});
       retryAlignedApproach(s, o, e, t.drop, t.dropYaw, api);
       return;
     }
@@ -1107,6 +1076,15 @@ function unloadTick(s: State, o: Order, dt: number, api: DeliveryAPI) {
     set('lower');
     resetDeliveryBlockage(s, o);
   } else if (t.phase === 'lower') {
+    const landing: TrafficBox={...center(t.destination),yaw:t.dropYaw+Math.PI/2,length:MATERIALS[item].w,width:MATERIALS[item].d};
+    const blockers=actionEnvelopeBlockers(s,e,[landing]);
+    if(blockers.length) {
+      t.clock=Math.max(0,t.clock-dt);
+      for(const blockerId of blockers)requestActionClearance(s,{ownerId:o.id,requesterEquipmentId:e.id,blockerId,action:"Lower delivery cargo into storage",envelopes:[landing]});
+      o.note=`Waiting for ${blockers.join(', ')} to clear the cargo landing footprint`;
+      return;
+    }
+    clearActionClearance(s,o.id);
     const c = center(t.destination),
       raised = Math.max(0.4, t.destinationY + 0.35);
     t.cargo = {
@@ -1221,19 +1199,20 @@ function equipmentTick(s: State, o: Order, dt: number, api: DeliveryAPI) {
     o.deploymentClock = 0;
   };
   if (o.deployment === 'waiting') {
-    w = freeOperator(s, undefined, o.operatorId);
+    const foot=localPoint(b,-11.5,1.8);
+    w = freeOperator(s, undefined, o.operatorId,foot);
     if (!w) {
       waiting(s, o, 'Waiting for your hired operator to drive the machine off', 'operator', api);
       return;
     }
-    const foot = localPoint(b, -11.5, 1.8),
-      from = w.vehicle ? machineStep(s.equipment.find((q) => q.id === w!.vehicle)!) : w,
+    const from = w.vehicle ? machineStep(s.equipment.find((q) => q.id === w!.vehicle)!) : w,
       path = route(from, foot, api.obstacles(s), 0.15);
     if (!path) {
       o.note = 'Operator cannot reach the lowloader ramp';
       return;
     }
     reserve(s, o, e, w);
+    noteWorkerAssignment(s,w,{equipmentId:e.id,workId:o.id});
     w.path = path;
     set('walk');
   } else if (o.deployment === 'walk') {

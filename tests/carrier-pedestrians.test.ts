@@ -146,6 +146,14 @@ test('a worker carrying a real refueling can pauses their task, clears a truck, 
   e.job = j.id;
   e.refueling = j.id;
   const resumedJob = j.id;
+  // Put the already-departing truck at its imminent checked encounter. A real
+  // carried can now returns to the filler, rather than pouring remotely while
+  // standing idle in the lane for six seconds.
+  const carrier=s.orders.find(o=>o.id===id)!;
+  carrier.drive!.distance+=6;
+  const nearby=sampleRoad(carrier,carrier.drive!.distance);
+  carrier.vehicle={x:nearby.x,z:nearby.z};carrier.drive!.yaw=nearby.yaw;
+  checkSafety(s,wid);
   tickUntil(
     s,
     () => w.yieldingTo === id,

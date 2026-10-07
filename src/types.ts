@@ -68,6 +68,8 @@ export interface Worker extends Point, Move, Motion {
   railAssignment?: string;
   /** Reserved for a physical hose or valve operation. */
   processAssignment?: string;
+  /** Operator reserved to physically clear an idle blocking machine. */
+  actionClearanceEquipment?: string;
   schedule?: { start: number; end: number };
   shiftPhase?:
     'working' | 'finishing' | 'parking' | 'walking-to-bus' | 'aboard' | 'home' | 'returning';
@@ -115,6 +117,10 @@ export interface Equipment extends Point, Move, Motion {
     yawOffset: number;
   };
   heading: number;
+  /** Retain a checked traffic refuge while the requesting action clears. */
+  actionYieldFor?: string;
+  actionYieldUntil?: number;
+  actionYieldOperator?: string;
   work: number;
   transportOrder?: string;
   deliveryOrder?: string;
@@ -714,6 +720,20 @@ export interface Movement {
   to: string;
   reason: string;
 }
+export interface ActionClearance {
+  ownerId: string;
+  requesterEquipmentId?: string;
+  action: string;
+  blockerIds: string[];
+  since: number;
+  lastSeen: number;
+  retryAt: number;
+  point: Point;
+  reason?: string;
+  noticeId?: string;
+  blockerRetry?: Record<string,number>;
+  blockerReasons?: Record<string,string>;
+}
 export interface Notice {
   id: string;
   time: number;
@@ -722,6 +742,7 @@ export interface Notice {
   entity: string;
   state: 'todo' | 'doing' | 'done';
   seen: boolean;
+  severity?: 'info' | 'warning';
 }
 export interface State {
   version: 1 | 2 | 3 | 4;
@@ -758,6 +779,7 @@ export interface State {
   costs: Cost[];
   movements: Movement[];
   notices: Notice[];
+  actionClearances?: ActionClearance[];
   buffer: Point;
   utilities: { power: boolean; water: boolean };
   wageClock: number;

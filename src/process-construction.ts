@@ -10,6 +10,7 @@ import type {
   State,
   Worker,
 } from './types';
+import { requestActionClearance, clearActionClearance } from './action-clearance';
 import { reconcileProcessAssets } from './process-fluids';
 import type { RailWorkAPI } from './railwork';
 import { BUILDINGS, MATERIALS } from './catalog';
@@ -17,6 +18,8 @@ import { angleDelta, localPoint, mixAngle, smoothstep, turn } from './motion';
 import { center, dist, overlap } from './path';
 import {
   boxRect,
+  boxOverlap,
+  people,
   machineRoute,
   equipmentBoxes,
   equipmentReachBlocked,
@@ -214,7 +217,15 @@ function align(
   const blocker = equipmentSweepBlocked(s, checked, { ...e, yaw });
   if (blocker) {
     e.blockedBy = blocker;
-    j.reason = `Waiting for ${blocker} to clear the process lifting position`;
+    j.reason = requestActionClearance(s, {
+      ownerId: j.id,
+      requesterEquipmentId: e.id,
+      blockerId: blocker,
+      action: 'Turn process lifting equipment',
+      envelopes: Array.from({ length: 13 }, (_, i) =>
+        equipmentBoxes(checked, { ...e, yaw: mixAngle(e.yaw || 0, desired, i / 12) }),
+      ).flat(),
+    }).reason;
     if (blocker === w.id) {
       j.processAssembly!.workerPoint = undefined;
       moveHelper(s, j, w, e, target, api, Math.max(j.w, j.d) / 2 + 2.2);
@@ -229,7 +240,13 @@ function align(
     next = old + Math.max(-dt, Math.min(dt, reach - old));
   const obstruction = equipmentReachBlocked(s, checked, next);
   if (obstruction && obstruction !== j.id + '-process') {
-    j.reason = `Waiting for ${obstruction} to clear the process tools`;
+    j.reason = requestActionClearance(s, {
+      ownerId: j.id,
+      requesterEquipmentId: e.id,
+      blockerId: obstruction,
+      action: 'Position process lifting tools',
+      envelopes: equipmentBoxes({ ...checked, reach: next }),
+    }).reason;
     if (obstruction === w.id) {
       j.processAssembly!.workerPoint = undefined;
       moveHelper(s, j, w, e, target, api, Math.max(j.w, j.d) / 2 + 2.2);
@@ -238,6 +255,34 @@ function align(
   }
   e.reach = next;
   return Math.abs(next - reach) < 0.005;
+}
+/** The component's real next horizontal footprint is reserved before lifting
+ * or lowering. External idle actors yield through the same durable action
+ * request used by equipment turns; the installer keeps its explicit work pose. */
+function componentClearance(s: State, j: Job, e: Equipment, pose: RailWorkPose) {
+  const part = j.processAssembly!.part!,
+    definition = processComponentDefinitions(j)[part.index];
+  const envelope = { ...pose, length: definition.size[0], width: definition.size[2] };
+  const blocker =
+    people(s).find((p) => personTouchesBox(p, envelope, 0.42))?.id ||
+    s.equipment.find(
+      (other) =>
+        other.id !== e.id &&
+        !other.transportOrder &&
+        equipmentBoxes(other).some((box) => boxOverlap(box, envelope, 0.08)),
+    )?.id;
+  if (!blocker) {
+    clearActionClearance(s, j.id);
+    return true;
+  }
+  j.reason = requestActionClearance(s, {
+    ownerId: j.id,
+    requesterEquipmentId: e.id,
+    blockerId: blocker,
+    action: `Position process ${part.kind}`,
+    envelopes: [envelope, ...equipmentBoxes(e)],
+  }).reason;
+  return false;
 }
 function selectPart(s: State, j: Job) {
   const h = j.processAssembly!,
@@ -283,6 +328,7 @@ function finishCanceled(s: State, j: Job, api: RailWorkAPI) {
   h.part = undefined;
   h.completed = 0;
   j.delivered = false;
+  clearActionClearance(s, j.id);
   api.release(s, j);
   j.status = 'canceled';
   j.phase = 'Canceled; process kit repacked at site';
@@ -413,6 +459,7 @@ export function tickProcessConstruction(s: State, j: Job, dt: number, api: RailW
     s.buildings.push(b);
     reconcileProcessAssets(s);
     api.event(s, 'Asset', b.id, 'Process equipment assembled, fastened and inspected by the crew.');
+    clearActionClearance(s, j.id);
     api.complete(s, j);
     return true;
   }
@@ -466,9 +513,11 @@ export function tickProcessConstruction(s: State, j: Job, dt: number, api: RailW
   const travelY = Math.max(part.from.y, part.to.y, 1.3) + 0.6;
   if (h.phase === 'lift') {
     if (!align(s, j, e, w, part.from, dt, api)) return true;
+    const proposed = interpolate(part.from, { ...part.from, y: travelY }, (h.clock + dt) / 3);
+    if (!componentClearance(s, j, e, proposed)) return true;
     h.clock += dt;
     e.work = 1;
-    part.pose = interpolate(part.from, { ...part.from, y: travelY }, h.clock / 3);
+    part.pose = proposed;
     e.lift = part.pose.y;
     if (h.clock >= 3) {
       part.from = copy(part.pose);
@@ -499,9 +548,11 @@ export function tickProcessConstruction(s: State, j: Job, dt: number, api: RailW
       h.workerPoint = undefined;
     if (!moveHelper(s, j, w, e, part.to, api, Math.max(j.w, j.d) / 2 + 0.8)) return true;
     if (h.clock === 0) part.from = copy(part.pose);
+    const proposed = interpolate(part.from, part.to, (h.clock + dt) / 3);
+    if (!componentClearance(s, j, e, proposed)) return true;
     h.clock += dt;
     e.work = 1;
-    part.pose = interpolate(part.from, part.to, h.clock / 3);
+    part.pose = proposed;
     e.lift = part.pose.y;
     if (h.clock >= 3) transition(s, j, 'fasten');
     return true;

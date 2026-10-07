@@ -1,0 +1,96 @@
+{
+  "version": "0.24.0",
+  "build": 217,
+  "date": "2026-10-07",
+  "issues": [
+    16,
+    17
+  ],
+  "fullSuite": {
+    "tests": 653,
+    "passed": 653,
+    "failed": 0,
+    "duration_seconds": 548.28,
+    "concurrency": 1,
+    "nodeHeapMiB": 384,
+    "inputsUnchanged": true
+  },
+  "frozenInputs": 165,
+  "nativeCountedAssertions": 140,
+  "generalUI": {
+    "tabs": 12,
+    "inspectorTypes": 10
+  },
+  "nativeChecks": [
+    {
+      "name": "v0240-clearance-ui-final",
+      "elapsed_seconds": 1.02,
+      "peak_resident_bytes": 168148992,
+      "returncode": 0,
+      "stopped_reason": null
+    },
+    {
+      "name": "v0240-clearance-bridge-release",
+      "elapsed_seconds": 7.13,
+      "peak_resident_bytes": 369377280,
+      "returncode": 0,
+      "stopped_reason": null
+    },
+    {
+      "name": "v0240-general-ui-final",
+      "elapsed_seconds": 1.01,
+      "peak_resident_bytes": 206241792,
+      "returncode": 0,
+      "stopped_reason": null
+    },
+    {
+      "name": "v0240-process-ui",
+      "elapsed_seconds": 1.02,
+      "peak_resident_bytes": 142786560,
+      "returncode": 0,
+      "stopped_reason": null
+    },
+    {
+      "name": "v0240-process-bridge",
+      "elapsed_seconds": 3.54,
+      "peak_resident_bytes": 392396800,
+      "returncode": 0,
+      "stopped_reason": null
+    },
+    {
+      "name": "v0240-packaged-gpu-release",
+      "elapsed_seconds": 9.65,
+      "peak_resident_bytes": 466190336,
+      "returncode": 0,
+      "stopped_reason": null
+    }
+  ],
+  "packagedBackgroundSeconds": 2.9,
+  "visualReview": "Actual GPU parking blockage capture: linked manual-control reason, work area, Inspect/Locate controls and warning toast; no generated art",
+  "privateData": {
+    "isolatedTests": true,
+    "existingSaveReadOnlyImportPassed": true,
+    "saveUnchanged": true,
+    "previousAppAndSaveBackedUp": true,
+    "leftClosed": true,
+    "excludedFromRelease": true
+  },
+  "scopeLimits": [
+    "Active work, manual control, off-duty workers and supported cargo are protected",
+    "Physical layouts without a collision-free refuge need relocation or player intervention; warnings identify the action and blocker",
+    "No universal guarantee of automatic deadlock resolution for arbitrary layouts",
+    "Starter-yard regressions and bounded native checks, not a multi-hour large-factory soak or cross-platform certification"
+  ],
+  "installedSourceHashes": {
+    "native/runtime/service.cjs": "804094fabdc8852f27d34faa4bc6bc9ed6f4ab2c9e0c6bdb978dca1cab714a33",
+    "native/scripts/game_ui.gd": "876fe2d33047c3e183c3341e4ea6571ff45c35795c140f8aee2fcb94685e388e",
+    "native/scripts/main.gd": "cf6b6a9e04bd8818cc7647bb140b6dacfa3c2f0402ec92855d44eda223d09d38",
+    "native/scripts/game_world.gd": "ce54202bb6c9e28488fc016714eef7d5e478f010b2147d45ef2e8874f4042cbe"
+  },
+  "archive": {
+    "name": "Plant-01-macOS-arm64-v0.24.0.zip",
+    "bytes": 150512456,
+    "sha256": "10277300c2ef8778e7e49963bac19758a343658f29c1c29798152761f2938353",
+    "privateDataExcluded": true
+  }
+}

@@ -2,11 +2,11 @@
 
 The existing factory simulation now runs in a local Node.js service, with Godot rendering the approved Concept C yard and providing native controls. The service owns simulation time and file persistence, so gameplay can continue while the window is unfocused. No web page, Chrome process, web server, or Internet connection is needed to play.
 
-Native v0.23.0 includes physical tanks, railway transfer pumps, piping, valves, gauges, conserved fluid transfer and unified rail editing and buffer-stop recovery, supplier locomotive handoff, owned shunting, selected-car unloading and empty return trains. The original browser application and static visual proof remain available for comparison. Existing portable JSON saves can be imported; importing preserves the current yard as a backup.
+Native v0.24.0 adds walking-distance worker selection, safe action clearance, linked persistent warnings, and warning-only registers. It includes physical tanks, railway transfer pumps, piping, valves, gauges, conserved fluid transfer and unified rail editing and buffer-stop recovery, supplier locomotive handoff, owned shunting, selected-car unloading and empty return trains. The original browser application and static visual proof remain available for comparison. Existing portable JSON saves can be imported; importing preserves the current yard as a backup.
 
 ## Download or open on this Mac
 
-[Download the Apple Silicon Mac app](https://github.com/lukacslacko/factory_game/releases/tag/v0.23.0), unzip it, and open **Plant 01.app**. This checkpoint targets macOS 14 or newer.
+[Download the Apple Silicon Mac app](https://github.com/lukacslacko/factory_game/releases/tag/v0.24.0), unzip it, and open **Plant 01.app**. This checkpoint targets macOS 14 or newer.
 
 Open the **Plant 01.app** built beside the repository in `outputs/`. It includes the Godot runner, Node runtime, simulation, terrain maps, and license notices. It is a local app for this Mac, not a notarized public release.
 
@@ -192,3 +192,9 @@ Select a pump, apply its destination tank/rate, choose a stopped tanker within i
 The Process register contains dense linked tanks/pumps/pipes/valves/gauges/ground-operation tables. Its **How to use** and asset **Fluid system help** buttons explain port geometry, pipe dragging, worker operations, interlocks, and reports. See the [complete fluid walkthrough](../docs/fluid-operations.md). Filled components cannot be recovered until drained; drainage, tank-to-tank transfer, pressure simulation and reactions are later work.
 
 The v0.23.0 Mac bundle includes a public example yard at `Contents/Resources/examples/first-fluid-transfer.json` (Finder → Show Package Contents). Import it through the game menu to try a paused, connected water-transfer system. Import retains the previous yard backup. The same [example save](../examples/first-fluid-transfer.json) is in the repository.
+
+## Worker assignment and clearance — v0.24.0
+
+Automatic work selects reachable qualified workers by the walking route to the actual rigging, construction, boarding or fuel point. Existing work and explicit support crews stay assigned. Idle automatic workers and attended empty equipment can physically clear construction and parking envelopes. Active work, cargo, off-duty workers and manual control remain protected.
+
+A continuous blockage creates one saved warning after 20 simulated seconds. Open Activity or Inbox and enable **Warnings only**, or inspect the affected equipment or work. **Inspect** and **Locate** identify the blocker and actual working area. Manual workers have **Return to automatic duty**; manually driven equipment has **Return to automatic work**. Once clearance succeeds, the warning resolves. Fixed stock or physically boxed equipment may require relocation or player control. See [the detailed guide](../docs/worker-assignment-and-clearance.md).

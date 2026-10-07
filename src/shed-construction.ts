@@ -23,6 +23,7 @@ import {
   walkRoute,
 } from './traffic';
 
+import { requestActionClearance, clearActionClearance } from './action-clearance';
 import { engineShedComponentIds, engineShedParkingLocation } from './engine-shed';
 const countKey = {
   post: 'posts',
@@ -90,6 +91,28 @@ function interpolate(p: RailWorkPose, a: RailWorkPose, b: RailWorkPose, t: numbe
   p.z = a.z + (b.z - a.z) * f;
   p.y = a.y + (b.y - a.y) * f;
   p.yaw = mixAngle(a.yaw, b.yaw, f);
+}
+function requestShedClearance(
+  s: State,
+  j: Job,
+  e: Equipment,
+  blockerId: string,
+  action: string,
+  envelopes: ReturnType<typeof equipmentBoxes>,
+) {
+  const result = requestActionClearance(s, {
+    ownerId: j.id,
+    requesterEquipmentId: e.id,
+    blockerId,
+    action,
+    envelopes,
+  });
+  j.reason = result.reason;
+}
+function turnEnvelope(e: Equipment, yaw: number) {
+  return Array.from({ length: 13 }, (_, i) =>
+    equipmentBoxes(e, { ...e, yaw: mixAngle(e.yaw || 0, yaw, i / 12) }),
+  ).flat();
 }
 function yieldWorker(s: State, w: Worker, e: Equipment, api: RailWorkAPI) {
   if (w.path.length || w.transition || w.vehicle || w.duty !== 'auto') return;
@@ -163,7 +186,7 @@ function approachComponent(
   const next = (e.yaw || 0) + Math.max(-0.15, Math.min(0.15, angleDelta(e.yaw || 0, desired)));
   const blocker = equipmentSweepBlocked(s, e, { ...e, yaw: next });
   if (blocker) {
-    j.reason = `Waiting for ${blocker} to clear the shed lifting position`;
+    requestShedClearance(s, j, e, blocker, 'Turn shed lifting equipment', turnEnvelope(e, desired));
     if (blocker === w.id) yieldWorker(s, w, e, api);
     return false;
   }
@@ -196,10 +219,18 @@ function align(
   const nextReach = current + Math.max(-dt, Math.min(dt, reach - current));
   const blocker = equipmentReachBlocked(s, e, nextReach);
   if (blocker) {
-    j.reason = `Waiting for ${blocker} to clear the shed tools`;
+    requestShedClearance(
+      s,
+      j,
+      e,
+      blocker,
+      'Position shed lifting tools',
+      equipmentBoxes({ ...e, reach: nextReach }),
+    );
     if (blocker === w.id) yieldWorker(s, w, e, api);
     return false;
   }
+  clearActionClearance(s, j.id);
   e.reach = nextReach;
   return Math.abs(nextReach - reach) < 0.001;
 }
@@ -312,6 +343,7 @@ function selectPart(s: State, j: Job, api: RailWorkAPI) {
       ? 'Engine shed foundations, six columns, three frames, eight roof sections, four side walls and two raised roller doors fastened; connected locomotive bay ready.'
       : 'Shed anchors, six columns, three roof frames, four roof sections, back wall panels and bracing fastened.',
   );
+  clearActionClearance(s, j.id);
   api.complete(s, j);
 }
 function packedCancellation(s: State, j: Job, api: RailWorkAPI) {
@@ -340,6 +372,7 @@ function packedCancellation(s: State, j: Job, api: RailWorkAPI) {
   );
   h.phase = 'complete';
   h.part = undefined;
+  clearActionClearance(s, j.id);
   api.release(s, j);
   j.status = 'canceled';
   j.phase = 'Canceled; shed kit packed at site';
@@ -502,10 +535,18 @@ export function tickShedConstruction(s: State, j: Job, dt: number, api: RailWork
     const reach = (e.reach ?? 2.7) + Math.max(-dt, Math.min(dt, 2.1 - (e.reach ?? 2.7)));
     const blocker = equipmentReachBlocked(s, e, reach);
     if (blocker) {
-      j.reason = `Waiting for ${blocker} before retracting the shed tools`;
+      requestShedClearance(
+        s,
+        j,
+        e,
+        blocker,
+        'Retract shed lifting tools',
+        equipmentBoxes({ ...e, reach }),
+      );
       if (blocker === w.id) yieldWorker(s, w, e, api);
       return true;
     }
+    clearActionClearance(s, j.id);
     e.reach = reach;
     e.lift = (e.lift ?? 0.35) + Math.max(-dt, Math.min(dt, 0.35 - (e.lift ?? 0.35)));
     if (Math.abs(e.reach - 2.1) < 0.001 && Math.abs(e.lift - 0.35) < 0.001) {
@@ -549,11 +590,15 @@ export function tickShedConstruction(s: State, j: Job, dt: number, api: RailWork
             equipmentBoxes(q).some((b) => boxOverlap(b, box, 0.1)),
         )?.id;
       if (blocker) {
-        j.reason = `Waiting for ${blocker} to clear the shed component before lifting`;
+        requestShedClearance(s, j, e, blocker, `Lift shed ${part.kind}`, [
+          box,
+          ...equipmentBoxes(e),
+        ]);
         const person = s.workers.find((q) => q.id === blocker);
-        if (person && (person.id === w.id || !person.job)) yieldWorker(s, person, future, api);
+        if (person?.id === w.id) yieldWorker(s, person, future, api);
         return true;
       }
+      clearActionClearance(s, j.id);
       e.assemblyLoad = load;
     }
     h.clock += dt;
@@ -592,11 +637,15 @@ export function tickShedConstruction(s: State, j: Job, dt: number, api: RailWork
           equipmentBoxes(q).some((b) => boxOverlap(b, load, 0.08)),
       )?.id;
     if (blocker) {
-      j.reason = `Waiting for ${blocker} to clear the moving shed component`;
+      requestShedClearance(s, j, e, blocker, `Position shed ${part.kind}`, [
+        load,
+        ...equipmentBoxes(e),
+      ]);
       const person = s.workers.find((q) => q.id === blocker);
-      if (person && (person.id === w.id || !person.job)) yieldWorker(s, person, future, api);
+      if (person?.id === w.id) yieldWorker(s, person, future, api);
       return true;
     }
+    clearActionClearance(s, j.id);
     h.clock += dt;
     e.work = 1;
     interpolate(part.pose, part.from, part.to, h.clock / 4);

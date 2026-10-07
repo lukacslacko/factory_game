@@ -1,3 +1,4 @@
+import { tickActionClearances, requestActionClearance, clearActionClearance, actionEnvelopeBlockers, releaseActionYield } from './action-clearance';
 import { appendRailLayers, takeRailLayers, recoveryStackCandidates } from './rail-stock';
 import {
   bufferAssets,
@@ -32,6 +33,9 @@ import { packPurchase, orderLines, orderDescription } from './procurement';
 import { aggregateRailManifest, makeRailFreight } from './rail-freight';
 export { packPurchase as planPurchaseBatch } from './procurement';
 import { tickWorkforce, workerAvailable } from './workforce';
+import { selectWorker, noteWorkerAssignment, workerApproachPoints, workerCanStart } from './worker-selection';
+import { railCrewStandingPoints } from './rail-pickup';
+import { actionClearanceHoldsEquipment } from './action-clearance';
 import { isPausedDeliveryOperator, resumeDeliveryHandling } from './delivery-control';
 import {
   equipmentAssistant,
@@ -1614,6 +1618,7 @@ function tickMove(s: State, p: Worker | Equipment, dt: number, speed: number) {
         if (operator) operator.status = 'Available in cab';
       }
     }
+    if(!vehicle)clearActionClearance(s,p.id);
     p.blockedBy = vehicle ? p.trafficYieldWorker : undefined;
     p.trafficWait = 0;
     if (vehicle) {
@@ -1630,6 +1635,8 @@ function tickMove(s: State, p: Worker | Equipment, dt: number, speed: number) {
   p.trafficWait = (p.trafficWait || 0) + dt;
   if (vehicle) {
     recordTrafficBlockage(s, p, blocker);
+  } else {
+    requestActionClearance(s,{ownerId:p.id,blockerId:blocker,action:"Walk to assigned work point",envelopes:[{...candidate,length:1,width:1,yaw:0}]});
   }
   if (vehicle) {
     const worker = s.workers.find((w) => w.id === blocker);
@@ -1802,7 +1809,7 @@ export function moveWorker(s: State, wid: string, p: Point): string {
   if (!w) return 'Worker not found.';
   if(w.processAssignment)return 'Finish the physical process operation before taking control.';
   const recoveringDelivery = isPausedDeliveryOperator(s, w);
-  if (!workerAvailable(s, w) && !recoveringDelivery)
+  if (!workerAvailable(s, {...w,actionClearanceEquipment:undefined}) && !recoveringDelivery)
     return 'This worker is off shift, commuting, or returning equipment to parking.';
   if (w.transition || (w.deliveryOrder && !recoveringDelivery) || w.transportOrder)
     return 'Finish the delivery assignment before taking control.';
@@ -1833,11 +1840,13 @@ export function moveWorker(s: State, wid: string, p: Point): string {
     }
     if (!path) return 'No clear vehicle route. Leave at least 3 m of access.';
     if (e.fuel <= 0) return 'This machine needs fuel.';
+    releaseActionYield(s,e.id);
     e.path = path;
     if (reversedRecovery) e.reverse = !e.reverse;
   } else {
     const path = walkRoute(s, w, p, pedestrianObstacles(s));
     if (!path) return 'No walking route to that cell.';
+    if(w.actionClearanceEquipment) releaseActionYield(s,w.actionClearanceEquipment);
     w.path = path;
   }
   w.duty = 'manual';
@@ -1849,7 +1858,7 @@ export function enterVehicle(s: State, wid: string, eid: string): string {
     e = s.equipment.find((e) => e.id === eid);
   if (!w || !e) return 'Choose a worker and equipment.';
   if(w.processAssignment)return 'Finish the physical process operation before boarding equipment.';
-  if (!workerAvailable(s, w))
+  if (!workerAvailable(s, {...w,actionClearanceEquipment:undefined}))
     return 'This worker is off shift, commuting, or returning equipment to parking.';
   if (w.vehicle === eid) return '';
   if (w.vehicle) return 'Leave the current vehicle before boarding another.';
@@ -1858,14 +1867,19 @@ export function enterVehicle(s: State, wid: string, eid: string): string {
   if (w.transition || w.deliveryOrder || w.transportOrder || e.deliveryOrder)
     return 'This worker or machine is unloading a delivery.';
   if (w.job || e.job || e.operator) return 'This worker or machine is already assigned.';
+  if(s.workers.some(q=>q.transition?.equipmentId===e.id)) return 'Finish the physical boarding transition before changing operators.';
   if (dist(w, e) > 3) {
     const p = route(w, machineStep(e), obstacles(s), 0.1);
     if (!p) return 'No route to the machine.';
+    if(w.actionClearanceEquipment)releaseActionYield(s,w.actionClearanceEquipment);
+    releaseActionYield(s,e.id);
     w.path = p;
     w.status = `Board ${e.id}`;
     w.duty = 'manual';
     return '';
   }
+  if(w.actionClearanceEquipment)releaseActionYield(s,w.actionClearanceEquipment);
+  releaseActionYield(s,e.id);
   w.duty = 'manual';
   w.path = [];
   boardMachine(w, e);
@@ -1888,6 +1902,7 @@ export function releaseWorker(s: State, wid: string): string {
     const error = resumeDeliveryHandling(s, w.vehicle);
     if (error) return error;
   }
+  if(w.actionClearanceEquipment) releaseActionYield(s,w.actionClearanceEquipment);
   // Release the control mode even during active work or off shift; preserve the
   // physical assignment/boarding sequence rather than canceling an attached load.
   const e = s.equipment.find((e) => e.id === w.vehicle);
@@ -1901,6 +1916,7 @@ export function releaseWorker(s: State, wid: string): string {
       e.trafficReverse = undefined;
       e.trafficYieldWorker = undefined;
       e.trafficWait = 0;
+      releaseActionYield(s,e.id);
       e.trafficRetry = undefined;
       e.blockedBy = undefined;
     }
@@ -2420,9 +2436,11 @@ function queueLooseRailBufferCleanup(s: State) {
   }
 }
 function finishRelease(s: State, j: Job) {
+  clearActionClearance(s,j.id);
   const stack = s.stacks.find((t) => t.id === j.stack);
   if (stack && stack.reserved > 0) stack.reserved = Math.max(0, stack.reserved - j.qty);
   for (const w of s.workers.filter((w) => w.job === j.id)) {
+    noteWorkerAssignment(s,w,{equipmentId:j.equipment,workId:j.parentId||j.id});
     w.job = j.resumeJob;
     const resume = s.jobs.find((k) => k.id === j.resumeJob);
     w.path = resume ? approach(w, resume, obstacles(s), 0.1) || [] : [];
@@ -2472,6 +2490,11 @@ function foundationReady(s: State, j: Job) {
     for (let z = j.z; z < j.z + j.d; z++) if (!s.paving[key(x, z)] && !(j.kind==='engineShed' && engineShedRailCell(s,x,z))) return false;
   return true;
 }
+function assignmentWorkPoints(j: Job, stack?: Stack, equipment?: Equipment): Point[] {
+  if(stack&&['rail','moveStock'].includes(j.kind))return railCrewStandingPoints(stack);
+  if(j.kind==='slab') {const p=center(equipment?.kind==='forklift'?j:stack||j);return [1.15,1.5,1.9].flatMap(r=>Array.from({length:8},(_,i)=>({x:p.x+Math.cos(i*Math.PI/4)*r,z:p.z+Math.sin(i*Math.PI/4)*r})));}
+  return workerApproachPoints(j);
+}
 function assign(s: State, j: Job) {
   if (railBatchHeld(s, j)) {
     j.reason = `Reserved in ${j.railStagingBatch}'s physical staging batch`;
@@ -2494,33 +2517,18 @@ function assign(s: State, j: Job) {
       complete(s, j);
       return;
     }
-    const stack = s.stacks.find(
-      (t) =>
-        t.item === 'diesel' &&
-        (t.liters || 0) > 0 &&
-        !s.jobs.some((k) => k.id !== j.id && k.stack === t.id && k.status === 'doing'),
-    );
-    const worker =
-      s.workers.find(
-        (w) =>
-          workerAvailable(s, w) &&
-          workerSupportsEquipment(w, e.id) &&
-          w.duty === 'auto' &&
-          !w.job &&
-          !w.transition &&
-          !w.vehicle &&
-          !w.deliveryOrder &&
-          !w.transportOrder,
-      ) || s.workers.find((w) => w.id === s.jobs.find((k) => k.id === e.job)?.worker);
+    const barrels=s.stacks.filter(t=>t.item==='diesel'&&(t.liters||0)>0&&!s.jobs.some(k=>k.id!==j.id&&k.stack===t.id&&k.status==='doing'));
+    const picks=barrels.map(stack=>({stack,choice:selectWorker(s,workerApproachPoints(stack),{equipmentId:e.id,workId:j.parentId||j.id,preferredId:equipmentAssistant(s,e.id)?.id,allowJobId:e.job,eligible:w=>workerSupportsEquipment(w,e.id)})})).filter(q=>q.choice).sort((a,b)=>a.choice!.score-b.choice!.score||a.stack.id.localeCompare(b.stack.id));
+    const stack=picks[0]?.stack||barrels[0],worker=picks[0]?.choice?.worker;
     if (!stack) {
       j.reason = 'No diesel in storage';
       return;
     }
     if (!worker) {
-      j.reason = 'No available worker';
+      j.reason = s.workers.some(w=>workerCanStart(s,w,{equipmentId:e.id,allowJobId:e.job}))?'No walking access to the diesel drums':'No available worker';
       return;
     }
-    const path = approach(worker, stack, obstacles(s), 0.1);
+    const path = picks[0]?.choice?.path;
     if (!path) {
       j.reason = 'No access to the diesel drum';
       return;
@@ -2533,6 +2541,7 @@ function assign(s: State, j: Job) {
     if (!e.job) e.job = j.id;
     worker.job = j.id;
     worker.path = path;
+    noteWorkerAssignment(s,worker,{equipmentId:e.id,workId:j.parentId||j.id});
     worker.status = 'Collecting fuel';
     j.status = 'doing';
     j.phase = 'Collect fuel';
@@ -2768,31 +2777,9 @@ function assign(s: State, j: Job) {
     j.reason = `Waiting for automatic ${automatic.id} to finish ${automatic.job || automatic.deliveryOrder || automatic.transportOrder || automatic.refueling || 'travel'}`;
     return;
   }
-  let worker =
-    s.workers.find(
-      (w) =>
-        w.id === j.preferredWorker &&
-        workerSupportsEquipment(w, requestedId) &&
-        workerAvailable(s, w) &&
-        !w.job &&
-        !w.transition &&
-        !w.vehicle &&
-        !w.deliveryOrder &&
-        !w.transportOrder &&
-        w.role !== 'operator',
-    ) ||
-    s.workers.find(
-      (w) =>
-        !w.job &&
-        !w.transition &&
-        !w.vehicle &&
-        !w.deliveryOrder &&
-        !w.transportOrder &&
-        w.role !== 'operator' &&
-        workerSupportsEquipment(w, requestedId) &&
-        workerAvailable(s, w) &&
-        w.duty === 'auto',
-    );
+  // Availability preflight is cheap; actual walking costs are compared only after a feasible machine is chosen.
+  const helperOptions={equipmentId:requestedId,preferredId:j.preferredWorker,eligible:(w:Worker)=>w.role!=='operator'&&workerSupportsEquipment(w,requestedId)};
+  let worker=s.workers.find(w=>w.id===j.preferredWorker&&workerCanStart(s,w,helperOptions))||s.workers.find(w=>workerCanStart(s,w,helperOptions));
   if (requestedId && equipmentAssistant(s, requestedId))
     worker = availableEquipmentAssistant(s, requestedId);
   const prefetch =
@@ -2822,9 +2809,8 @@ function assign(s: State, j: Job) {
         equipmentCanDoJob(e, j, s),
     );
   if (!worker && !prefetch && !hasReadyHelper) {
-    j.reason = requestedId
-      ? equipmentAssistantReason(s, requestedId) || 'Need an available construction worker'
-      : 'Need an available construction worker';
+    const reachReason=s.workers.some(w=>workerCanStart(s,w,{equipmentId:requestedId,preferredId:j.preferredWorker,eligible:q=>q.role!=='operator'}))?'No reachable construction worker — clear a walking route to the work point':'Need an available construction worker';
+    j.reason = requestedId ? equipmentAssistantReason(s, requestedId) || reachReason : reachReason;
     return;
   }
   const operators = s.workers
@@ -2873,6 +2859,7 @@ function assign(s: State, j: Job) {
           !e.transportOrder &&
           !e.refueling &&
           !e.path.length &&
+          !e.trafficGoal &&
           allowed(e) &&
           (!e.operator || e.operator === candidate.id) &&
           (!j.railRecovery || e.kind === 'excavator') &&
@@ -2884,16 +2871,18 @@ function assign(s: State, j: Job) {
           (!!worker || prefetch || !!availableEquipmentAssistant(s, e.id)) &&
           e.fuel > 0.2,
       )
-      .map((machine) => ({ operator: candidate, machine })),
+      .map((machine) => ({ operator:candidate,machine,choice:selectWorker(s,[machineStep(machine)],{candidates:[candidate],allowVehicle:true,preferredId:j.preferredWorker,equipmentId:machine.id,workId:j.parentId||j.id}) }))
+      .filter(pair=>!!pair.choice),
   );
   pairs.sort(
     (a, b) =>
       Number(b.operator.id === j.preferredWorker) - Number(a.operator.id === j.preferredWorker) ||
       dist(a.machine, stack || j) +
-        (a.operator.vehicle === a.machine.id ? 0 : dist(a.operator, a.machine)) -
+        a.choice!.score -
         (dist(b.machine, stack || j) +
-          (b.operator.vehicle === b.machine.id ? 0 : dist(b.operator, b.machine))) ||
-      a.machine.id.localeCompare(b.machine.id),
+          b.choice!.score) ||
+      a.machine.id.localeCompare(b.machine.id) ||
+      a.operator.id.localeCompare(b.operator.id),
   );
   if (pairs.length) {
     operator = pairs[0].operator;
@@ -2934,31 +2923,6 @@ function assign(s: State, j: Job) {
     return;
   }
   if (!operator) return;
-  const ownHelper = equipmentAssistant(s, eq.id);
-  if (ownHelper) worker = availableEquipmentAssistant(s, eq.id);
-  else
-    worker = s.workers
-      .filter(
-        (w) =>
-          w.role !== 'operator' &&
-          workerSupportsEquipment(w) &&
-          workerAvailable(s, w) &&
-          !w.job &&
-          !w.transition &&
-          !w.vehicle &&
-          !w.deliveryOrder &&
-          !w.transportOrder &&
-          (w.id === j.preferredWorker || w.duty === 'auto'),
-      )
-      .sort(
-        (a, b) =>
-          Number(b.id === j.preferredWorker) - Number(a.id === j.preferredWorker) ||
-          dist(a, stack || j) - dist(b, stack || j),
-      )[0];
-  if (!worker && !prefetch) {
-    j.reason = equipmentAssistantReason(s, eq.id) || 'Need an available construction worker';
-    return;
-  }
   // Reserve an exposed pile rather than the first matching register entry.
   // Detailed worker travel and loaded withdrawal are checked by railwork again
   // after boarding; dynamic changes may still require an unlifted source swap.
@@ -2984,15 +2948,31 @@ function assign(s: State, j: Job) {
       .find((t) => staticRailPickupFaces(s, t, eq.kind, obstacles(s)).length > 0);
     if (candidate) stack = candidate;
   }
+  const ownHelper = equipmentAssistant(s, eq.id);
+  if (ownHelper) worker = availableEquipmentAssistant(s, eq.id);
+  const obs = obstacles(s);
+  const helperChoice = selectWorker(s, assignmentWorkPoints(j, stack, eq), {
+    candidates: ownHelper ? (worker ? [worker] : []) : undefined,
+    equipmentId: eq.id,
+    preferredId: j.preferredWorker,
+    workId: j.parentId || j.id,
+    eligible: (person) => person.role !== 'operator' && workerSupportsEquipment(person, eq.id),
+    obstacles: obs,
+  });
+  worker = helperChoice?.worker;
+  if (!worker && !prefetch) {
+    j.reason = equipmentAssistantReason(s, eq.id) || 'No reachable construction worker — clear a walking route to the work point';
+    j.retryAt=s.elapsed+2;j.retryRevision=s.revision;
+    return;
+  }
   const oldVehicle =
     operator.vehicle && operator.vehicle !== eq.id
       ? s.equipment.find((e) => e.id === operator!.vehicle)
       : undefined;
   const operatorFrom = oldVehicle ? machineStep(oldVehicle) : operator;
-  const obs = obstacles(s),
-    workerPath =
+  const workerPath =
       worker && !j.railRecovery && !['rail', 'moveStock'].includes(j.kind)
-        ? approach(worker, j, obs, 0.1)
+        ? helperChoice?.path || null
         : [],
     operatorPath = operator.vehicle === eq.id ? [] : route(operatorFrom, machineStep(eq), obs, 0.1);
   // Slabs use physical docking in construction-handling after boarding.
@@ -3057,7 +3037,7 @@ function assign(s: State, j: Job) {
   j.phase = 'Board equipment';
   j.reason = '';
   j.elapsed = 0;
-  if (worker) worker.job = j.id;
+  if (worker) {worker.job = j.id;noteWorkerAssignment(s,worker,{equipmentId:eq.id,workId:j.parentId||j.id});}
   // Rail rigging starts only after the crane is parked and aligned. Preserve
   // an existing step-aside walk, but do not send the crew into its approach.
   if (worker) {
@@ -3070,6 +3050,7 @@ function assign(s: State, j: Job) {
   }
   if (oldVehicle) leaveMachine(s, operator);
   operator.job = j.id;
+  noteWorkerAssignment(s,operator,{equipmentId:eq.id,workId:j.parentId||j.id});
   operator.path = operatorPath;
   operator.status = 'Board equipment';
   eq.job = j.id;
@@ -3155,23 +3136,12 @@ function tickJob(s: State, j: Job, dt: number) {
     e = s.equipment.find((e) => e.id === j.equipment),
     stack = s.stacks.find((t) => t.id === j.stack);
   if (!w && j.kind === 'slab' && e) {
-    w = s.workers.find(
-      (q) =>
-        q.role !== 'operator' &&
-        workerSupportsEquipment(q, e.id) &&
-        (!equipmentAssistant(s, e.id) || equipmentAssistant(s, e.id)?.id === q.id) &&
-        workerAvailable(s, q) &&
-        !q.job &&
-        !q.transition &&
-        !q.vehicle &&
-        !q.deliveryOrder &&
-        !q.transportOrder &&
-        (q.id === j.preferredWorker || q.duty === 'auto'),
-    );
+    w=selectWorker(s,assignmentWorkPoints(j,stack,e),{equipmentId:e.id,preferredId:j.preferredWorker,workId:j.parentId||j.id,eligible:q=>q.role!=='operator'&&workerSupportsEquipment(q,e.id)&&(!equipmentAssistant(s,e.id)||equipmentAssistant(s,e.id)?.id===q.id)})?.worker;
     if (w) {
       j.worker = w.id;
       w.job = j.id;
       w.status = 'Waiting for equipment to park';
+      noteWorkerAssignment(s,w,{equipmentId:e.id,workId:j.parentId||j.id});
       s.revision++;
     }
   }
@@ -3221,6 +3191,11 @@ function tickJob(s: State, j: Job, dt: number) {
   if (j.reason.startsWith('Waiting for PO-') && j.reason.endsWith('to pass safely')) j.reason = '';
   if (j.kind === 'refuel') {
     if (j.phase === 'Collect fuel' && !w.path.length) {
+      if(stack && !workerApproachPoints(stack).some(p=>dist(w,p)<.18)) {
+        w.path=approach(w,stack,obstacles(s),.1)||[];
+        j.reason=w.path.length?'Returning to the diesel drum after clearance':'No access to the diesel drum';
+        return;
+      }
       if (!stack || (stack.liters || 0) <= 0) {
         j.reason = 'Drum empty';
         finishRelease(s, j);
@@ -3244,6 +3219,13 @@ function tickJob(s: State, j: Job, dt: number) {
         `Collected ${j.fuelLiters.toFixed(1)} L from ${stack.id} into the service can.`,
       );
     } else if (j.phase === 'Carry fuel' && !w.path.length) {
+      const fillPoint=machineStep(e);
+      if(dist(w,fillPoint)>.18) {
+        w.path=walkRoute(s,w,fillPoint,pedestrianObstacles(s))||[];
+        j.reason=w.path.length?'Returning the carried service can to the actual filler':'No access to the equipment filler';
+        return;
+      }
+      j.reason='';
       j.elapsed += dt;
       j.progress = Math.min(1, j.elapsed / 6);
       if (j.elapsed >= 6) {
@@ -3419,6 +3401,16 @@ function tickJob(s: State, j: Job, dt: number) {
     j.elapsed = 0;
     op.status = 'Placing material';
   } else if ((j.phase === 'Install' || j.phase === 'Recover structure') && !w.path.length) {
+    if(j.phase==='Install') {
+      const footprint={...center(j),length:j.w,width:j.d,yaw:0};
+      const blockers=actionEnvelopeBlockers(s,e,[footprint],[w.id]);
+      if(blockers.length) {
+        for(const blockerId of blockers)requestActionClearance(s,{ownerId:j.id,requesterEquipmentId:e.id,blockerId,action:'Place and install structure',envelopes:[footprint]});
+        j.reason=`Waiting for ${blockers.join(', ')} to clear the structure footprint`;
+        return;
+      }
+      clearActionClearance(s,j.id);
+    }
     e.work = 1;
     w.status = j.kind === 'remove' ? 'Dismantling' : 'Installing';
     j.elapsed += dt;
@@ -3433,6 +3425,7 @@ function tickJob(s: State, j: Job, dt: number) {
         );
         if (nearby) {
           j.reason = `Waiting for ${nearby.name} to step clear before lifting the recovered kit`;
+          requestActionClearance(s,{ownerId:j.id,requesterEquipmentId:e.id,blockerId:nearby.id,action:"Lift recovered structure",envelopes:[load]});
           if (
             (nearby.duty === 'auto' || nearby.id === j.worker) &&
             !nearby.path.length &&
@@ -3659,6 +3652,7 @@ export function tick(s: State, dt: number) {
       !w.job &&
       !w.railAssignment &&
       !w.processAssignment &&
+      !w.actionClearanceEquipment &&
       !w.deliveryOrder &&
       !w.transportOrder &&
       !w.transition &&
@@ -3746,11 +3740,12 @@ export function tick(s: State, dt: number) {
   for (const j of s.jobs) tickJob(s, j, dt);
   reconcileEquipmentAssignments(s);
   updateEquipmentAssistants(s, dt);
+  tickActionClearances(s);
   // Scheduling is deliberately slower than movement; pathfinding is only needed when assignments change.
   if (Math.floor((s.elapsed - dt) * 2) !== Math.floor(s.elapsed * 2)) {
     queueLooseRailBufferCleanup(s);
     refreshAutomaticEquipment(s, (e) =>
-      s.workers.some(
+      !actionClearanceHoldsEquipment(s,e.id) && s.workers.some(
         (w) =>
           w.role === 'operator' &&
           w.duty === 'auto' &&

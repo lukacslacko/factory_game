@@ -4,6 +4,7 @@ import { dist } from './path';
 import { turn } from './motion';
 import { walkRoute, workerMoveBlocked, railRollingStockAxles, boxOverlap } from './traffic';
 import { workerAvailable } from './workforce';
+import { selectWorker, noteWorkerAssignment } from './worker-selection';
 import { railRouteReserved } from './rail-operations';
 
 export const TURNOUT_THROW_SECONDS = 4;
@@ -161,15 +162,11 @@ export function assignTurnoutOperation(s: State, j: Job, api: TurnoutOperationAP
     return true;
   }
   const foot = turnoutWorkerPoint(rail);
-  const candidates = s.workers
-    .filter((w) => eligible(s, w, j))
-    .sort(
-      (a, b) =>
-        Number(b.id === j.preferredWorker) - Number(a.id === j.preferredWorker) ||
-        dist(a, foot) - dist(b, foot),
-    );
+  const choice=selectWorker(s,[foot],{preferredId:j.preferredWorker,workId:j.parentId||j.id,allowAssignedSupport:true,eligible:w=>eligible(s,w,j),obstacles:api.obstacles(s)});
+  const candidates=choice?[choice.worker]:[];
   if (!candidates.length) {
-    j.reason = 'Need an available worker on foot to operate the turnout lever';
+    j.reason = s.workers.some(w=>eligible(s,w,j)) ? 'No walking access to the manual turnout lever; clear the route and standing area' : 'Need an available worker on foot to operate the turnout lever';
+    j.retryAt=s.elapsed+2;j.retryRevision=s.revision;
     return true;
   }
   for (const w of candidates) {
@@ -185,6 +182,7 @@ export function assignTurnoutOperation(s: State, j: Job, api: TurnoutOperationAP
     j.retryAt = undefined;
     j.retryRevision = undefined;
     w.job = j.id;
+    noteWorkerAssignment(s,w,{workId:j.parentId||j.id});
     w.path = path;
     w.status = j.phase;
     api.event(s, 'Work', j.id, `${w.name} assigned to operate the manual lever at ${rail.id}.`);

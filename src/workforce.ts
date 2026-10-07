@@ -3,13 +3,20 @@ import { dist } from './path';
 import { angleDelta, turn, localPoint } from './motion';
 import { boardMachine, leaveMachine, machineStep } from './boarding';
 import {
+  equipmentBoxes,
   machineRoute,
   walkRoute,
   equipmentMoveBlocked,
   equipmentSweepBlocked,
   staticObstacleRects,
 } from './traffic';
+import {
+  requestActionClearance,
+  clearActionClearance,
+  actionClearanceHoldsEquipment,
+} from './action-clearance';
 import { equipmentHasAssignedWork, automaticEquipmentHasWork } from './jobs';
+import { selectWorker, noteWorkerAssignment } from './worker-selection';
 
 export interface WorkforceAPI {
   id(s: State, type: string): string;
@@ -29,6 +36,7 @@ export function workerAvailable(s: State, w: Worker) {
     shiftIsActive(s, w) &&
     !w.railAssignment &&
     !w.processAssignment &&
+    !w.actionClearanceEquipment &&
     !w.commuteOrder &&
     !w.parkingEquipment &&
     !w.yieldingTo &&
@@ -130,12 +138,70 @@ export function parkingStatus(_s: State, e: Equipment) {
   );
 }
 function busy(w: Worker) {
-  return !!(w.job || w.deliveryOrder || w.transportOrder || w.transition);
+  return !!(
+    w.job ||
+    w.deliveryOrder ||
+    w.transportOrder ||
+    w.transition ||
+    w.actionClearanceEquipment
+  );
 }
 function machineBusy(e: Equipment) {
   return !!(e.job || e.deliveryOrder || e.transportOrder || e.refueling || e.cargo || e.work);
 }
+function parkingEnvelope(e: Equipment, goal: Point, yaw: number) {
+  return Array.from({ length: 13 }, (_, i) =>
+    equipmentBoxes(e, { ...goal, yaw: (e.yaw || 0) + (angleDelta(e.yaw || 0, yaw) * i) / 12 }),
+  ).flat();
+}
+function requestParkingClearance(s: State, e: Equipment, api: WorkforceAPI): string | undefined {
+  const goal = e.parking!,
+    yaw = (goal.rotation * Math.PI) / 2;
+  let blocker = equipmentMoveBlocked(s, e, { ...goal, yaw }),
+    envelopes = parkingEnvelope(e, goal, yaw);
+  if (!blocker) {
+    // A preview without site actors identifies the actual actor obstructing the
+    // otherwise valid entrance. Executed movement always uses the real state.
+    const preview = machineRoute(
+      { ...s, equipment: [e], workers: s.workers.filter((w) => w.vehicle === e.id) },
+      e,
+      goal,
+      api.obstacles(s),
+      200,
+      true,
+      yaw,
+    );
+    if (preview) {
+      let at = { ...e };
+      for (const point of preview) {
+        const heading = Math.atan2(point.z - at.z, point.x - at.x) + (e.reverse ? Math.PI : 0),
+          start = { ...at },
+          steps = Math.max(1, Math.ceil(dist(start, point) / 0.5));
+        for (let i = 1; i <= steps; i++) {
+          const pose = {
+            x: start.x + ((point.x - start.x) * i) / steps,
+            z: start.z + ((point.z - start.z) * i) / steps,
+            yaw: heading,
+          };
+          blocker ||= equipmentSweepBlocked(s, at, pose);
+          envelopes.push(...equipmentBoxes(e, pose));
+          at = { ...at, ...pose };
+        }
+      }
+    }
+  }
+  if (!blocker) return;
+  e.blockedBy = blocker;
+  return requestActionClearance(s, {
+    ownerId: e.id,
+    requesterEquipmentId: e.id,
+    blockerId: blocker,
+    action: 'Enter assigned parking bay',
+    envelopes,
+  }).reason;
+}
 function parkingTick(s: State, e: Equipment, dt: number, api: WorkforceAPI) {
+  if (actionClearanceHoldsEquipment(s, e.id)) return;
   if (!e.parking || machineBusy(e)) {
     if (machineBusy(e)) e.parkingState = undefined;
     return;
@@ -161,6 +227,8 @@ function parkingTick(s: State, e: Equipment, dt: number, api: WorkforceAPI) {
     0.025;
   if (atBay && aligned && !e.path.length) {
     if (e.parkingState !== 'parked') {
+      clearActionClearance(s, e.id);
+      e.blockedBy = undefined;
       e.parkingState = 'parked';
       e.parkingReason = undefined;
       e.parkingOperator = undefined;
@@ -189,21 +257,19 @@ function parkingTick(s: State, e: Equipment, dt: number, api: WorkforceAPI) {
     e.parkingState = 'waiting-operator';
     if (s.elapsed < (e.parkingRetry || 0)) return;
     e.parkingRetry = s.elapsed + 2;
-    w = s.workers.find(
-      (w) =>
-        w.role === 'operator' &&
-        w.duty === 'auto' &&
-        workerAvailable(s, w) &&
-        !busy(w) &&
-        !w.vehicle &&
-        !w.path.length,
-    );
-    if (!w) return;
-    const path = walkRoute(s, w, machineStep(e), staticObstacleRects(s));
-    if (!path) {
-      e.parkingReason = 'Operator cannot reach machine';
+    const choice = selectWorker(s, [machineStep(e)], {
+      equipmentId: e.id,
+      workId: e.id,
+      eligible: (person) =>
+        person.role === 'operator' && !busy(person) && !person.vehicle && !person.path.length,
+    });
+    if (!choice) {
+      e.parkingReason = 'No available operator can reach the machine';
       return;
     }
+    w = choice.worker;
+    const path = choice.path;
+    noteWorkerAssignment(s, w, { equipmentId: e.id, workId: e.id });
     w.path = path;
     w.status = `Park ${e.id}`;
     w.parkingEquipment = e.id;
@@ -222,11 +288,21 @@ function parkingTick(s: State, e: Equipment, dt: number, api: WorkforceAPI) {
   if (!atBay) {
     if (s.elapsed < (e.parkingRetry || 0)) return;
     e.parkingRetry = s.elapsed + 2;
-    const path = machineRoute(s, e, e.parking, api.obstacles(s), 2);
+    const path = machineRoute(
+      s,
+      e,
+      e.parking,
+      api.obstacles(s),
+      200,
+      true,
+      (e.parking.rotation * Math.PI) / 2,
+    );
     if (!path) {
-      e.parkingReason = 'No clear driving route to parking bay';
+      e.parkingReason =
+        requestParkingClearance(s, e, api) || 'No clear driving route to parking bay';
       return;
     }
+    clearActionClearance(s, e.id);
     e.path = path;
     e.parkingState = 'driving';
     e.parkingReason = undefined;
@@ -237,9 +313,17 @@ function parkingTick(s: State, e: Equipment, dt: number, api: WorkforceAPI) {
     turn(next, (e.parking.rotation * Math.PI) / 2, dt, 0.85);
     const blocker = equipmentSweepBlocked(s, e, next);
     if (blocker) {
-      e.parkingReason = `Parking turn blocked by ${blocker}`;
+      e.parkingReason = requestActionClearance(s, {
+        ownerId: e.id,
+        requesterEquipmentId: e.id,
+        blockerId: blocker,
+        action: 'Align in assigned parking bay',
+        envelopes: parkingEnvelope(e, e, next.yaw || 0),
+      }).reason;
       return;
     }
+    clearActionClearance(s, e.id);
+    e.blockedBy = undefined;
     e.yaw = next.yaw;
     e.heading = Math.round((e.yaw || 0) / (Math.PI / 2));
     e.parkingReason = undefined;

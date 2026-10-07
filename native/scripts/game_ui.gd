@@ -69,6 +69,7 @@ var sql_table: Control
 var toast: PanelContainer
 var toast_body: VBoxContainer
 var latest_notice: String = ""
+var latest_notice_key: String = ""
 var toast_age: float = 0.0
 var update_clock: float = 0.0
 var refresh_pending: bool = false
@@ -416,10 +417,11 @@ func _menu_action(id: int) -> void:
 			var help: AcceptDialog = AcceptDialog.new()
 			help.title="Plant 01 controls"
 			help.dialog_text="Drag empty ground to pan; right drag to orbit; scroll to zoom. WASD moves relative to the view. Space pauses. R rotates a plan.\n\nPurchase workers, machines, and materials. Deliveries need owned equipment and an operator. Designate physical stockyards, pave foundations, and plan construction. IDs in every register open the inspector. Assign machines to whole work orders or rail crews.\n\n1× uses real time. The simulation continues while this window is unfocused. Save files and rolling diagnostic history remain on this device."
+			help.dialog_text += "\n\nAutomatic work chooses reachable nearby qualified workers. Explicit crews and active work keep precedence. Idle automatic blockers can move clear with their real operators. After 20 simulated seconds, a persistent warning links the work and blocker. Use Warnings only in Activity or Inbox, then Inspect / Locate. Return to automatic duty (worker) or Return to automatic work (equipment) releases manual control. Fixed stock or a boxed-in load may need relocation."
 			help.dialog_text += "\n\nSave folder: " + str(metadata.get("storage",{}).get("dataDir","Not connected yet"))
 			screen.add_child(help)
 			_window_background(help)
-			help.popup_centered(Vector2i(700,350))
+			help.popup_centered(Vector2i(760,500))
 
 func _build_startup() -> void:
 	startup=Window.new()
@@ -625,8 +627,8 @@ func _build_register() -> void:
 	if active_tab in ["Work","Deliveries","Inbox"]:
 		record_status=_option(filters,["Active","All","To do","Doing","Done","Canceled"] if active_tab=="Work" else ["Active","All","Done"])
 		record_status.item_selected.connect(func(_index: int) -> void: _refresh_register())
-	if active_tab=="Activity":
-		severity_filter=_option(filters,["All events","Warnings only","Info only"])
+	if active_tab in ["Activity","Inbox"]:
+		severity_filter=_option(filters,["All events" if active_tab=="Activity" else "All notices","Warnings only","Info only"])
 		severity_filter.item_selected.connect(func(_index: int) -> void: _refresh_register())
 	match active_tab:
 		"Process": ProcessUI.build_register(self)
@@ -804,6 +806,8 @@ func _refresh_register() -> void:
 			_set_table(0,rows)
 		"Inbox":
 			for e: Dictionary in _records("notices"):
+				var severity: String = _notice_severity(e)
+				if is_instance_valid(severity_filter) and ((severity_filter.selected==1 and severity!="warning") or (severity_filter.selected==2 and severity!="info")):continue
 				if not _status_matches(str(e.get("state","todo"))): continue
 				rows.append(_row(str(e.id),[e.id,_clock(e.get("time",0)),e.get("state","todo"),e.get("title",""),e.get("detail",""),e.get("entity",""),"Yes" if e.get("seen",false) else "New"]))
 			_set_table(0,rows)
@@ -941,6 +945,7 @@ func _render_inspector() -> void:
 	if kind=="buildings" and str(entity.get("kind","")) in ProcessUI.KINDS:display_name=display_name.trim_suffix(" kit")
 	_note(inspector_body,display_name)
 	if entity.has("x"): _detail("Position",_position(entity))
+	_clearance_controls(str(entity.get("id","")))
 	match kind:
 		"workers": _worker_inspector(entity)
 		"equipment": _equipment_inspector(entity)
@@ -1036,9 +1041,11 @@ func _render_inspector() -> void:
 			_note(inspector_body,"Supplier receiving point and shunting destination" if entity.get("trackId")=="BOOTSTRAP-SIDING" else "Shunting destination · connected track and sufficient clear length are required.")
 			_button(inspector_body,"Edit named location",func() -> void: _rail_location_form(entity))
 		"notices":
+			_detail("Severity",_notice_severity(entity))
 			_detail("Time",_clock(entity.get("time",0)))
 			_detail("Entity",entity.get("entity",""))
 			_note(inspector_body,str(entity.get("detail","")))
+			_notice_reference_controls(entity)
 			var stage: OptionButton = _option(inspector_body,["To do","Doing","Done"],["todo","doing","done"].find(entity.get("state","todo")))
 			_button(inspector_body,"Update notice",func() -> void: _send("notice",{"id":selected_id,"state":["todo","doing","done"][stage.selected],"seen":true}))
 		"buffer":
@@ -1100,7 +1107,7 @@ func _pending_rail_recovery(rail_id: String) -> Dictionary:
 
 func _worker_inspector(worker: Dictionary) -> void:
 	var id: String = str(worker.id)
-	for pair: Array in [["Role","role"],["Duty","duty"],["Current action","status"],["Shift action","shiftPhase"],["Vehicle","vehicle"],["Work","job"],["Delivery","deliveryOrder"],["Support machine","assistingEquipment"]]: _detail(pair[0],worker.get(pair[1],"—"))
+	for pair: Array in [["Role","role"],["Duty","duty"],["Current action","status"],["Shift action","shiftPhase"],["Vehicle","vehicle"],["Work","job"],["Delivery","deliveryOrder"],["Support machine","assistingEquipment"],["Clearance equipment","actionClearanceEquipment"]]: _detail(pair[0],worker.get(pair[1],"—"))
 	_detail("Hours","%.1f h"%float(worker.get("hours",0)))
 	_detail("Hourly wage",_money(worker.get("wage",0)))
 	_detail("Railway qualification","Qualified" if worker.get("role")=="railDriver" or worker.get("railQualified",false) else "Not recorded")
@@ -1159,6 +1166,91 @@ func _update_control_banner() -> void:
 		tool_label.text="Select · 1 m grid" if active_tool=="select" else "%s · click / drag the yard"%tool_name
 		tool_label.tooltip_text="Construction ghosts: cyan queued, amber underway. Placement preview: green valid, red invalid."
 
+func _clearance_records(id: String) -> Array[Dictionary]:
+	var related: Dictionary={id:true}
+	var found: Dictionary=_entity(id)
+	var entity: Dictionary=found.get("entity",{})
+	for field: String in ["job","deliveryOrder","parkingEquipment","railAssignment","processAssignment","actionClearanceEquipment","actionYieldFor"]:
+		var linked: String=str(entity.get(field,""))
+		if not linked.is_empty():related[linked]=true
+	if str(found.get("type",""))=="jobGroups":
+		for task: Dictionary in _work_tasks(id):related[str(task.id)]=true
+	var result: Array[Dictionary]=[]
+	for wait: Dictionary in state.get("actionClearances",[]):
+		var linked_blocker: bool=false
+		for blocker: String in wait.get("blockerIds",[]):
+			if related.has(blocker):linked_blocker=true
+		if related.has(str(wait.get("ownerId",""))) or related.has(str(wait.get("requesterEquipmentId",""))) or linked_blocker:
+			result.append(wait)
+			if result.size()>=32:break
+	return result
+
+func _clearance_control_reason(id: String) -> String:
+	var found: Dictionary=_entity(id)
+	var entity: Dictionary=found.get("entity",{})
+	if str(found.get("type",""))=="workers" and str(entity.get("duty","auto"))!="auto":
+		return "%s is under %s control; automatic clearance will not move this worker. Move them clear or return them to automatic duty."%[id,entity.get("duty","manual")]
+	if str(found.get("type",""))=="equipment":
+		var operator_worker: Dictionary=_seated_operator(entity)
+		if not operator_worker.is_empty() and str(operator_worker.get("duty","auto"))!="auto":
+			return "%s has a %s operator; automatic clearance will not drive it. Move it safely or return the operator to automatic work."%[id,operator_worker.get("duty","manual")]
+	return ""
+
+func _reference_controls(parent: Node,ids: Array) -> void:
+	var displayed: int=0
+	var seen: Dictionary={}
+	for value: Variant in ids:
+		var id: String=str(value)
+		if id.is_empty() or seen.has(id) or _entity(id).is_empty():continue
+		seen[id]=true
+		var row: HBoxContainer=HBoxContainer.new();parent.add_child(row)
+		_button(row,"Inspect "+id,func() -> void:_user_entity(id))
+		_button(row,"Locate "+id,func() -> void:_switch_tab("Yard");focus_entity.emit(id))
+		var reason: String=_clearance_control_reason(id)
+		if not reason.is_empty():_note(parent,reason)
+		displayed+=1
+		if displayed>=6:break
+
+func _clearance_controls(id: String) -> void:
+	var waits: Array[Dictionary]=_clearance_records(id)
+	if waits.is_empty():return
+	_label(inspector_body,"Active clearance · %d action(s)"%waits.size())
+	var references: Array=[]
+	for index: int in mini(waits.size(),3):
+		var wait: Dictionary=waits[index]
+		_detail("Blocked action",wait.get("action",""))
+		if not str(wait.get("reason","")).is_empty():_detail("Clearance condition",wait.reason)
+		if wait.has("point"):_detail("Working area",_position(wait.point))
+		_detail("Action owner",wait.get("ownerId",""))
+		_detail("Requester",wait.get("requesterEquipmentId",""))
+		_detail("Waiting for"," · ".join(wait.get("blockerIds",[])))
+		_detail("Blocked for","%.1f seconds"%maxf(0,float(state.get("elapsed",0))-float(wait.get("since",0))))
+		references.append(wait.get("ownerId",""));references.append(wait.get("requesterEquipmentId",""));references.append_array(wait.get("blockerIds",[]))
+	_reference_controls(inspector_body,references)
+
+func _notice_severity(value: Dictionary) -> String:
+	if value.get("severity","") in ["warning","info"]:return str(value.severity)
+	for wait: Dictionary in state.get("actionClearances",[]):
+		if str(wait.get("noticeId",""))==str(value.get("id","")):return "warning"
+	# Earlier local saves did not store severity on notices.
+	var title: String=str(value.get("title","")).to_lower()
+	return "warning" if title.contains("blocked") or title.contains("deadlock") else "info"
+
+func _notice_references(value: Dictionary) -> Array:
+	var ids: Array=[value.get("entity","")]
+	for wait: Dictionary in state.get("actionClearances",[]):
+		if str(wait.get("noticeId",""))==str(value.get("id","")):
+			ids.append(wait.get("ownerId",""));ids.append(wait.get("requesterEquipmentId",""));ids.append_array(wait.get("blockerIds",[]))
+	# Resolved records leave the warning history and its original linked IDs intact.
+	var pattern: RegEx=RegEx.new();pattern.compile("[A-Z]{1,16}-[0-9]{3,}(?:/BAY)?")
+	for hit: RegExMatch in pattern.search_all(str(value.get("detail",""))):
+		ids.append(hit.get_string())
+		if ids.size()>=16:break
+	return ids
+
+func _notice_reference_controls(value: Dictionary) -> void:
+	_reference_controls(inspector_body,_notice_references(value))
+
 func _equipment_inspector(equipment: Dictionary) -> void:
 	var id: String = str(equipment.id)
 	var control: String = _equipment_control(equipment)
@@ -1173,7 +1265,7 @@ func _equipment_inspector(equipment: Dictionary) -> void:
 	_detail("Fuel","%.1f / %s L"%[float(equipment.get("fuel",0)),equipment.get("tank",0)])
 	_detail("Diesel used","%.2f L"%float(equipment.get("used",0)))
 	_detail("Lift limit",_mass(float(catalog.get(equipment.get("kind",""),{}).get("capacity",0))))
-	for pair: Array in [["Operator","operator"],["Work","job"],["Delivery","deliveryOrder"],["Refueling","refueling"],["Blocker","blockedBy"]]: _detail(pair[0],equipment.get(pair[1],"—"))
+	for pair: Array in [["Operator","operator"],["Work","job"],["Delivery","deliveryOrder"],["Refueling","refueling"],["Clearance operator","actionYieldOperator"],["Blocker","blockedBy"]]: _detail(pair[0],equipment.get(pair[1],"—"))
 	var intent: Dictionary = {}
 	for value: Dictionary in metadata.get("render",{}).get("equipmentIntents",[]):
 		if str(value.get("id",""))==id: intent=value
@@ -1934,21 +2026,32 @@ func _build_toast() -> void:
 
 func _check_notices() -> void:
 	var notices: Array[Dictionary] = _records("notices")
-	if notices.is_empty(): return
-	var newest: Dictionary = notices[0]
-	if str(newest.id)==latest_notice: return
-	latest_notice=str(newest.id)
-	if not started or newest.get("seen",false): return
+	if not latest_notice.is_empty():
+		for previous: Dictionary in notices:
+			if str(previous.get("id",""))==latest_notice and (previous.get("seen",false) or previous.get("state","todo")=="done"):
+				toast.hide()
+				break
+	var newest: Dictionary = {}
+	for candidate: Dictionary in notices:
+		if candidate.get("seen",false) or candidate.get("state","todo")=="done":continue
+		if newest.is_empty():newest=candidate
+		if _notice_severity(candidate)=="warning":newest=candidate;break
+	if newest.is_empty():return
+	var notice_key: String=JSON.stringify([newest.get("id",""),newest.get("detail",""),newest.get("state","")])
+	if notice_key==latest_notice_key or not started:return
+	latest_notice=str(newest.id);latest_notice_key=notice_key
 	_clear(toast_body)
 	var top: HBoxContainer = HBoxContainer.new()
 	toast_body.add_child(top)
 	var title: Label = _label(top,str(newest.get("title","Operational notice")))
 	title.size_flags_horizontal=Control.SIZE_EXPAND_FILL
+	if _notice_severity(newest)=="warning":title.add_theme_color_override("font_color",Color("986324"))
 	_button(top,"×",func() -> void: toast.hide())
 	_note(toast_body,str(newest.get("detail","")))
 	var actions: HBoxContainer = HBoxContainer.new()
 	toast_body.add_child(actions)
 	_button(actions,"Inspect",func() -> void: _user_entity(str(newest.get("entity",""))); _send("notice",{"id":newest.id,"seen":true}); toast.hide())
+	_button(actions,"Locate",func() -> void:_switch_tab("Yard");focus_entity.emit(str(newest.get("entity","")));_send("notice",{"id":newest.id,"seen":true});toast.hide())
 	_button(actions,"Inbox",func() -> void: _switch_tab("Inbox"); toast.hide())
 	toast.visible=true
 	toast_age=0

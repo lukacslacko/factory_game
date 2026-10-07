@@ -1,3 +1,4 @@
+import { releaseActionYield } from './action-clearance';
 import type { Equipment, Item, Job, JobGroup, Rect, State } from './types';
 import { EQUIPMENT, MATERIALS, label } from './catalog';
 import { equipmentAllows, jobActivity } from './equipment-roles';
@@ -415,6 +416,7 @@ export function setJobEquipment(s: State, workId: string, equipmentId?: string):
     if (impossible)
       return `${equipmentId} cannot perform ${label(impossible.kind)}; ${['shed', 'engineShed'].includes(impossible.kind) ? 'shed erection requires an excavator' : impossible.kind === 'rail' ? 'rail laying requires an excavator' : 'the load must fit its lift capacity'}.`;
   }
+  if(equipmentId) releaseActionYield(s,equipmentId);
   work.preferredEquipment = equipmentId;
   if (!('kind' in work) && equipmentId) {
     // A new group Apply explicitly replaces older group and child choices.
@@ -617,6 +619,7 @@ export function setRailCrew(
     if (jobs.some((j) => EQUIPMENT[staging.kind].capacity < (MATERIALS[j.item!]?.mass || 1)))
       return 'The staging machine cannot lift every panel in this work order.';
   }
+  for(const id of [stagingEquipment,installingEquipment])if(id)releaseActionYield(s,id);
   group.railCrew = stagingEquipment ? { stagingEquipment, installingEquipment } : undefined;
   if (stagingEquipment) {
     for (const child of s.jobGroups || [])

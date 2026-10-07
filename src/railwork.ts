@@ -1,3 +1,4 @@
+import { requestActionClearance, clearActionClearance } from './action-clearance';
 import { appendRailLayers, takeRailLayers, recoveryStackCandidates } from './rail-stock';
 import { recoverySource, railRecoveryConflict } from './rail-recovery';
 import { bufferAt, syncBufferAsset, railBufferShouldBeStored } from './buffers';
@@ -1019,10 +1020,11 @@ function machineAt(
   if (blocker) {
     e.blockedBy = blocker;
     j.reason = `Waiting for ${blocker} to clear the excavator turning area`;
-    parkRailBlocker(s, e, blocker, target, api);
+    requestActionClearance(s,{ownerId:j.id,requesterEquipmentId:e.id,blockerId:blocker,action:"Align rail handling equipment",envelopes:[...equipmentBoxes(e),...equipmentBoxes(e,candidate)]});
     return false;
   }
   e.blockedBy = undefined;
+  clearActionClearance(s,j.id);
   e.yaw = candidate.yaw;
   e.reach = stepToward(e.reach || 2.7, dist(e, target), dt * 0.8);
   return aligned && Math.abs((e.reach || 0) - dist(e, target)) < 0.02;

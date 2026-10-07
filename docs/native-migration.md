@@ -92,3 +92,7 @@ See [Rail operations](rail-operations.md) and **Railway → Rail management help
 ## First fluid system — v0.23.0
 
 The native Process register adds constructed 30,000 L tanks, powered rail transfer pumps, grid-connected DN100 piping, manual valves, and actual flow/level gauges. Components use physical kits, equipment and workers; hoses lock tanker cars against movement. Liquid fills finite pipe hold-up before the destination tank and remains conserved across valve operations, power loss, and saves. See [Fluid operations](fluid-operations.md) and Process → How to use. The Mac bundle includes a synthetic example yard; the browser deployment remains v0.18.0. Pressure hydraulics, reactions, draining, and tank-to-tank transfer remain future work.
+
+## Worker selection and action clearance — v0.24.0
+
+New automatic assignments use reachable walking-path distance to actual work/boarding/fuel positions, respect duties and explicit crews, and retain active assignments. Construction, handling and parking share saved action-clearance records and collision-checked idle actor refuges. Real operators are required to drive equipment; manual control, active work and cargo remain protected. Persistent linked warnings after 20 simulated seconds identify unsafe or impossible maneuvers and resolve when cleared. Native Activity and Inbox offer warning-only filters. See [the guide](worker-assignment-and-clearance.md).

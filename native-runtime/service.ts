@@ -210,6 +210,7 @@ function storage() {
 function reportingRows() {
   return {
     process: processRows(state),
+    actionClearances: (state.actionClearances || []).slice(0,4096),
     work: jobRows(state),
     inventory: Object.keys(MATERIALS).map((item) => ({ item, ...Sim.totals(state, item as any) })),
     workers: state.workers,
@@ -260,6 +261,7 @@ function snapshot() {
   const recentOperations = tables.process.operations.filter(o=>o.finished===undefined).concat(tables.process.operations.filter(o=>o.finished!==undefined).slice(-200));
   const limited = {
     ...state,
+    actionClearances: (state.actionClearances || []).slice(0,4096),
     process: state.process ? {...state.process, ledger:state.process.ledger.slice(-200),operations:recentOperations} : undefined,
     events: state.events.slice(-1000),
     movements: state.movements.slice(-1000),
@@ -734,12 +736,15 @@ async function dispatch(action: string, a: any) {
       for (const [type, rows] of Object.entries(tables)) {
         if (!Array.isArray(rows)) continue;
         const entity = rows.find((r: any) => r.id === id);
-        if (entity)
+        if (entity) {
+          const related=new Set([id,...['job','deliveryOrder','parkingEquipment','railAssignment','processAssignment','actionClearanceEquipment','actionYieldFor'].map(key=>(entity as any)[key]).filter(Boolean)]);
           return {
             type,
             entity,
             intent: renderState(state).equipmentIntents.find((e) => e.id === id),
+            actionClearances: (state.actionClearances || []).filter(wait => related.has(wait.ownerId) || related.has(wait.requesterEquipmentId) || wait.noticeId===id || wait.blockerIds.some(blocker=>related.has(blocker))).slice(0,32),
           };
+        }
       }
       const operation = tables.process.operations.find(o=>o.id===id);
       if (operation) return {type:'processOperation',entity:operation};

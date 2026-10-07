@@ -1,4 +1,9 @@
 import {
+  requestActionClearance,
+  clearActionClearance,
+  actionEnvelopeBlockers,
+} from './action-clearance';
+import {
   bufferAssets,
   bufferSource,
   ensureBuffers,
@@ -121,7 +126,15 @@ function groundObstacles(s: State, api: RailWorkAPI) {
 }
 
 /** Select a cardinal dock with room to turn before reaching into the load. */
-function dock(s: State, e: Equipment, target: Point, reach: number, api: RailWorkAPI, insert = 0) {
+function dock(
+  s: State,
+  e: Equipment,
+  target: Point,
+  reach: number,
+  api: RailWorkAPI,
+  insert = 0,
+  loadedReapproach?: Point,
+) {
   // Match machineRoute's planning policy: stationary automatic pedestrians
   // can walk clear. Manual workers, transitions, and existing walks still
   // constrain the preview; actual movement always checks every person.
@@ -138,6 +151,7 @@ function dock(s: State, e: Equipment, target: Point, reach: number, api: RailWor
     }))
     .sort((a, b) => dist(e, a.approach) - dist(e, b.approach));
   for (const c of candidates) {
+    if (loadedReapproach && dist(c.point, loadedReapproach) < 0.1) continue;
     const probe = { ...e, reach: Math.min(2.7, reach), cargo: undefined };
     const bodyRadius = e.kind === 'excavator' ? 2.36 : 1.94;
     if (
@@ -213,6 +227,24 @@ function dock(s: State, e: Equipment, target: Point, reach: number, api: RailWor
       )
     )
       continue;
+    if (loadedReapproach) {
+      // The probe only screens the surveyed standing area. An accepted
+      // reapproach must also carry the actual supported payload through every
+      // steering pose and the complete final alignment at the new dock.
+      for (const reverse of [!!e.reverse, !e.reverse]) {
+        const path = machineRoute(
+          s,
+          { ...e, reverse },
+          c.point,
+          groundObstacles(s, api),
+          250,
+          true,
+          c.yaw,
+        );
+        if (path?.length) return { ...c, path, reverse };
+      }
+      continue;
+    }
     // A source approach can turn through 90 degrees without scraping its stock.
     const path = machineRoute(s, e, c.approach, groundObstacles(s, api), 180, true);
     if (path) return c;
@@ -527,6 +559,51 @@ function parkIdleBlocker(
       }
     }
 }
+function reapproachCarriedLoad(
+  s: State,
+  j: Job,
+  e: Equipment,
+  target: Point,
+  api: RailWorkAPI,
+  blockerId: string,
+) {
+  const h = j.handling;
+  if (
+    h?.phase !== 'carry' ||
+    j.item !== 'slab' ||
+    !e.cargo ||
+    !s.equipment.some((q) => q.id === blockerId) ||
+    s.elapsed < (e.trafficRetry || 0)
+  )
+    return false;
+  e.trafficRetry = s.elapsed + 1.5;
+  const alternative = dock(
+    { ...s, jobs: s.jobs.filter((other) => other.id !== j.id) },
+    e,
+    target,
+    h.reach,
+    api,
+    0,
+    h.destinationDock,
+  );
+  if (!alternative || !('path' in alternative) || !alternative.path?.length) return false;
+  h.destinationDock = { ...alternative.point };
+  h.destinationClear = { ...alternative.clear };
+  e.path = alternative.path;
+  e.reverse = alternative.reverse;
+  e.blockedBy = undefined;
+  e.work = 0;
+  j.reason = 'Reapproaching from a clear side while keeping the supported load';
+  clearActionClearance(s, j.id);
+  api.event(
+    s,
+    'Traffic',
+    e.id,
+    `Reapproaching ${j.id} from another setting dock; the original load and placement target are unchanged.`,
+  );
+  s.revision++;
+  return true;
+}
 function at(
   s: State,
   j: Job,
@@ -595,8 +672,22 @@ function at(
         if (other.id === e.id) continue;
         if (!dockBoxes.some((a) => equipmentBoxes(other).some((b) => boxOverlap(a, b, 0.35))))
           continue;
-        parkIdleBlocker(s, e, other.id, target, api, p);
+        requestActionClearance(s, {
+          ownerId: j.id,
+          requesterEquipmentId: e.id,
+          blockerId: other.id,
+          action: 'Approach slab handling dock',
+          envelopes: dockBoxes,
+        });
       }
+      for (const blockerId of actionEnvelopeBlockers(s, e, dockBoxes))
+        requestActionClearance(s, {
+          ownerId: j.id,
+          requesterEquipmentId: e.id,
+          blockerId,
+          action: 'Approach slab handling dock',
+          envelopes: dockBoxes,
+        });
       j.reason = 'Clear the slab handling approach';
     }
     return false;
@@ -612,11 +703,19 @@ function at(
     blocker = equipmentSweepBlocked(s, e, candidate);
   if (blocker) {
     e.blockedBy = blocker;
-    parkIdleBlocker(s, e, blocker, target, api);
+    if (reapproachCarriedLoad(s, j, e, target, api, blocker)) return false;
+    requestActionClearance(s, {
+      ownerId: j.id,
+      requesterEquipmentId: e.id,
+      blockerId: blocker,
+      action: 'Align slab handling equipment',
+      envelopes: [...equipmentBoxes(e), ...equipmentBoxes(e, candidate)],
+    });
     j.reason = `Waiting for ${blocker} to clear slab handling`;
     return false;
   }
   e.blockedBy = undefined;
+  clearActionClearance(s, j.id);
   e.yaw = candidate.yaw;
   e.velocity = 0;
   j.reason = '';
