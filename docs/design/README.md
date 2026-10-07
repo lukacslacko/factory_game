@@ -11,3 +11,5 @@ These are local snapshots. Some online Pages updates were saved, but later synch
 The original **C Planning View** concept is preserved in [C-original-planning.png](C-original-planning.png). This is generated concept art, not a gameplay screenshot. Its world depth, contrast, color and vegetation remain a visual reference; its old mandatory work-step panel was rejected. Retain the later accepted true-perspective camera, direct worker control, dismissible guidance, Condensed records and approximately 80% A / 20% B refinements.
 
 The [GitHub request index](github-issues.md) links the individual railway, chemical and feedback issues, with implementation approval gates and open design choices.
+
+The [electrical distribution study](electrical-distribution-2026-10-07/README.md) compares underground and overhead industrial cabling during construction and in service, with four labeled concept images and recorded generation prompts. It preserves the creator's preference for buried trunks, substations and local distribution; these concepts are not implemented gameplay.
