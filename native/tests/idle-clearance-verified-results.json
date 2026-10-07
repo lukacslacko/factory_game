@@ -1,0 +1,91 @@
+{
+  "version": "0.27.1",
+  "build": 221,
+  "date": "2026-10-08",
+  "fullSuite": {
+    "tests": 743,
+    "passed": 743,
+    "failed": 0,
+    "cancelled": 0,
+    "skipped": 0,
+    "duration_seconds": 624.419,
+    "concurrency": 1,
+    "nodeHeapMiB": 384,
+    "inputsUnchanged": true
+  },
+  "frozenInputs": 212,
+  "builds": {
+    "nativeTypeScript": "passed",
+    "browserTypeScriptVite": "passed; existing bundle-size advisory"
+  },
+  "coverage": [
+    "An obsolete idle equipment collision cannot hold an already clear pedestrian indefinitely.",
+    "A later real paving task can use the released builder and completes with conserved material.",
+    "Active vehicle movement still asks pedestrians to yield physically and checks every swept pose.",
+    "Electrical work completion releases an old blocker and bystander; real cable and soil progress is retained."
+  ],
+  "nativeChecks": [
+    {
+      "name": "v0271-clearance-bridge",
+      "elapsed_seconds": 7.65,
+      "peak_resident_bytes": 389480448,
+      "returncode": 0,
+      "stopped_reason": null,
+      "countedAssertions": 19
+    },
+    {
+      "name": "v0271-packaged-general",
+      "elapsed_seconds": 17.87,
+      "peak_resident_bytes": 447840256,
+      "returncode": 0,
+      "stopped_reason": null,
+      "countedAssertions": 30
+    }
+  ],
+  "nativeCountedAssertions": 49,
+  "privateReplay": {
+    "version": "0.27.1",
+    "passed": true,
+    "packagedRuntime": true,
+    "isolatedPrivateReplay": true,
+    "actorsMoved": false,
+    "workerReleased": true,
+    "inspectorClear": true,
+    "intentAvailable": true,
+    "savePaused": true,
+    "simulatedSeconds": 0.15
+  },
+  "privateData": {
+    "originalPausedYardBackedUp": true,
+    "originalGameExportedWithPermission": true,
+    "isolatedReplay": true,
+    "privateExportsExcludedFromRelease": true,
+    "previousAppRetained": true
+  },
+  "scopeLimits": [
+    "Clears obsolete idle intent; physical obstacles and active loads still require safe paths.",
+    "Focused regressions and native checks, not an arbitrary-layout or multi-hour factory guarantee.",
+    "Apple Silicon macOS14+ ad-hoc-signed local app; browser deployment remains v0.18.0."
+  ],
+  "packaging": {
+    "repositorySourceAndAssetHashesMatch": 93,
+    "installedFilesMatch": 161,
+    "signatureVerified": true,
+    "installedAlongsidePreviousApp": true
+  },
+  "liveUpdate": {
+    "patchedLiveGameVerified": true,
+    "paused": true,
+    "simulatedSecondsAdvanced": 9.45,
+    "equipmentBlockerCleared": true,
+    "workerReservationCleared": true,
+    "actorPosesPreserved": true,
+    "materialsJobsElectricalAndCostsPreserved": true
+  },
+  "archive": {
+    "filename": "Plant-01-macOS-arm64-v0.27.1.zip",
+    "bytes": 152152642,
+    "sha256": "b19815edff38a0a25363740c537d23b3662ac91fa4602bc9d6d1c14b53fcf436",
+    "privateDataExcluded": true
+  }
+}

@@ -114,6 +114,7 @@ import {
   boxRect,
   people,
   personTouchesBox,
+  clearIdleEquipmentBlockage,
 } from './traffic';
 import { validateState } from './validate';
 import { tickRailOperations } from './rail-operations';
@@ -2478,6 +2479,7 @@ function finishRelease(s: State, j: Job) {
     e.job = undefined;
     e.path = [];
     e.work = 0;
+    clearIdleEquipmentBlockage(s, e);
   }
   j.worker = undefined;
   j.operator = undefined;
@@ -3616,6 +3618,7 @@ export function tick(s: State, dt: number) {
       w.status = w.duty === 'rest' ? 'Resting' : 'Available';
   }
   for (const e of s.equipment) {
+    clearIdleEquipmentBlockage(s, e);
     if (e.fuel < 10 && !e.lowFuelWarned) {
       e.lowFuelWarned = true;
       notice(

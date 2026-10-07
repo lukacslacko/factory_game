@@ -24,6 +24,7 @@ import {
   people,
   personTouchesBox,
   boxOverlap,
+  clearIdleEquipmentBlockage,
 } from './traffic';
 import { jobEquipmentAssignment, equipmentReservedForJob } from './jobs';
 import { equipmentAllows } from './equipment-roles';
@@ -215,6 +216,7 @@ function releaseCrew(s: State, r: ElectricalRun, j: Job) {
     e.path = [];
     e.work = 0;
     e.trafficGoal = undefined;
+    clearIdleEquipmentBlockage(s, e);
   }
   j.worker = j.operator = j.equipment = undefined;
   clearActionClearance(s, j.id);
@@ -579,6 +581,7 @@ function align(
     blocked(s, r, j, api, `${reachBlocker} blocks the excavation reach`);
     return false;
   }
+  e.blockedBy = undefined;
   e.reach = next;
   r.toolPoint = p;
   return Math.abs(angleDelta(e.yaw || 0, yaw)) < 0.025 && Math.abs(next - dist(e, p)) < 0.03;

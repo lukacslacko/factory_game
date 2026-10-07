@@ -552,3 +552,40 @@ test('manual excavator assignment takes over after the current safe excavation p
   until(s, () => r.status === 'commissioned', 24000);
   assert.equal(r.equipmentId, replacement.id);
 });
+
+test('finishing electrical work clears an old tool blocker and releases a bystander for later construction', () => {
+  const { s, e, request } = fixture();
+  const result = S.planElectrical(s, request);
+  assert.equal(result.error, undefined);
+  const run = s.electrical!.runs[0],
+    job = s.jobs.find((j) => j.id === result.jobId)!;
+  for (let n = 0; n < 20000 && run.phase !== 'test'; n++) safeTick(s);
+  assert.equal(run.phase, 'test');
+  const worker = {
+    ...s.workers[1],
+    id: S.id(s, 'worker'),
+    name: 'Worker #3',
+    role: 'builder' as const,
+    wage: 28,
+    x: e.x + 5,
+    z: e.z + 5,
+    path: [],
+    job: undefined,
+    yieldingTo: e.id,
+    status: 'Available',
+  };
+  s.workers.push(worker);
+  e.blockedBy = worker.id;
+  for (let n = 0; n < 100 && job.status !== 'done'; n++) safeTick(s);
+  assert.equal(job.status, 'done');
+  assert.equal(e.blockedBy, undefined, 'The completed action cannot retain its historical blocker');
+  safeTick(s);
+  assert.equal(
+    worker.yieldingTo,
+    undefined,
+    'An unrelated bystander is not reserved after completion',
+  );
+  assert.equal(e.job, undefined);
+  assert.equal(e.cargo, undefined);
+  assert.equal(wireTotal(s), 50);
+});

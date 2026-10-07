@@ -119,3 +119,8 @@ Electrical runs now excavate their entire route before cable pulling, terminate 
 The native circuit planner supports both searchable names/IDs/types and direct map picking, plus Locate selected and asset renaming. Source/destination choices survive switching between these methods. See [electrical operations](electrical-operations.md). The browser remains v0.18.0.
 
 Install **Plant 01 v0.27.0.app** beside the existing application. Do not launch two instances against the same save directory. Save and quit the old instance before continuing in the new one; this update leaves the currently running game and its saves untouched.
+
+
+## Native v0.27.1 — release finished-work clearance
+
+Idle saved equipment no longer holds a worker through an obsolete movement-blocker flag after its assignment is complete. Empty equipment with no remaining physical intent releases the old report on the next simulation tick; electrical completion and successful tool alignment also clean up stale reports. Active routes, loads, fuel service, parking and clearance maneuvers remain protected. This patch is verified against the creator's privately exported paused yard and a later real construction job, with 743 simulation/host regressions and 49 native integration assertions.

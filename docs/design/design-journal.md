@@ -835,3 +835,12 @@ The creator requests three follow-ups to the first electrical release. Excavatio
 For selection, the creator is torn between names/IDs for large factories and clicking objects for small factories. Support both equally: searchable labels and stable IDs, and explicit source/destination map picking. Locate controls preserve the other endpoint and let the player return to the plan. Electrical assets can be renamed without changing their wiring or database identity. Existing named rail locations remain the railway's naming system.
 
 Keep the first system low-power, sharing the incoming station's 16 kW limit. Junction kits, paving, cable reels, excavation, soil, crew, and machine use stay physical and finite. Whole-run cancellation restores every open cell; recovery still isolates actual terminals and returns measured cable to real reels. The longer open trench requires consistent spoil placement and walking/machine approaches. Preserve the user's running game; test with public synthetic fixtures and install this update alongside the prior app.
+
+
+## October 8, 2026 — finished work must release obsolete clearance reservations
+
+The creator reports EQ-0015 blocked by WRK-0030 in the running game, with the worker apparently unable to clear it. The paused original yard shows a completed electrical circuit, an empty idle excavator with no route or assignment, and a worker who already walked clear. A historical movement-blocker flag still reserves the worker; the equipment waits for that worker, while the worker waits for the flag to disappear. This can silently prevent later construction from finding a crew member.
+
+Clear the obsolete report when physical intent ends, including electrical crew release and ordinary equipment work completion. On each simulation tick, repair the same idle state loaded from an older save. Successful electrical tool alignment clears an earlier collision report. Preserve active routes, deliveries, supported loads, fuel service, parking and clearance maneuvers; real travel still asks pedestrians to move along checked routes. Regressions reproduce the original reservation and a later paving job that could not acquire its builder, and verify safe active pedestrian yielding.
+
+Inspect and export the actual running yard privately, verify recovery with the exact packaged runtime in an isolated directory, preserve a backup, and reopen the patched native app with the original yard paused. Private exports and diagnostic entries stay outside the repository and release.

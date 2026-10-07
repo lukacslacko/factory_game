@@ -20,6 +20,12 @@ A loaded slab handler that cannot make its final turn can try a different checke
 
 The simulation preserves active physical work, suspended loads, delivered cargo, off-duty workers and direct player control. A machine without an operator cannot drive itself away. These cases wait safely and explain what needs attention. Fuel workers displaced while carrying a can return to the actual filler before pouring; they cannot transfer fuel remotely.
 
+## When the equipment has finished
+
+Native v0.27.1 releases an old movement blocker once an empty machine has no remaining work, travel, load, delivery, fuel service, clearance maneuver or unfinished parking approach. A worker who already stepped aside becomes available again. An obsolete movement warning resolves too. Saved idle states from earlier releases repair themselves on the next simulation tick after resuming.
+
+An idle machine can still physically occupy useful ground. Any new action checks its actual footprint and can request clearance as usual. Active movement, turning, handling and carried loads keep their checks and reservations.
+
 ## Finding and resolving warnings
 
 After 20 continuous simulated seconds, an unresolved action creates one persistent **Action blocked** warning. Retries and changing blockers update the same notice. The record survives save/reload and resolves when clearance succeeds or the work ends. Legacy delivery handling warnings also resolve after recovery.

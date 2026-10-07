@@ -2,6 +2,8 @@
 
 The existing factory simulation now runs in a local Node.js service, with Godot rendering the approved Concept C yard and providing native controls. The service owns simulation time and file persistence, so gameplay can continue while the window is unfocused. No web page, Chrome process, web server, or Internet connection is needed to play.
 
+Native v0.27.1 fixes obsolete equipment blockers holding idle workers after work has finished. Existing idle saved states recover on the next simulation tick; active movement and load clearance remain checked.
+
 Native v0.27.0 adds whole-run trench construction, realistic bucket clearance, buildable junction cabinets, searchable asset names/IDs, and map picking on top of physical underground circuits: a 16 kW incoming station, delivered cable reels, real trench and spoil work, backfill and paving restoration, terminations, tests, and powered lights and tanker pumps. Open **Electrical**, or read the [electrical walkthrough](../docs/electrical-operations.md).
 
 Native v0.25.0 added physical equipment refueling with a visible service can, paid collection of unwanted stock and retired equipment, spatial sounds with local controls, and continuous sunlight and full-moon nights. The [fuel, collection, sound, and daylight guide](../docs/site-services.md) explains the new controls, required crew and access, cancellation, and charges.
@@ -10,9 +12,9 @@ It retains walking-distance worker selection, safe action clearance, linked pers
 
 ## Download or open on this Mac
 
-[Download the Apple Silicon Mac app](https://github.com/lukacslacko/factory_game/releases/tag/v0.27.0), unzip it, and open **Plant 01.app**. This checkpoint targets macOS 14 or newer.
+[Download the Apple Silicon Mac app](https://github.com/lukacslacko/factory_game/releases/tag/v0.27.1), unzip it, and open **Plant 01.app**. This checkpoint targets macOS 14 or newer.
 
-On the creator’s Mac, the new build is **Plant 01 v0.27.0.app** beside the repository in `outputs/`. Save and quit the older game before opening it; the previous app is retained. Downloaded releases use the usual **Plant 01.app** name. It includes the Godot runner, Node runtime, simulation, terrain maps, and license notices. It is a local app for this Mac, not a notarized public release.
+On the creator’s Mac, the new build is **Plant 01 v0.27.1.app** beside the repository in `outputs/`. Save and quit the older game before opening it; the previous app is retained. Downloaded releases use the usual **Plant 01.app** name. It includes the Godot runner, Node runtime, simulation, terrain maps, and license notices. It is a local app for this Mac, not a notarized public release.
 
 For development, double-click **Open Plant 01.command** in the repository root. It uses Godot in `/Applications` and the installed Node runtime, building the simulation bundle when needed. Or run `npm run native:build` and open `native/project.godot` in Godot.
 

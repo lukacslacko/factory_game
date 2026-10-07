@@ -23,6 +23,25 @@ export interface TrafficBox extends Point {
   width: number;
   id?: string;
 }
+/** A collision report describes an attempted action, not a permanent exclusion
+ * zone around an idle machine. Keep live routes, work and supported loads
+ * protected, but release an obsolete report once its physical intent ends. */
+export function clearIdleEquipmentBlockage(s: State, e: Equipment) {
+  if (!e.blockedBy && !e.trafficWait && e.trafficBlockedSince === undefined && !e.trafficBlockedNotice)
+    return;
+  if (
+    e.path.length || e.trafficGoal || e.work || e.job || e.deliveryOrder ||
+    e.transportOrder || e.refueling || e.cargo || e.assemblyLoad ||
+    e.trafficYieldWorker || e.trafficYieldEquipment || e.actionYieldFor ||
+    (e.parking && e.parkingState !== 'parked')
+  ) return;
+  e.blockedBy = undefined;
+  e.trafficWait = 0;
+  e.trafficBlockedSince = undefined;
+  e.trafficBlockedNotice = undefined;
+  for (const n of s.notices)
+    if (n.entity === e.id && n.title === 'Equipment movement blocked') n.state = 'done';
+}
 interface BoxGeometry {
   yaw: number;
   length: number;
