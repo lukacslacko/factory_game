@@ -68,6 +68,7 @@ import {
   localPoint,
   deckPose,
   turn,
+  angleDelta,
   smoothstep,
 } from './motion';
 
@@ -359,7 +360,7 @@ function materialMachine(s: State, o: Order, preferred?: string, manual = false)
             (b.e.kind === 'forklift' ? 0 : 5)),
     )[0];
 }
-function storageDock(
+function* storageDockCandidates(
   s: State,
   from: Point,
   r: Rect,
@@ -388,9 +389,18 @@ function storageDock(
     if (clearance.some((area) => overlap(area, maneuver))) continue;
     if (equipmentMoveBlocked(s, { ...e, reach }, { ...p, yaw })) continue;
     const path = route(from, p, obs, 1.1);
-    if (path) return { p, yaw, path, reach };
+    if (path) yield { p, yaw, path, reach };
   }
-  return null;
+}
+function storageDock(
+  s: State,
+  from: Point,
+  r: Rect,
+  e: Equipment,
+  api: DeliveryAPI,
+  clearance = constructionStorageClearance(s),
+) {
+  return storageDockCandidates(s, from, r, e, api, clearance).next().value || null;
 }
 const isRailStock = (item: string) => item === 'rail' || item.startsWith('rail');
 
@@ -741,18 +751,41 @@ function loadedStorageRoute(
   e: Equipment,
   drop: Point,
   api: DeliveryAPI,
-  finalYaw?: number,
+  finalYaw: number,
 ) {
   const obstacles = api.obstacles(s);
-  // Keep the established conservative path when it exists. A long load may
-  // falsely exclude its own dock under circular inflation; only then search
-  // the actual machine poses, including a checked reverse approach.
-  const clearance = e.cargo ? Math.max(1.1, MATERIALS[e.cargo.item].w / 2) : 1.1;
-  const conservative = finalYaw === undefined ? route(e, drop, obstacles, clearance) : null;
-  if (conservative) return { path: conservative, reverse: false };
+  // Arrival must leave room for the complete final turn. A centerline-only
+  // route can reach a dock yet trap the loaded machine facing the wrong way.
   for (const reverse of [false, true]) {
     const path = machineRoute(s, { ...e, reverse }, drop, obstacles, 250, true, finalYaw);
     if (path) return { path, reverse };
+  }
+  // A stopped, angled chassis may need a short reverse withdrawal before a
+  // forward approach is possible. Verify both legs, but commit only the actual
+  // retreat; the retained task replans its aligned final leg once it is clear.
+  const retreat = machineRetreatRoute(s, e, drop, obstacles, true, finalYaw);
+  return retreat ? { path: retreat, reverse: true } : null;
+}
+function loadedStorageApproach(s: State, e: Equipment, t: UnloadTask, api: DeliveryAPI) {
+  const receiving = s.stacks.find((stack) => stack.id === t.mergeId);
+  const shapedRail = e.cargo?.item.startsWith('rail') && e.cargo.item !== 'rail';
+  const matchingBearing = (yaw: number) =>
+    !receiving || !shapedRail ||
+    Math.abs(angleDelta(receiving.yaw || 0, yaw + Math.PI / 2)) < 0.01;
+  const current = matchingBearing(t.dropYaw)
+    ? loadedStorageRoute(s, e, t.drop, api, t.dropYaw)
+    : null;
+  if (current) return current;
+  // A late obstacle can invalidate the selected face while another face of
+  // the same reserved footprint remains usable. Do not commit a new dock
+  // until its loaded travel and complete final turn both fit.
+  for (const dock of storageDockCandidates(s, e, t.destination, e, api)) {
+    if (dist(dock.p, t.drop) < 0.1 || !matchingBearing(dock.yaw)) continue;
+    const alternate = loadedStorageRoute(s, e, dock.p, api, dock.yaw);
+    if (!alternate) continue;
+    t.drop = dock.p;
+    t.dropYaw = dock.yaw;
+    return alternate;
   }
   return null;
 }
@@ -787,11 +820,15 @@ function retryAlignedApproach(
   target: Point,
   yaw: number,
   api: DeliveryAPI,
+  storage?: UnloadTask,
 ) {
   if (s.elapsed < (e.trafficRetry || 0)) return;
   e.trafficRetry = s.elapsed + 1.5;
-  const planned = loadedStorageRoute(s, e, target, api, yaw);
+  const planned = storage
+    ? loadedStorageApproach(s, e, storage, api)
+    : loadedStorageRoute(s, e, target, api, yaw);
   if (!planned?.path.length) return;
+  clearActionClearance(s, o.id);
   resumeLoadedRoute(e, planned);
   o.note = `Reapproaching the handling dock with ${e.id} to align before placement`;
 }
@@ -978,16 +1015,37 @@ function unloadTick(s: State, o: Order, dt: number, api: DeliveryAPI) {
       o.note = 'Backing clear of the carrier';
       return;
     }
+    // The carrier pickup can require a longer reach than the storage dock.
+    // Retract the real supported load before asking whether its arrival turn
+    // fits; otherwise planning can wait forever for the carry phase that would
+    // have performed this retraction. Check every physical carriage movement.
+    const travelReach = e.kind === 'forklift'
+      ? FORK_LOAD_CENTER
+      : dist(t.drop, center(t.destination));
+    if ((e.reach || 3) > travelReach + 0.001) {
+      const nextReach = Math.max(travelReach, (e.reach || 3) - dt * 0.8);
+      const blocker = equipmentReachBlocked(s, e, nextReach);
+      if (blocker) {
+        e.blockedBy = blocker;
+        o.note = `Waiting for ${blocker} to clear the reach carriage`;
+        return;
+      }
+      e.reach = nextReach;
+      cargoFollow(t, e, t.sourceY + 0.42);
+      o.note = 'Retracting the supported load before the storage trip';
+      if (nextReach > travelReach + 0.001) return;
+    }
     if (s.elapsed < (e.trafficRetry || 0)) return;
     e.reverse = false;
     // A long panel is carried across the machine's heading. Inflating every
     // obstacle by half its width wrongly blocks the valid top-up dock beside
     // its own partial stack. Replay the actual chassis, tools, and load instead.
-    const planned = loadedStorageRoute(s, e, t.drop, api);
+    const planned = loadedStorageApproach(s, e, t, api);
     if (!planned) {
       loadedRouteBlocked(s, o, e, t);
       return;
     }
+    clearActionClearance(s, o.id);
     resumeLoadedRoute(e, planned);
     o.note = `${w.name} hauling to storage`;
     set('carry');
@@ -1017,19 +1075,9 @@ function unloadTick(s: State, o: Order, dt: number, api: DeliveryAPI) {
       // return route may have failed while another actor occupied the dock.
       // Retry the real loaded trip instead of turning and lowering remotely.
       if (s.elapsed < (e.trafficRetry || 0)) return;
-      let planned = loadedStorageRoute(s, e, t.drop, api);
-      if (!planned) {
-        const dock = storageDock(s, e, t.destination, e, api);
-        if (dock && dist(dock.p, t.drop) > 0.1) {
-          const alternate = loadedStorageRoute(s, e, dock.p, api);
-          if (alternate) {
-            t.drop = dock.p;
-            t.dropYaw = dock.yaw;
-            planned = alternate;
-          }
-        }
-      }
+      const planned = loadedStorageApproach(s, e, t, api);
       if (planned) {
+        clearActionClearance(s, o.id);
         resumeLoadedRoute(e, planned);
         o.note = `${w.name} resuming the loaded trip to storage`;
       } else loadedRouteBlocked(s, o, e, t);
@@ -1041,18 +1089,20 @@ function unloadTick(s: State, o: Order, dt: number, api: DeliveryAPI) {
     if (
       !e.trafficGoal &&
       (e.trafficWait || 0) > 2 &&
+      s.elapsed >= (o.retryAt || 0) &&
       equipmentMoveBlocked(
         s,
         { ...e, reach: dist(t.drop, center(t.destination)) },
         { ...t.drop, yaw: t.dropYaw },
       )
     ) {
-      const dock = storageDock(s, e, t.destination, e, api);
-      if (dock && dist(dock.p, t.drop) > 0.1) {
-        t.drop = dock.p;
-        t.dropYaw = dock.yaw;
-        e.path = dock.path;
-        e.trafficWait = 0;
+      // Movement has its own retry clock; do not let it starve this check,
+      // or run complete approach searches on every blocked simulation tick.
+      o.retryAt = s.elapsed + 1.5;
+      const planned = loadedStorageApproach(s, e, t, api);
+      if (planned) {
+        clearActionClearance(s, o.id);
+        resumeLoadedRoute(e, planned);
       }
     }
     if (e.path.length) return;
@@ -1063,7 +1113,7 @@ function unloadTick(s: State, o: Order, dt: number, api: DeliveryAPI) {
       e.blockedBy = blocker;
       o.note = blockedTurnMessage(s, blocker);
       requestActionClearance(s,{ownerId:o.id,requesterEquipmentId:e.id,blockerId:blocker,action:"Align delivery setdown",envelopes:[...equipmentBoxes(e),...equipmentBoxes(e,candidate)]});
-      retryAlignedApproach(s, o, e, t.drop, t.dropYaw, api);
+      retryAlignedApproach(s, o, e, t.drop, t.dropYaw, api, t);
       return;
     }
     e.yaw = candidate.yaw;

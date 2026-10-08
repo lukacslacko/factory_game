@@ -711,6 +711,7 @@ export function machineRoute(
   searchLimit = 250,
   allowWorkerYield = false,
   finalYaw?: number,
+  preferStraight = false,
 ): Point[] | null {
   const loadStatic = storageLoadStaticContext(s, e, staticObstacles);
   if(loadStatic) e = {...e,cargo:{...e.cargo!,storageMove:true}};
@@ -819,6 +820,13 @@ export function machineRoute(
     return p.path.length ? null : p;
   };
   if (dist(e, goal) < 0.01 && canAlign(e)) return [];
+  // A withdrawal probe specifically asks whether the current track/wheel
+  // axis can clear a tight pocket. Try that exact swept segment before a
+  // normal low-turn grid route, which may contain two unnecessary bends.
+  if (preferStraight) {
+    const end = advance(e, goal);
+    if (end && canAlign(end)) return [{ ...goal }];
+  }
   const surfaceCost = (p: Point, yaw: number) => {
     const strip = e.kind === 'excavator' ? 0.94 : 0.68;
     return (
@@ -1076,6 +1084,8 @@ export function machineRetreatRoute(
       staticObstacles,
       40,
       allowWorkerYield,
+      undefined,
+      true,
     );
     if (retreat?.length !== 1) continue;
     const withdrawn = { ...e, ...point, yaw, reverse: false, path: [] };

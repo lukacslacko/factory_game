@@ -2,6 +2,8 @@
 
 The existing factory simulation now runs in a local Node.js service, with Godot rendering the approved Concept C yard and providing native controls. The service owns simulation time and file persistence, so gameplay can continue while the window is unfocused. No web page, Chrome process, web server, or Internet connection is needed to play.
 
+Native v0.28.1 physically retracts the supported load after clearing its carrier and checks the final turning angle on delivery storage routes. A machine caught at an angled dock can reverse a short verified distance, then approach forward with its original load. If that face is blocked, it checks the opposite face of the same reserved stack. It never moves stored material merely to make an avoidable turn, and enclosed approaches retain their linked warning until access is cleared.
+
 Native v0.28.0 adds **Move to storage…** to physical stock inspectors. Choose all or some units, keep the automatic destination or search stockyards by name/ID, then **Create move work**. Its parent order lets you assign one machine to every lift; automatic machines use **Recovery / relocation**. An owned fueled machine, operator, and ground worker carry the real stock, retaining partial cable/fuel contents and finite storage limits. Existing stock is handled physically in Creative too. Read the [storage move walkthrough](../docs/storage-moves.md) for progress, blocked work, and safe cancellation.
 
 Native v0.27.1 fixes obsolete equipment blockers holding idle workers after work has finished. Existing idle saved states recover on the next simulation tick; active movement and load clearance remain checked.
@@ -14,9 +16,9 @@ It retains walking-distance worker selection, safe action clearance, linked pers
 
 ## Download or open on this Mac
 
-[Download the Apple Silicon Mac app](https://github.com/lukacslacko/factory_game/releases/tag/v0.28.0), unzip it, and open **Plant 01.app**. This checkpoint targets macOS 14 or newer.
+[Download the Apple Silicon Mac app](https://github.com/lukacslacko/factory_game/releases/tag/v0.28.1), unzip it, and open **Plant 01.app**. This checkpoint targets macOS 14 or newer.
 
-On the creator’s Mac, the new build is **Plant 01 v0.28.0.app** beside the repository in `outputs/`. Save and quit the older game before opening it; the previous app is retained. Downloaded releases use the usual **Plant 01.app** name. It includes the Godot runner, Node runtime, simulation, terrain maps, and license notices. It is a local app for this Mac, not a notarized public release.
+On the creator’s Mac, the new build is **Plant 01 v0.28.1.app** beside the repository in `outputs/`. Save and quit the older game before opening it; the previous app is retained. Downloaded releases use the usual **Plant 01.app** name. It includes the Godot runner, Node runtime, simulation, terrain maps, and license notices. It is a local app for this Mac, not a notarized public release.
 
 For development, double-click **Open Plant 01.command** in the repository root. It uses Godot in `/Applications` and the installed Node runtime, building the simulation bundle when needed. Or run `npm run native:build` and open `native/project.godot` in Godot.
 

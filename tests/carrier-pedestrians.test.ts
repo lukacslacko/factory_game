@@ -150,7 +150,15 @@ test('a worker carrying a real refueling can pauses their task, clears a truck, 
   // carried can now returns to the filler, rather than pouring remotely while
   // standing idle in the lane for six seconds.
   const carrier=s.orders.find(o=>o.id===id)!;
-  carrier.drive!.distance+=6;
+  // Delivery retraction changes departure timing and the truck's position on
+  // its exit curve. Set up the same imminent, non-overlapping encounter using
+  // the real body instead of assuming a fixed six-meter advance fits all poses.
+  const start = carrier.drive!.distance;
+  for (let at = start + 0.1; at < Math.min(start + 12, roadExitLength(carrier)); at += 0.1) {
+    if (carrierBoxes(carrier, sampleRoad(carrier, at)).some((b) => personTouchesBox(w, b, 0.65))) break;
+    carrier.drive!.distance = at;
+  }
+  carrier.drive!.gearPause = 0;
   const nearby=sampleRoad(carrier,carrier.drive!.distance);
   carrier.vehicle={x:nearby.x,z:nearby.z};carrier.drive!.yaw=nearby.yaw;
   checkSafety(s,wid);

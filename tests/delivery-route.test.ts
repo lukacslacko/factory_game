@@ -166,8 +166,10 @@ test('a genuinely blocked loaded storage dock retains cargo and reports its stac
   const o = s.orders.find((o) => o.id === id)!;
   const e = s.equipment.find((e) => e.id === eid)!;
   const t = o.unload!;
-  // Opening obstacle fixture: a full container occupies the reserved machine dock.
+  // Both handling faces are enclosed. A single obstructed face can now be
+  // recovered by a checked approach to the opposite side of the same stack.
   const blocker = S.id(s, 'building');
+  const otherBlocker = S.id(s, 'building');
   s.buildings.push({
     id: blocker,
     kind: 'office',
@@ -179,6 +181,11 @@ test('a genuinely blocked loaded storage dock retains cargo and reports its stac
     connected: false,
     name: 'Blocked dock fixture',
     source: 'opening',
+  });
+  s.buildings.push({
+    ...s.buildings[s.buildings.length - 1],
+    id: otherBlocker,
+    z: 2 * center(t.destination).z - t.drop.z - 1.5,
   });
   const cargo = { ...e.cargo! };
   const pose = { ...t.cargo! };
@@ -199,7 +206,7 @@ test('a genuinely blocked loaded storage dock retains cargo and reports its stac
   assert.equal(e.trafficRetry, retry, 'A blocked route is not searched again during cooldown');
   assert.equal(o.note, note, 'Cooldown keeps the actual obstruction visible');
   assert.deepEqual(t.cargo, pose, 'Waiting does not relocate a supported panel');
-  s.buildings = s.buildings.filter((b) => b.id !== blocker);
+  s.buildings = s.buildings.filter((b) => b.id !== blocker && b.id !== otherBlocker);
   tickUntil(s, () => t.phase === 'carry', 5);
   assert.ok(e.path.length > 0);
   assert.match(o.note, /hauling to storage/);

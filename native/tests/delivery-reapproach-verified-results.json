@@ -1,0 +1,90 @@
+{
+  "version": "0.28.1",
+  "build": 223,
+  "date": "2026-10-08",
+  "builds": {
+    "nativeTypeScript": "passed",
+    "browserTypeScriptVite": "passed; existing bundle-size advisory"
+  },
+  "focusedTests": {
+    "newRegressionTests": 8,
+    "newTestDurationMs": 2696.100417,
+    "carrierPedestrianTests": 3,
+    "fail": 0
+  },
+  "coverage": [
+    "A withdrawn pickup physically retracts its supported load with checked incremental carriage movement before planning from its real travel pose.",
+    "Final loaded approach checks the actual chassis, tools, cargo and complete dock turn.",
+    "Short swept reverse withdrawal is preflighted with its forward continuation and executed physically before reapproaching.",
+    "Late blocked faces can select a checked alternate face of the same reserved footprint.",
+    "Curved and turnout top-ups preserve the existing stack bearing, profile and finite capacity.",
+    "Atomic save/reload preserves a carried three-panel load, retreat path and reverse gear.",
+    "Independent bounded retry intervals prevent repeated path searches and movement-clock starvation.",
+    "Completely blocked storage retains real cargo and reports the obstruction until access returns."
+  ],
+  "nativeChecks": [
+    {
+      "name": "v0281-packaged-general-final",
+      "elapsed_seconds": 14.79,
+      "peak_resident_bytes": 560824320,
+      "returncode": 0,
+      "stopped_reason": null,
+      "countedAssertions": 30,
+      "backgroundSeconds": 2.2,
+      "snapshots": 43
+    }
+  ],
+  "privatePackagedReplay": {
+    "version": "0.28.1",
+    "passed": true,
+    "packagedRuntime": true,
+    "isolatedPrivateReplay": true,
+    "midRetreatAtomicReload": true,
+    "originalSevenPanelsStored": true,
+    "originalObstructingReelUnmovedAndContentsUnchanged": true,
+    "noNewPurchase": true,
+    "finalPaused": true,
+    "simulatedSeconds": 86.25
+  },
+  "packaging": {
+    "repositoryFiles": 95,
+    "installedFiles": 163,
+    "mismatches": [],
+    "signature": "verified",
+    "installedApp": "Plant 01 v0.28.1.app",
+    "archiveBytes": 152166889,
+    "archiveSHA256": "165388004a36da7bf13a6191d8bd04a6bba73d7552fd134d8c3565ac56214d17"
+  },
+  "frozenInputs": {
+    "files": 202,
+    "changedDuringFinalVerification": []
+  },
+  "scopeLimits": [
+    "Improves storage-delivery approach planning; it does not automatically relocate otherwise immovable stock.",
+    "Impossible layouts remain safely blocked and can use the existing Move to storage feature to relocate obstructing material.",
+    "Focused scenarios and regressions are not an arbitrary-layout or large-factory soak guarantee.",
+    "Apple Silicon macOS 14+ local app; browser Site remains v0.18.0."
+  ],
+  "liveUpdate": {
+    "updatedAppVersion": "0.28.1",
+    "originalYardPreserved": true,
+    "paused": true,
+    "speed": 1,
+    "simulatedSecondsAdvanced": 39.0,
+    "originalStuckThreePanelsStored": true,
+    "deliveryContinuedToNextBatch": true,
+    "originalObstructingReelUnchanged": true,
+    "noNewOrders": true,
+    "equipmentHasNoCurrentBlocker": true
+  },
+  "fullSuite": {
+    "tests": 796,
+    "pass": 796,
+    "fail": 0,
+    "duration_ms": 616263.478292,
+    "exitCode": 0,
+    "elapsedSeconds": 616.368,
+    "frozenInputs": 202,
+    "changedDuringRun": []
+  }
+}
