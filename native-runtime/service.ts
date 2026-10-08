@@ -28,6 +28,7 @@ import {
   EQUIPMENT,
   ROLES,
   SERVICES,
+  PURCHASE_GROUPS,
   bounds,
   TRACK_GAUGE,
 } from '../src/catalog';
@@ -283,6 +284,7 @@ function snapshot() {
     seq: ++seq,
     state: limited,
     catalog,
+    purchaseGroups: PURCHASE_GROUPS,
     render,
     storage: storage(),
     workRows: tables.work,
@@ -513,6 +515,7 @@ async function dispatch(action: string, a: any) {
       const loads = packPurchase(a.lines, a.mode);
       const railLoads = loads.filter((l) => l.mode === 'rail');
       return {
+        requestId: a.requestId,
         loads: loads.map((l) => ({
           ...l,
           mass: l.manifest.reduce((n, line) => n + (itemMass(line.item) || 0) * line.qty, 0),

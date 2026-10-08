@@ -11,7 +11,7 @@ test('creative paving and completed shed foundations require no stock, crew or c
   const result = S.plan(s, 'shed', 60, 30);
   assert.equal(result.error, '');
   assert.equal(result.job!.status, 'done');
-  assert.equal(s.buildings[0].kind, 'shed');
+  assert.equal(s.buildings.find((b) => b.kind === 'shed')!.kind, 'shed');
   assert.equal(Object.keys(s.paving).length, 54);
   assert.ok(
     s.jobs.every(
@@ -24,7 +24,7 @@ test('creative paving and completed shed foundations require no stock, crew or c
   assert.deepEqual(S.missingMaterials(s), {});
   s = S.load(S.save(s));
   assert.equal(s.creative, true);
-  assert.equal(s.buildings[0].kind, 'shed');
+  assert.equal(s.buildings.find((b) => b.kind === 'shed')!.kind, 'shed');
   const before = JSON.stringify([s.paving, s.buildings, s.rails]);
   S.tick(s, 1);
   assert.equal(JSON.stringify([s.paving, s.buildings, s.rails]), before);

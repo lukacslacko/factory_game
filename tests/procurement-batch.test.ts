@@ -135,7 +135,7 @@ test('batch preview packs freight by payload and physical deck length and crew b
       { item: 'builder', qty: 10 },
       { item: 'operator', qty: 8 },
       { item: 'forklift', qty: 2 },
-      { item: 'power', qty: 1 },
+      { item: 'water', qty: 1 },
     ],
     'rail',
   );
@@ -145,7 +145,7 @@ test('batch preview packs freight by payload and physical deck length and crew b
     [12, 6],
   );
   assert.equal(loads.filter((l) => l.manifest[0].item === 'forklift').length, 2);
-  assert.equal(loads.filter((l) => l.manifest[0].item === 'power').length, 1);
+  assert.equal(loads.filter((l) => l.manifest[0].item === 'water').length, 1);
 });
 
 test('batch request rejects every invalid line before allocating any order IDs', () => {

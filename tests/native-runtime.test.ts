@@ -7,7 +7,7 @@ import os from 'node:os';
 import { spawn, execFileSync } from 'node:child_process';
 import { once } from 'node:events';
 import * as Sim from '../src/sim';
-import { MATERIALS } from '../src/catalog';
+import { MATERIALS, PURCHASE_GROUPS } from '../src/catalog';
 import { seedHandlingResources } from './support/yard';
 import { renderState } from '../native-runtime/render';
 import { trackGeometry, trackSections } from '../src/track';
@@ -121,6 +121,42 @@ async function launch(dataDir?: string) {
     },
   };
 }
+
+test('native new-yard modes include one opening cabinet and share the grouped purchase catalog', async (t) => {
+  const host = await launch();
+  t.after(() => host.close());
+  const c = host.client;
+  const snapshot = await c.snapshot();
+  assert.deepEqual(snapshot.purchaseGroups, PURCHASE_GROUPS);
+  assert.equal(snapshot.catalog.services.power.purchasable, false);
+  assert.equal(snapshot.purchaseGroups[0].id, 'workers');
+  assert.equal(snapshot.purchaseGroups.flatMap((g: any) => g.items).includes('power'), false);
+  for (const mode of ['empty', 'starter', 'example']) {
+    await c.ok('new_game', { mode });
+    await c.ok('pause', { paused: true });
+    const state = JSON.parse((await c.ok('export')).json);
+    const stations = state.buildings.filter((b: any) => b.kind === 'power');
+    assert.equal(stations.length, 1, mode);
+    assert.equal(stations[0].id, 'BLD-0000');
+    assert.equal(stations[0].source, 'opening');
+    assert.equal(stations[0].connected, true);
+    assert.equal(state.utilities.power, true);
+    assert.ok(state.orders.every((o: any) => o.item !== 'power'));
+    assert.equal((await c.ok('tables', { table: 'electricalSources' })).length, 1);
+    const mixed = [{ item: 'slab', qty: 12 }, { item: 'power', qty: 1 }];
+    for (const [action, args] of [
+      ['purchase_preview', { lines: mixed, mode: 'road' }],
+      ['purchase_batch', { lines: mixed, mode: 'road' }],
+      ['purchase', { item: 'power', qty: 1, mode: 'road' }],
+    ] as const) {
+      assert.equal((await c.request(action, args)).ok, false);
+      assert.deepEqual(JSON.parse((await c.ok('export')).json), state, `${action} must reject atomically`);
+    }
+    await c.ok('save');
+    const saved = Sim.load(await fs.readFile(path.join(host.dir, 'yard.json'), 'utf8'));
+    assert.deepEqual(saved.buildings.find((b) => b.id === 'BLD-0000'), stations[0]);
+  }
+});
 
 test('native host authenticates, starts in menu, and persists on disconnect without browser focus', async (t) => {
   const host = await launch();
@@ -560,7 +596,7 @@ test('native creative toggle instantly places completed assets and persists with
   await host.client.ok('save');
   const stored = Sim.load(await fs.readFile(path.join(host.dir, 'yard.json'), 'utf8'));
   assert.equal(stored.creative, true);
-  assert.equal(stored.buildings.length, 1);
+  assert.equal(stored.buildings.filter((b) => b.kind === 'shed').length, 1);
   assert.equal(stored.rails.length, 1);
   assert.equal(stored.orders.length, 0);
   assert.equal(stored.costs.length, 0);
@@ -743,8 +779,8 @@ test('native railway program dispatch preserves manual steel recovery, qualifica
   for(let section=0;section<6;section++){const piece={layout:'curve' as const,origin:{x:125,z:5},heading:0 as const,hand:1 as const,section};const g=trackGeometry(piece);shed.rails.push({id:Sim.id(shed,'rail'),...g.rect,rotation:0,length:g.length,item:'railCurve',track:piece});}
   for(let z=25;z<60;z+=5){const piece=trackSections('straight',{x:145,z},1)[0];const g=trackGeometry(piece);shed.rails.push({id:Sim.id(shed,'rail'),...g.rect,rotation:1,length:g.length,item:'rail',track:piece});}
   await c.ok('import',{json:Sim.save(shed)});await c.ok('plan',{kind:'engineShed',x:142,z:33,rotation:0});
-  s=JSON.parse((await c.ok('export')).json);assert.equal(s.buildings[0].kind,'engineShed');assert.equal(s.rails.length,shed.rails.length);assert.equal(s.railLocations[0].id,s.buildings[0].parkingLocationId);
-  await c.ok('save');assert.equal(Sim.load(await fs.readFile(path.join(host.dir,'yard.json'),'utf8')).buildings[0].kind,'engineShed');
+  s=JSON.parse((await c.ok('export')).json);assert.equal(s.buildings.find((b:any)=>b.kind==='engineShed').kind,'engineShed');assert.equal(s.rails.length,shed.rails.length);assert.equal(s.railLocations[0].id,s.buildings.find((b:any)=>b.kind==='engineShed').parkingLocationId);
+  await c.ok('save');assert.equal(Sim.load(await fs.readFile(path.join(host.dir,'yard.json'),'utf8')).buildings.find(b=>b.kind==='engineShed')!.kind,'engineShed');
 });
 
 test('native fluid commands use actual assets, worker operations, conserved quantities, reports and atomic saves',async(t)=>{
@@ -786,9 +822,13 @@ test('native paid collection commands quote, revalidate, preserve history and ex
 test('native electrical commands plan explicit circuits, expose links and meters, and never energize by a global flag', async (t) => {
   const host=await launch();t.after(()=>host.close());const c=host.client;
   await c.ok('new_game',{mode:'empty'});await c.ok('pause',{paused:true});
-  const stationOrder=await c.ok('purchase',{item:'power',qty:1,mode:'road'});
-  assert.equal(stationOrder.orders.length,1);
+  const opening=JSON.parse((await c.ok('export')).json);
+  assert.equal(opening.buildings.filter((b:any)=>b.kind==='power').length,1);
+  assert.equal(opening.buildings[0].id,'BLD-0000');
+  assert.equal((await c.request('purchase',{item:'power',qty:1,mode:'road'})).ok,false);
+  assert.deepEqual(JSON.parse((await c.ok('export')).json),opening,'Rejected station purchase must not allocate IDs, orders or costs');
   const state=Sim.createState();state.paused=true;state.utilities.power=true;
+  state.buildings=state.buildings.filter(b=>b.id!=='BLD-0000');
   state.buildings.push(
     {id:Sim.id(state,'building'),kind:'power',x:30,z:30,w:1,d:1,rotation:0,connected:true,name:'Opening station',source:'opening'},
     {id:Sim.id(state,'building'),kind:'lamp',x:36,z:30,w:1,d:1,rotation:0,connected:false,name:'Light',source:'opening'});

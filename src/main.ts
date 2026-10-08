@@ -28,6 +28,7 @@ import {
   EQUIPMENT,
   ROLES,
   SERVICES,
+  PURCHASE_GROUPS,
   money,
   clock,
   day,
@@ -169,11 +170,24 @@ const catalogEntry = (item: string): any =>
 function itemMass(item: string) {
   return catalogEntry(item)?.mass || 0;
 }
+function renderCatalog() {
+  return `<div class="catalog-list" aria-label="Purchasing catalog"><div class="catalog-head"><span>Item / role</span><span>Unit cost</span><span>Unit mass</span><span>Qty</span><span>Line mass</span><span>Line cost</span><span>Order / batch</span></div>${PURCHASE_GROUPS.map(
+    (group) =>
+      `<section class="catalog-group" aria-labelledby="purchase-group-${group.id}"><h3 id="purchase-group-${group.id}">${esc(group.name)}</h3><div class="catalog">${group.items
+        .filter((key) => key !== 'power' && catalogEntry(key)?.purchasable !== false)
+        .map((key) => {
+          const entry = catalogEntry(key);
+          const qty = key === 'slab' ? 24 : key === 'rail' ? 4 : 1;
+          return `<div class="catalog-row" data-catalog-row="${key}"><div class="catalog-item"><b>${esc(entry.name)}</b><small title="${esc(entry.description)}">${entry.wage ? `${money(entry.wage)} / hour · ` : ''}${esc(entry.description)}</small></div><span class="price">${money(entry.price)}${entry.wage ? '<small>/ hire</small>' : ''}</span><span class="catalog-mass">${entry.mass ? massLabel(entry.mass) : key in ROLES ? 'Passenger' : 'Service'}</span><input type="number" id="qty-${key}" data-catalog-item="${key}" min="1" max="1000" value="${qty}" aria-label="Quantity of ${esc(entry.name)}"><span class="catalog-mass" id="mass-${key}">${entry.mass ? massLabel(entry.mass * qty) : '—'}</span><span class="price" id="cost-${key}">${money(entry.price * qty)}</span><div class="catalog-actions"><div>${btn(`purchase:${key}`, key in ROLES ? 'Hire' : 'Order', 'small')}${btn(`cart-add:${key}`, 'Add', 'small', 'aria-label="Add ' + esc(entry.name) + ' to batch"')}</div><small id="batch-${key}" class="catalog-batch"></small></div></div>`;
+        })
+        .join('')}</div></section>`,
+  ).join('')}</div>`;
+}
 function renderCart() {
   const el = document.querySelector<HTMLElement>('#purchase-cart');
   if (!el) return;
   const lines = [...purchaseCart].map(([item, qty]) => ({ item, qty }));
-  let summary = 'Add catalog rows to combine supplies on one delivery, or workers on one bus.';
+  let summary = 'Add catalog quantities to combine supplies on a delivery or workers on a bus.';
   let valid = lines.length > 0;
   try {
     if (lines.length) {
@@ -186,13 +200,29 @@ function renderCart() {
         lines.reduce((n, l) => n + catalogEntry(l.item).price * l.qty, 0) +
         loads.filter((l) => l.mode === 'road').length * 90 +
         (loads.some((l) => l.mode === 'rail') ? 240 : 0);
-      summary = `${weight ? massLabel(weight) + ' cargo · ' : ''}${[materials.length ? (purchaseTransport === 'rail' ? `1 train · ${materials.length} flatcar${materials.length === 1 ? '' : 's'}` : `${materials.length} truck load${materials.length === 1 ? '' : 's'}`) : '', buses.length ? `${buses.length} crew bus${buses.length === 1 ? '' : 'es'}` : '', dedicated ? `${dedicated} dedicated deliver${dedicated === 1 ? 'y' : 'ies'}` : ''].filter(Boolean).join(' · ')} · ${money(total)}`;
+      summary = `${weight ? massLabel(weight) + ' cargo · ' : ''}${[materials.length ? (purchaseTransport === 'rail' ? `1 train · ${materials.length} flatcar${materials.length === 1 ? '' : 's'}` : `${materials.length} truck load${materials.length === 1 ? '' : 's'}`) : '', buses.length ? `${buses.length} crew bus${buses.length === 1 ? '' : 'es'}` : '', dedicated ? `${dedicated} dedicated deliver${dedicated === 1 ? 'y' : 'ies'}` : ''].filter(Boolean).join(' · ')} · ${money(total)} including freight`;
     }
   } catch (error) {
     summary = (error as Error).message;
     valid = false;
   }
-  el.innerHTML = `<div class="cart-head"><b>Order batch</b><span id="batch-summary" aria-live="polite">${esc(summary)}</span></div>${lines.length ? `<div class="cart-lines">${lines.map((l) => `<div><span>${esc(label(l.item))}</span><b>${l.qty}</b><span>${itemMass(l.item) ? massLabel(itemMass(l.item) * l.qty) : l.item in ROLES ? 'Passengers' : 'Service'}</span>${btn('cart-remove:' + l.item, '×', 'small', 'aria-label="Remove ' + esc(label(l.item)) + ' from batch"')}</div>`).join('')}</div>` : ''}<div class="cart-footer"><small>12 t truck / 48 t flatcar · 12 seats per bus. Rail cars travel together in one train; the complete train must fit its receiving track.</small>${btn('cart-clear', 'Clear', 'small')}${btn('purchase-batch', 'Place batch order', 'primary', valid ? '' : 'disabled')}</div>`;
+  const focusedAction = el.contains(document.activeElement)
+    ? (document.activeElement as HTMLElement)?.dataset.action
+    : undefined;
+  el.innerHTML = `<div class="cart-head"><b>Order batch · ${lines.length} item line${lines.length === 1 ? '' : 's'}</b><span id="batch-summary" aria-live="polite">${esc(summary)}</span></div>${lines.length ? `<div class="cart-lines" aria-label="Batch contents">${lines.map((l) => `<div><span>${esc(label(l.item))}</span><b>× ${l.qty}</b><span>${itemMass(l.item) ? massLabel(itemMass(l.item) * l.qty) : l.item in ROLES ? 'Passengers' : 'Service'}</span><span>${money(catalogEntry(l.item).price * l.qty)}</span>${btn('cart-remove:' + l.item, '×', 'small', 'aria-label="Remove ' + esc(label(l.item)) + ' from batch"')}</div>`).join('')}</div>` : ''}<div class="cart-footer"><small>12 t truck / 48 t flatcar · 12 seats per bus. Rail cars travel together; the complete train must fit its receiving track.</small>${btn('cart-clear', 'Clear', 'small')}${btn('purchase-batch', 'Place batch order', 'primary', valid ? '' : 'disabled')}</div>`;
+  for (const row of document.querySelectorAll<HTMLElement>('[data-catalog-row]')) {
+    const key = row.dataset.catalogRow!;
+    const qty = purchaseCart.get(key) || 0;
+    row.classList.toggle('in-batch', qty > 0);
+    const badge = document.getElementById(`batch-${key}`);
+    if (badge) badge.textContent = qty ? `In batch: ${qty}` : '';
+  }
+  if (focusedAction) {
+    const replacement = [...el.querySelectorAll<HTMLElement>('[data-action]')].find(
+      (button) => button.dataset.action === focusedAction,
+    );
+    (replacement || el.querySelector<HTMLElement>('[data-action="cart-clear"]'))?.focus();
+  }
 }
 $('#app').innerHTML =
   `<header><button class="brand" data-action="menu"><span class="brand-mark">P<span>01</span></span><span>PLANT <b>01</b><small>STARTER YARD</small></span></button><nav id="tabs"></nav><div class="top-stats"><span id="time"></span><div class="time-controls">${btn('pause', 'Ⅱ', '', 'title="Pause / resume · Space"')} ${btn('speed:1', '1×', 'active')}${btn('speed:3', '3×')}${btn('speed:10', '10×')}</div>${btn('notices', 'Inbox <span id="notice-count">0</span>', 'inbox')}${btn('menu', '☰', 'menu-button', 'aria-label="Game menu"')}</div></header>
@@ -1204,7 +1234,7 @@ function renderInspector(force = false) {
           e.connected === false ? badge('Needs utility service', 'amber') : badge('Ready', 'green'),
         ],
       ]) +
-      `<div class="button-stack">${e.kind === 'sanitary' && !state.utilities.water ? btn('purchase:water', 'Order water connection', 'primary') : ''}${e.kind === 'lamp' && !state.utilities.power ? btn('purchase:power', 'Order electricity connection', 'primary') : ''}${e.kind in MATERIALS ? btn(`remove:${e.id}`, 'Dismantle and recover kit', 'danger') : ''}</div><p class="note">${e.kind === 'shed' ? 'Shelters equipment. Its open sides remain accessible.' : e.kind === 'office' ? 'A physical site office. Staffing and welfare policies arrive in a later version.' : e.kind === 'sanitary' ? 'Requires the site water and sewer service to operate.' : 'Stable asset ID retained in the site register.'}</p>`;
+      `<div class="button-stack">${e.kind === 'sanitary' && !state.utilities.water ? btn('purchase:water', 'Order water connection', 'primary') : ''}${e.kind === 'lamp' ? btn('incoming-power', 'Inspect incoming station', '') : ''}${e.kind in MATERIALS ? btn(`remove:${e.id}`, 'Dismantle and recover kit', 'danger') : ''}</div><p class="note">${e.kind === 'shed' ? 'Shelters equipment. Its open sides remain accessible.' : e.kind === 'office' ? 'A physical site office. Staffing and welfare policies arrive in a later version.' : e.kind === 'sanitary' ? 'Requires the site water and sewer service to operate.' : 'Stable asset ID retained in the site register.'}</p>`;
   }
   if (selection.type === 'order') {
     body =
@@ -1884,7 +1914,7 @@ function openModal(which: string) {
     content = `<h1>Start another yard</h1><p>Your current yard will be saved as a browser backup before the new yard is created.</p><div class="button-stack">${btn('new:starter', 'New yard + starter supplies', 'primary')}${btn('new:empty', 'Completely empty yard')}${btn('new:demo', 'Birch Junction example')}${btn('close-modal', 'Keep current yard')}</div>`;
   }
   if (which === 'help') {
-    content = `<span class="eyebrow">FIELD GUIDE</span><h1>Build a working starter yard</h1><div class="help-grid"><section><h3>Getting started</h3><p>Use <b>Purchase</b> to hire a builder and an operator, buy an excavator, and order slabs. The <b>starter order</b> includes a useful first set.</p><p>An empty yard has no storage assigned. Choose <b>Stockyard</b> and drag an area before deliveries arrive. Your operator drives purchased equipment down the lowloader ramps, then uses it to unload freight. Slabs stack up to 12 high in neighboring 1 m² cells. Keep the loading face and travel aisles accessible.</p><p><b>Drag with Pave</b> to lay out an area. Click Office, WC, Shed, or Stores to place a plan. Required foundations are added automatically. <b>Buy missing</b> orders supplies for your plans. <b>Recover</b> dismantles buildings, lifts player-built rail, or recovers a paving slab and hauls it back to storage.</p><p>Choose <b>Rail end</b>, then Straight, Curve, or Turnout in the Railway toolbar. Start at E125, S5 facing east. R chooses a cardinal direction; Left/Right changes the bend. A curve has six 15° panels at 20 m radius; a turnout has seven panels at four stations and two parallel exits 5 m apart. The toolbar shows quantities, weight and material cost. Use <b>Buy missing</b> after planning. Each straight panel extends 5 m. The crew stages the panel beside the track, releases and lifts the buffer aside, lays and fastens the panel, then reinstalls the same buffer. Leave clear space beside the extension for these lifts.</p><h3>Named rail locations</h3><p>Choose <b>Rail location</b> or <b>Railway → + Named location</b>, then click installed track. Name the location, choose loading, unloading, transfer or parking, and set its centered length. The marker and length guide follow real joined panels. Select its label or linked ID to edit, reposition or delete it. Supplier trains retain their original berth until the reception and shunting checkpoints are commissioned.</p><h3>Direct control</h3><p>Select a worker and click <b>Take direct control</b>. Click clear ground to walk. With an operator controlled, select equipment and click <b>Board</b>. Then click to drive. Select a waiting delivery and choose <b>Unload with controlled operator</b> to give that operator the handling assignment.</p><p>Select a queued construction plan and click <b>Work with controlled worker</b>. A builder and operator perform the same physical handling sequence used in automatic mode. <b>Return to automatic</b> releases control.</p></section><section><h3>Controls</h3>${details(
+    content = `<span class="eyebrow">FIELD GUIDE</span><h1>Build a working starter yard</h1><div class="help-grid"><section><h3>Getting started</h3><p>Use <b>Purchase</b> to hire a builder and an operator, buy an excavator, and order slabs. The <b>starter order</b> includes a useful first set.</p><p>Every new yard includes a connected 16 kW incoming electricity station. Each light or pump needs its own commissioned underground cable circuit in the native app. An empty yard has no storage assigned. Choose <b>Stockyard</b> and drag an area before deliveries arrive. Your operator drives purchased equipment down the lowloader ramps, then uses it to unload freight. Slabs stack up to 12 high in neighboring 1 m² cells. Keep the loading face and travel aisles accessible.</p><p><b>Drag with Pave</b> to lay out an area. Click Office, WC, Shed, or Stores to place a plan. Required foundations are added automatically. <b>Buy missing</b> orders supplies for your plans. <b>Recover</b> dismantles buildings, lifts player-built rail, or recovers a paving slab and hauls it back to storage.</p><p>Choose <b>Rail end</b>, then Straight, Curve, or Turnout in the Railway toolbar. Start at E125, S5 facing east. R chooses a cardinal direction; Left/Right changes the bend. A curve has six 15° panels at 20 m radius; a turnout has seven panels at four stations and two parallel exits 5 m apart. The toolbar shows quantities, weight and material cost. Use <b>Buy missing</b> after planning. Each straight panel extends 5 m. The crew stages the panel beside the track, releases and lifts the buffer aside, lays and fastens the panel, then reinstalls the same buffer. Leave clear space beside the extension for these lifts.</p><h3>Named rail locations</h3><p>Choose <b>Rail location</b> or <b>Railway → + Named location</b>, then click installed track. Name the location, choose loading, unloading, transfer or parking, and set its centered length. The marker and length guide follow real joined panels. Select its label or linked ID to edit, reposition or delete it. Supplier trains retain their original berth until the reception and shunting checkpoints are commissioned.</p><h3>Direct control</h3><p>Select a worker and click <b>Take direct control</b>. Click clear ground to walk. With an operator controlled, select equipment and click <b>Board</b>. Then click to drive. Select a waiting delivery and choose <b>Unload with controlled operator</b> to give that operator the handling assignment.</p><p>Select a queued construction plan and click <b>Work with controlled worker</b>. A builder and operator perform the same physical handling sequence used in automatic mode. <b>Return to automatic</b> releases control.</p></section><section><h3>Controls</h3>${details(
       [
         ['Pan', 'Left drag empty ground / W A S D relative to view'],
         ['Orbit', 'Right mouse drag'],
@@ -1902,22 +1932,7 @@ function openModal(which: string) {
     )}<h3>Rail stock access</h3><p>Rail crews try reachable matching piles and attach slings at safe exposed edges. Select a blocking outer stack and choose <b>Relocate one rail panel</b>, then click a clear position inside a stockyard. Assign an available machine in Work; its operator and rigger physically move the panel. Repeat for stacked panels until access is open. Reserved panels must first be released by canceling their waiting work. New storage placements preserve an exposed loading face.</p><h3>Physical constraints</h3><p>Leave <b>3 m clear aisles</b> for machines. Offices need the 6 t excavator; the forklift cannot lift them. Diesel drums contain 200 L and stay in place when empty. Request refueling from Equipment.</p><p>The <b>Work</b> register explains blocked assignments. Canceling rail work first places its load safely and secures the buffer. A rail panel already installed stays in place. Other loaded jobs deposit their kits at the site. Finished buildings can be dismantled and recovered.</p><h3>Vehicle work roles</h3><p>Open <b>Equipment</b> and change a machine’s <b>Automatic work</b> selector, or select it in the yard. For parallel receiving and paving, check only <b>Receiving deliveries</b> for the forklift and only <b>Paving</b> for the excavator, with an operator for each. The dropdown lets you check several job kinds together. Automatic dispatch keeps one machine on each work order or delivery across its individual tasks and lifts. Separate work orders can run in parallel. Changes finish the current job or unloading batch before switching. <b>All</b> restores shared assignments; <b>None</b> holds new work while leaving driving and refueling available.</p><h3>Work orders, parking, and shifts</h3><p><b>Work</b> starts with active orders. Expand a building or paving order; assign equipment to a parent or child. Explicit assignments override automatic roles after current work finishes. Click asset IDs to inspect assigned people, stock, or equipment. Click table headers to sort; use Column filters to narrow records.</p><p>Select equipment to choose a parking bay in the yard or enter its coordinates. Workers have Always on, daily, overnight, and custom schedules. They finish current work, park, exit, walk to the actual bus, and return next shift. Chartered trips appear in Costs.</p><p>Use <b>Activity → Export diagnostic history</b> after a problem. The local rolling record includes positions, routes, blockers, phases, and recent full yard checkpoints.</p><h3>Traffic</h3><p>Road traffic keeps right. Buses continue forward after their stop; delivery trucks back clear of their berth before departing forward. Machines yield to people and route around obstructions. Keep receiving and turning areas clear; the equipment inspector identifies any actor blocking a route.</p><h3>First-version boundaries</h3><p>A 232 × 98 m buildable yard, straight, curved and turnout rail panels, owned-equipment freight handling and simplified utility services. Request a route in a complete turnout inspector; a real worker walks to its manual lever and throws it. The Railway register lists physical endpoints and uncapped branches. New train dispatch, an owned shunter, additional terminal buffers, and chemistry are later approval checkpoints. New curved/turnout assembly recovery is deferred; canceled panels can resume from their work inspector.</p></section></div>`;
   }
   if (which === 'shop') {
-    content = `<div class="shop-head"><div><span class="eyebrow">PROCUREMENT</span><h1>People, machines & materials</h1><p>Order freely. Costs are recorded; there is no spending limit.</p></div>${btn('starter-order', 'Order starter supplies')}</div><div class="shop-options"><label>Material transport <select id="transport"><option value="road" ${purchaseTransport === 'road' ? 'selected' : ''}>Truck · 12 t loads</option><option value="rail" ${purchaseTransport === 'rail' ? 'selected' : ''}>Rail · 48 t per flatcar</option></select></label><span>Your equipment unloads · $90 / road load · $240 / supplier train</span></div><div id="purchase-cart" class="purchase-cart"></div><div class="catalog-head"><span>Item</span><span>Unit cost</span><span>Unit weight</span><span>Qty</span><span>Line weight</span><span>Order / batch</span></div>${[
-      ['Crew', ROLES],
-      ['Equipment', EQUIPMENT],
-      ['Materials', MATERIALS],
-      ['Utility services', SERVICES],
-    ]
-      .map(
-        ([name, items]) =>
-          `<h3>${name}</h3><div class="catalog">${Object.entries(items)
-            .map(
-              ([k, v]: [string, any]) =>
-                `<div class="catalog-row"><div><b>${esc(v.name)}</b><small>${esc(v.description)}</small></div><span class="price">${money(v.price)}</span><span class="catalog-mass">${v.mass ? massLabel(v.mass) : k in ROLES ? 'Passenger' : 'Service'}</span><input type="number" id="qty-${k}" data-catalog-item="${k}" min="1" max="1000" value="${k === 'slab' ? 24 : k === 'rail' ? 4 : 1}" aria-label="Quantity of ${esc(v.name)}"><span class="catalog-mass" id="mass-${k}">${v.mass ? massLabel(v.mass * (k === 'slab' ? 24 : k === 'rail' ? 4 : 1)) : '—'}</span><div class="catalog-actions">${btn(`purchase:${k}`, k in ROLES ? 'Hire' : 'Order', 'small')}${btn(`cart-add:${k}`, 'Add', 'small', 'aria-label="Add ' + esc(v.name) + ' to batch"')}</div></div>`,
-            )
-            .join('')}</div>`,
-      )
-      .join('')}`;
+    content = `<div class="shop-head"><div><span class="eyebrow">PROCUREMENT</span><h1>People, machines & materials</h1><p>Order freely. Costs are recorded; there is no spending limit.</p></div>${btn('starter-order', 'Order starter supplies')}</div><div class="shop-options"><label>Material transport <select id="transport"><option value="road" ${purchaseTransport === 'road' ? 'selected' : ''}>Truck · 12 t loads</option><option value="rail" ${purchaseTransport === 'rail' ? 'selected' : ''}>Rail · 48 t per flatcar</option></select></label><span>Your equipment unloads · $90 / road load · $240 / supplier train</span></div><div id="purchase-cart" class="purchase-cart"></div>${renderCatalog()}`;
   }
   if (which === 'help')
     content +=
@@ -2098,6 +2113,14 @@ async function action(value: string) {
       persist(true);
       renderInspector(true);
       renderRecords(true);
+      break;
+    }
+    case 'incoming-power': {
+      const station = state.buildings.find((building) => building.kind === 'power');
+      if (station) {
+        selection = { type: 'building', id: station.id };
+        renderInspector(true);
+      } else toast('No incoming station is installed in this saved factory.', true);
       break;
     }
     case 'tool':
@@ -2664,11 +2687,12 @@ document.addEventListener('input', (e) => {
   if (target.dataset.catalogItem) {
     const item = target.dataset.catalogItem;
     const el = document.querySelector<HTMLElement>(`#mass-${item}`);
+    const qty = Number(target.value);
     if (el)
       el.textContent =
-        itemMass(item) && Number.isFinite(Number(target.value))
-          ? massLabel(itemMass(item) * Number(target.value))
-          : '—';
+        itemMass(item) && Number.isFinite(qty) ? massLabel(itemMass(item) * qty) : '—';
+    const cost = document.getElementById(`cost-${item}`);
+    if (cost) cost.textContent = Number.isFinite(qty) ? money(catalogEntry(item).price * qty) : '—';
     return;
   }
   if (target.dataset.columnFilter) {

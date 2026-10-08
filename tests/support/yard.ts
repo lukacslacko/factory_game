@@ -102,6 +102,17 @@ export function advance(s: State, seconds: number) {
   for (let elapsed = 0; elapsed < seconds; elapsed += 0.1) S.tick(s, 0.1);
 }
 
+// Keep the forklift receiving until suppliers leave; the excavator keeps all work so it can unload heavy kits.
+export function configureScenarioEquipment(s: State) {
+  const receiving = s.orders.some((o) => o.status !== 'done');
+  for (const e of s.equipment) {
+    const role = e.kind === 'forklift' && receiving ? 'receiving' : 'all';
+    if ((e.workRole ?? 'all') === role && e.allowedWork === undefined) continue;
+    const error = S.setEquipmentRole(s, e.id, role);
+    if (error) throw new Error(error);
+  }
+}
+
 // Scenario controller acting as the player: request the existing physical fuel
 // service, using drums already ordered by the scenario. It never edits fuel.
 export function requestLowFuelService(s: State) {

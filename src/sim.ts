@@ -235,7 +235,9 @@ export function createState(): State {
     workers: [],
     equipment: [],
     stacks: [],
-    buildings: [],
+    // Reserve zero for opening infrastructure without consuming the live ID sequence.
+    buildings: [{ id: 'BLD-0000', kind: 'power', x: 3, z: 15, w: 1, d: 1, rotation: 0,
+      name: 'Incoming electrical station · 16 kW', connected: true, source: 'opening' }],
     rails: [],
     railLocations: [],
     paving: {},
@@ -248,7 +250,7 @@ export function createState(): State {
     movements: [],
     notices: [],
     buffer: { x: 125, z: 5 },
-    utilities: { power: false, water: false },
+    utilities: { power: true, water: false },
     electrical: { runs: [], meterLedger: [] },
     wageClock: 0,
     guide: true,
@@ -463,9 +465,6 @@ export function purchaseBatch(
   mode: 'road' | 'rail' = 'road',
   options: { railLocationId?: string; storageZoneId?: string } = {},
 ): string[] {
-  const powerCount=lines.filter(l=>l.item==='power').reduce((n,l)=>n+l.qty,0);
-  if(powerCount && (powerCount!==1 || s.buildings.some(b=>b.kind==='power') || s.orders.some(o=>o.item==='power' && o.status!=='done')))
-    throw new Error('The starter site supports one 16 kW incoming station. Inspect the existing or incoming station, then extend it through underground light-base junctions.');
   const packed = packPurchase(lines, mode);
   const railLoads = packed.filter((load) => load.mode === 'rail');
   if (railLoads.length > 100) throw new Error('Order at most 100 rail cars in one supplier train.');
@@ -1298,9 +1297,13 @@ function stepAside(s: State, w: Worker, e: Equipment, knownBlocker = false) {
     s.jobs.some((j) => j.worker === w.id && j.status === 'doing' && (j.shedAssembly?.ladder || j.processAssembly?.ladder))
   )
     return;
+  // An assigned rigger can retain an escape path that the machine's next turn blocks.
+  // Replan that reciprocal wait through the same checked pedestrian clearance route.
+  const reciprocalCrew =
+    !!e.cargo && !!e.job && w.job === e.job && w.path.length > 0 && e.blockedBy === w.id &&
+    s.jobs.some((j) => j.id === e.job && j.handling?.phase === 'clear');
   const crewCrossing =
-    !!w.assistingEquipment &&
-    w.assistingEquipment !== e.id &&
+    ((!!w.assistingEquipment && w.assistingEquipment !== e.id) || reciprocalCrew) &&
     w.blockedBy === e.id &&
     (w.trafficWait || 0) > 1 &&
     !w.yieldingTo;
@@ -1346,7 +1349,11 @@ function stepAside(s: State, w: Worker, e: Equipment, knownBlocker = false) {
   for (const target of candidates) {
     if (turnBoxes.some((b) => personTouchesBox(target, b, 0.65)) || workerMoveBlocked(s, w, target))
       continue;
-    const path = walkRoute(s, w, target, obs);
+    let path = walkRoute(s, w, target, obs);
+    // The coarse walking grid can miss a narrow exit beside an angled boom.
+    // Retry only this reciprocal crew wait, at the normal traffic retry cadence.
+    if (!path && reciprocalCrew && s.elapsed >= (e.trafficRetry || 0))
+      path = walkRoute(s, w, target, obs, false, 0.2);
     if (path) {
       w.yieldTarget ??= crewCrossing ? { ...w.path[w.path.length - 1] } : { x: w.x, z: w.z };
       w.yieldingTo = e.id;
@@ -1590,8 +1597,9 @@ function tickMove(s: State, p: Worker | Equipment, dt: number, speed: number) {
       (w) =>
         w.yieldingTo === p.id &&
         w.path.length &&
-        w.assistingEquipment &&
-        w.assistingEquipment !== p.id,
+        ((w.assistingEquipment && w.assistingEquipment !== p.id) ||
+          (p.cargo && p.job && w.job === p.job &&
+            s.jobs.some((j) => j.id === p.job && j.handling?.phase === 'clear'))),
     )
   ) {
     p.velocity = 0;
@@ -3983,8 +3991,7 @@ export function demoState(): State {
     },
   );
   s.utilities = { power: true, water: true };
-  const incoming:Building={id:id(s,'building'),kind:'power',x:3,z:15,w:1,d:1,rotation:0,name:'Incoming electrical station · 16 kW',connected:true,source:'opening'};
-  s.buildings.push(incoming);
+  const incoming = s.buildings.find(b => b.kind === 'power')!;
   const light=s.buildings.find(b=>b.kind==='lamp')!;
   const wasCreative=s.creative;s.creative=true;
   const electrical=planElectrical(s,{sourceId:incoming.id,targetId:light.id,cells:[...Array.from({length:17},(_,i)=>({x:4+i,z:15})),...Array.from({length:17},(_,i)=>({x:20,z:16+i}))]});

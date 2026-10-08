@@ -42,7 +42,7 @@ const lamp = {
   source: 'opening',
   name: 'First yard light',
 };
-s.buildings.push(source, lamp);
+s.buildings = [source, lamp];
 s.utilities.power = true;
 s.stacks.push({
   id: S.id(s, 'stack'),

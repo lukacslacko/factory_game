@@ -70,7 +70,7 @@ func build_register(ui) -> void:
 	ui._button(tools,"Order cable reels…",func()->void:
 		ui._open_purchase()
 		if ui.purchase_quantity.has("cableReel"):ui.purchase_quantity.cableReel.get_line_edit().grab_focus())
-	ui._button(tools,"Order 16 kW utility station…",func()->void:station_dialog(ui))
+	ui._button(tools,"Incoming station…",func()->void:station_dialog(ui))
 	ui._button(tools,"Build junction cabinet",func()->void:ui._select_tool("electricalJunction"))
 	ui._button(tools,"Electrical help",func()->void:help_dialog(ui))
 	ui._note(ui.register_body,"Each circuit connects an incoming cabinet or commissioned junction to another junction cabinet, light, or rail pump. Select a route to inspect real trench, spoil, cable, crew, and commissioning progress. No nearby or crossing cable creates a connection.")
@@ -199,7 +199,7 @@ func _update_choices(ui) -> void:
 	for asset: Dictionary in records(ui,"consumers"):
 		if str(asset.id)==target_selected:target=asset
 	draw_button.disabled=source.is_empty() or target.is_empty() or source_selected==target_selected
-	if source_records(ui).is_empty():choice_note.text="No incoming station or commissioned junction. Order station service and let its utility crew install it first."
+	if source_records(ui).is_empty():choice_note.text="No incoming station or commissioned junction in this saved yard. Every new factory includes a connected incoming station."
 	elif records(ui,"consumers").is_empty():choice_note.text="Build a junction cabinet, light pole, or rail transfer pump first."
 	elif draw_button.disabled:choice_note.text="Select different source and destination objects using search or the map. Each circuit has one explicit source and destination."
 	else:choice_note.text=asset_label(ui,source)+" → "+asset_label(ui,target)+". Keep the trench and adjacent spoil/handling space clear."
@@ -217,20 +217,20 @@ func rename_dialog(ui, asset: Dictionary) -> void:
 	dialog.window.popup_centered();name.grab_focus();name.select_all()
 
 static func station_dialog(ui) -> void:
-	var dialog: Dictionary=ui._rail_dialog("Order low-power electrical service",Vector2i(590,310))
-	ui._note(dialog.body,"A utility company brings its crew and connection equipment by road and installs a physical station. The starter 16 kVA connection is modeled with a 16 kW load limit. This order supplies the station only; you build separate underground circuits to each light or pump.")
-	ui._note(dialog.body,"Service price: %s before carrier charges. The visiting crew is external; your site still needs its own excavator, operator, site engineer, and delivered cable reels for downstream circuits."%ui._money(ui.catalog.get("power",{}).get("price",1800)))
+	var dialog: Dictionary=ui._rail_dialog("Incoming electrical supply",Vector2i(590,310))
+	ui._note(dialog.body,"Every new factory, including Empty yard, starts with a connected incoming electrical station. Its 16 kVA rating is modeled as a shared 16 kW load limit. The station is opening infrastructure, so no installation order or service charge is needed.")
+	ui._note(dialog.body,"The station does not automatically power the yard. Build and commission underground circuits to junction cabinets, lights, and rail pumps using an excavator, operator, site engineer, and delivered cable reels. Every branch shares the incoming capacity.")
 	var existing: String="";var incoming: String=""
 	for building: Dictionary in ui.state.get("buildings",[]):
 		if building.get("kind")=="power":existing=str(building.id)
 	for order: Dictionary in ui.state.get("orders",[]):
 		if order.get("item")=="power" and order.get("status")!="done":incoming=str(order.id)
 	if not existing.is_empty() or not incoming.is_empty():
-		ui._note(dialog.body,"This starter site supports one incoming station. Inspect the installed or incoming connection, then extend its supply using separately built cable branches from commissioned junction cabinets or light bases. Each branch inherits the same remaining 16 kW capacity.")
+		ui._note(dialog.body,"Inspect the installed station to see its position, capacity, and connected circuits. An incoming service retained from an older save can still finish its installation.")
 		var station_id: String=existing if not existing.is_empty() else incoming
 		ui._button(dialog.footer,"Inspect existing station" if not existing.is_empty() else "Inspect incoming service",func()->void:ui._user_entity(station_id);dialog.window.queue_free())
 	else:
-		ui._button(dialog.footer,"Order station service",func()->void:ui._send("purchase",{"item":"power","qty":1,"mode":"road"});dialog.window.queue_free())
+		ui._note(dialog.body,"This older saved yard has no incoming station. Existing saves are preserved; start a new yard to use the pre-installed supply.")
 	ui._button(dialog.footer,"Close",func()->void:dialog.window.queue_free())
 	dialog.window.popup_centered()
 
@@ -295,7 +295,7 @@ static func run_inspector(ui, run: Dictionary) -> void:
 
 static func help_paragraphs() -> Array[String]:
 	return [
-		"Order the 16 kW utility station from Electrical. Its external crew arrives by road and installs the connection. A station does not power the whole yard automatically. The starter system connects junction cabinets, light poles, and rail transfer pumps; other buildings are not electrical consumers yet.",
+		"Every new factory, including Empty yard, includes a connected 16 kW incoming electrical station. Use Incoming power or Electrical → Incoming station to inspect it. A station does not power the whole yard automatically. Build underground circuits to junction cabinets, light poles, and rail transfer pumps; other buildings are not electrical consumers yet.",
 		"Purchase 50 m cable reels, an excavator, fuel, an equipment operator, and a site engineer. Deliveries must be unloaded into accessible storage. Enable Construction under the excavator's Automatic work, or assign it through the linked Work task. For branches, purchase an Electrical junction cabinet kit and use Electrical → Build junction cabinet. Its foundation and cabinet are physical construction work, like other assets.",
 		"Choose Plan underground cable. For either endpoint, search by name, ID, or type, or choose Pick source/destination on map and click an outlined object. Drag to pan and scroll to zoom while choosing; Escape or Back to cable plan returns without changing the prior selection. Locate selected takes you to that object; Cable… reopens the same choices. Rename electrical asset in an object's inspector gives it a memorable label while retaining its stable ID. Railway's existing named locations retain their names and IDs.",
 		"Draw this circuit in Yard highlights both assets' outside terminal cells. Click a green source terminal, then a blue destination terminal, or drag between them. R swaps the elbow; Escape abandons the preview. Green means the host accepted the route, amber is checking, and red explains a conflict. A junction must receive a complete commissioned circuit before it can supply another branch. A wired lamp base can also pass supply onward. Every branch shares the original station's remaining 16 kW; no junction creates power.",

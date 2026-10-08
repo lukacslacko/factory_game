@@ -5,6 +5,7 @@ import { overlap, route } from '../src/path.ts';
 import { MATERIALS, TRACK_GAUGE, RAIL_HEAD_WIDTH, RAIL_CENTER_OFFSET } from '../src/catalog.ts';
 import {
   checkScenarioFuel,
+  configureScenarioEquipment,
   requestLowFuelService,
   seedHandlingResources,
   tickUntil,
@@ -275,9 +276,7 @@ test('a larger starter base completes across save/reload with balanced inventory
   S.purchase(s, 'operator', 2);
   S.purchase(s, 'excavator', 1);
   S.purchase(s, 'forklift', 1);
-  S.purchase(s, 'power', 1);
   S.purchase(s, 'water', 1);
-  S.purchase(s, 'diesel', 2);
   S.plan(s, 'office', 4, 32);
   S.plan(s, 'sanitary', 4, 39);
   S.plan(s, 'shed', 12, 44);
@@ -291,8 +290,20 @@ test('a larger starter base completes across save/reload with balanced inventory
     S.plan(s, 'lamp', x, z);
   for (let x = 125; x < 150; x += 5) S.plan(s, 'rail', x, 4);
   S.pave(s, { x: 56, z: 35, w: 8, d: 4 });
-  S.buyMissing(s);
-  advance(s, 200);
+  // Order finite fuel with construction supplies and reserve the forklift for supplier unloading.
+  const freight = S.purchaseBatch(s, [
+    { item: 'diesel', qty: 2 },
+    ...Object.entries(S.missingMaterials(s))
+      .filter(([, qty]) => qty > 0)
+      .map(([item, qty]) => ({ item, qty })),
+  ]);
+  assert.ok(s.orders.some((o) => freight.includes(o.id) &&
+    o.manifest?.some((line) => line.item === 'diesel') &&
+    o.manifest.some((line) => line.item === 'slab')), 'Fuel shares a real material carrier');
+  for (let t = 0; t < 200; t += 0.1) {
+    configureScenarioEquipment(s);
+    S.tick(s, 0.1);
+  }
   s = S.load(S.save(s));
   let sawServiceCan = false;
   tickUntil(
@@ -300,6 +311,7 @@ test('a larger starter base completes across save/reload with balanced inventory
     () => s.jobs.every((j) => j.status === 'done'),
     12000,
     () => {
+      configureScenarioEquipment(s);
       requestLowFuelService(s);
       checkScenarioFuel(s);
       if (
@@ -386,11 +398,12 @@ test('stockyard designations can be removed only when physically empty and unres
   assert.equal(s.zones.length, 1);
 });
 
-test('a completely empty start has no assigned stockyard; delivery waits for player designation', () => {
+test('an empty start has only the opening utility and no stockyard; delivery waits for player designation', () => {
   const s = S.createState();
   assert.deepEqual(s.zones, []);
   assert.deepEqual(s.stacks, []);
-  assert.deepEqual(s.buildings, []);
+  assert.deepEqual(s.buildings.map((b) => b.kind), ['power']);
+  assert.equal(s.buildings[0].id, 'BLD-0000');
   seedHandlingResources(s);
   S.purchase(s, 'slab', 6);
   tickUntil(s, () => s.orders[0].note === 'No stockyard — designate a storage area', 600);
@@ -449,6 +462,8 @@ test('version 1 rail footprints migrate without moving tracks, buffer, or in-fli
 
 test('pristine legacy empty yards lose the old automatic receiving-zone assignment', () => {
   const s = S.createState();
+  s.buildings = [];
+  s.utilities.power = false;
   s.version = 1;
   s.zones.push({ id: 'ZONE-RECEIVING', name: 'Receiving stockyard', x: 24, z: 26, w: 27, d: 24 });
   assert.deepEqual(S.load(S.save(s)).zones, []);

@@ -13,6 +13,7 @@ class FakeWorld:
 	extends Node3D
 	func advance(_dt: float) -> void: pass
 	func set_grid(_enabled: bool) -> void: pass
+	func set_lamp_amount(_amount: float) -> void: pass
 	func preview(_rect: Dictionary, _valid: bool) -> void: pass
 class FakeClient:
 	extends Node
@@ -63,6 +64,7 @@ func _run() -> void:
 	game.ui.receive_reply({"action":"new_game","ok":true})
 	game.add_child(game.camera); game.camera.current=true
 	game.add_child(game.sun)
+	game.add_child(game.moon)
 	game._update_camera(0,true)
 	game.backgrounded = false
 	await process_frame
@@ -105,5 +107,6 @@ func _run() -> void:
 	_check(not game.target.is_equal_approx(initial),"Camera keyboard controls resume after closing the dialog")
 	game._unhandled_input(_key(KEY_SPACE,true))
 	_check(game.client.sent.back().action=="pause","Game shortcuts resume after closing the dialog")
+	game.queue_free();await process_frame
 	print("KEYBOARD_FOCUS_SMOKE ",JSON.stringify({"passed":failures.is_empty(),"checks":checks,"failures":failures,"serviceStarted":false,"gpuRendering":false}))
 	quit(0 if failures.is_empty() else 1)

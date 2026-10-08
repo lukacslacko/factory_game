@@ -65,10 +65,17 @@ var continue_button: Button
 var purchase_window: Window
 var purchase_quantity: Dictionary = {}
 var purchase_mass_labels: Dictionary = {}
+var purchase_cost_labels: Dictionary = {}
+var purchase_rows: Dictionary = {}
+var purchase_manifest: VBoxContainer
+var purchase_manifest_scroll: ScrollContainer
+var purchase_catalog_scroll: ScrollContainer
 var purchase_mode: OptionButton
 var purchase_total: Label
 var purchase_batch: Button
 var purchase_preview_pending: bool = false
+var purchase_preview_version: int = 0
+var purchase_preview_signature: String = ""
 var query_text: TextEdit
 var sql_status: Label
 var sql_table: Control
@@ -194,12 +201,15 @@ func _theme() -> Theme:
 	hover.bg_color=Color("dde7d7")
 	var pressed: StyleBoxFlat = button.duplicate() as StyleBoxFlat
 	pressed.bg_color=Color("c9dcc1")
+	var focus: StyleBoxFlat = hover.duplicate() as StyleBoxFlat
+	focus.border_color=Color("466c55")
+	focus.set_border_width_all(2)
 	for type: String in ["PanelContainer","PopupMenu","Window","AcceptDialog"]: theme.set_stylebox("panel",type,base)
 	for type: String in ["Button","OptionButton","CheckBox","MenuButton"]:
 		theme.set_stylebox("normal",type,button)
 		theme.set_stylebox("hover",type,hover)
 		theme.set_stylebox("pressed",type,pressed)
-		theme.set_stylebox("focus",type,hover)
+		theme.set_stylebox("focus",type,focus)
 		theme.set_color("font_color",type,Color("304b40"))
 		theme.set_color("font_hover_color",type,Color("203e30"))
 		theme.set_color("font_pressed_color",type,Color("203e30"))
@@ -208,7 +218,7 @@ func _theme() -> Theme:
 		theme.set_color("default_color",type,Color("334f43"))
 	for type: String in ["LineEdit","TextEdit"]:
 		theme.set_stylebox("normal",type,button)
-		theme.set_stylebox("focus",type,hover)
+		theme.set_stylebox("focus",type,focus)
 		theme.set_color("caret_color",type,Color("315c4f"))
 	theme.set_color("font_color","PopupMenu",Color("304b40"))
 	theme.set_color("font_hover_color","PopupMenu",Color("203e30"))
@@ -220,11 +230,16 @@ func _theme() -> Theme:
 	theme.set_stylebox("panel","Tree",base)
 	theme.set_stylebox("selected","Tree",pressed)
 	theme.set_stylebox("selected_focus","Tree",pressed)
+	theme.set_stylebox("hovered","Tree",hover)
+	theme.set_stylebox("cursor","Tree",focus)
+	theme.set_stylebox("cursor_unfocused","Tree",hover)
 	theme.set_stylebox("title_button_normal","Tree",button)
 	theme.set_stylebox("title_button_hover","Tree",hover)
 	theme.set_color("title_button_color","Tree",Color("334f43"))
 	theme.set_color("font_selected_color","Tree",Color("203e30"))
 	theme.set_constant("v_separation","Tree",3)
+	theme.set_constant("draw_guides","Tree",1)
+	theme.set_color("guide_color","Tree",Color("cbd4c2"))
 	return theme
 
 func _window_background(window: Window) -> void:
@@ -344,10 +359,10 @@ func _build_yard_controls() -> void:
 	tool_panel.add_child(tools)
 	var row: HBoxContainer = HBoxContainer.new()
 	tools.add_child(row)
-	var choices: Dictionary = {"select":"Select","slab":"Pave","office":"Office","sanitary":"WC","shed":"Shed","engineShed":"Engine shed","store":"Stores","lamp":"Light","electricalJunction":"Junction","fence":"Fence","power":"Power…","water":"Water","zone":"Stockyard"}
+	var choices: Dictionary = {"select":"Select","slab":"Pave","office":"Office","sanitary":"WC","shed":"Shed","engineShed":"Engine shed","store":"Stores","lamp":"Light","electricalJunction":"Junction","fence":"Fence","power":"Incoming power","water":"Water","zone":"Stockyard"}
 	for key: String in choices:
 		_button(row,str(choices[key]),func() -> void:
-			if key=="power":ElectricalUI.station_dialog(self)
+			if key=="power":_inspect_incoming_power()
 			else:_select_tool(key))
 	var rail_row: HBoxContainer = HBoxContainer.new()
 	tools.add_child(rail_row)
@@ -438,7 +453,7 @@ func _menu_action(id: int) -> void:
 			help.title="Plant 01 controls"
 			help.dialog_text="Drag empty ground to pan; right drag to orbit; scroll to zoom. WASD moves relative to the view. Space pauses. R rotates a plan.\n\nPurchase workers, machines, and materials. Deliveries need owned equipment and an operator. Designate physical stockyards, pave foundations, and plan construction. IDs in every register open the inspector. Assign machines to whole work orders or rail crews.\n\n1× uses real time. The simulation continues while this window is unfocused. Save files and rolling diagnostic history remain on this device."
 			help.dialog_text += "\n\nAutomatic work chooses reachable nearby qualified workers. Explicit crews and active work keep precedence. Idle automatic blockers can move clear with their real operators. After 20 simulated seconds, a persistent warning links the work and blocker. Use Warnings only in Activity or Inbox, then Inspect / Locate. Return to automatic duty (worker) or Return to automatic work (equipment) releases manual control. Fixed stock or a boxed-in load may need relocation."
-			help.dialog_text += "\n\nElectrical: order a utility station, cable reels, an excavator, and crew. Plan a specific station-to-light or station-to-pump circuit from the Electrical register. Outside terminal cells are highlighted in Yard; click or drag between them and use R to swap the elbow. Electrical help explains trench/spoil access, crew, testing, and the 16 kW capacity limit."
+			help.dialog_text += "\n\nElectrical: every new yard includes a 16 kW incoming station. Order cable reels, an excavator, and crew. Plan a specific station-to-light or station-to-pump circuit from the Electrical register. Outside terminal cells are highlighted in Yard; click or drag between them and use R to swap the elbow. Electrical help explains trench/spoil access, crew, testing, and the 16 kW capacity limit."
 			help.dialog_text += "\n\nSave folder: " + str(metadata.get("storage",{}).get("dataDir","Not connected yet"))
 			screen.add_child(help)
 			_window_background(help)
@@ -559,8 +574,7 @@ func receive_reply(message: Dictionary) -> void:
 	if bool(message.get("ok",true)):
 		error_label.visible=false
 		if str(message.get("action",""))=="purchase_batch" and is_instance_valid(purchase_window):
-			for quantity: SpinBox in purchase_quantity.values(): quantity.set_value_no_signal(0)
-			for mass_label: Label in purchase_mass_labels.values(): mass_label.text="—"
+			_reset_purchase()
 			purchase_total.text="Order placed. Add new quantities for another batch."
 			purchase_batch.disabled=true
 		if str(message.get("action","")) in ["new_game","continue","import","load"]:
@@ -575,14 +589,15 @@ func receive_reply(message: Dictionary) -> void:
 		else:
 			_clear(rail_edit_body)
 			_note(rail_edit_body,str(message.get("error","Preview unavailable. Close and try again.")))
-	if message.get("action")=="purchase_preview" and is_instance_valid(purchase_total):
+	if message.get("action")=="purchase_preview" and is_instance_valid(purchase_total) and not _purchase_lines().is_empty() and _purchase_invalid_quantity().is_empty():
 		var preview: Dictionary = message.get("result",{})
+		if not bool(message.get("ok",true)) or int(preview.get("requestId",purchase_preview_version))!=purchase_preview_version:return
 		var price: float = 0.0
 		for line: Dictionary in _purchase_lines(): price+=float(catalog.get(line.item,{}).get("price",0))*float(line.qty)
 		if preview.has("transportCost"):price+=float(preview.transportCost)
 		else:
 			for load: Dictionary in preview.get("loads",[]): price+=240.0 if load.get("mode")=="rail" else 90.0
-		purchase_total.text="%s cargo · %s including freight · %s carrier loads"%[_mass(float(preview.get("mass",0))),_money(price),preview.get("loads",[]).size()]
+		purchase_total.text="%d item lines · %s cargo · %s carrier loads\n%s including freight"%[_purchase_lines().size(),_mass(float(preview.get("mass",0))),preview.get("loads",[]).size(),_money(price)]
 		if int(preview.get("railCars",0))>0:purchase_total.text+=" · %d rail cars · %.1f m train"%[int(preview.railCars),float(preview.get("trainLength",0))]
 	if (message.has("rows") or message.get("action")=="sql") and active_tab=="SQL":
 		_display_sql(message)
@@ -1106,7 +1121,8 @@ func _render_inspector() -> void:
 				_detail("Structural components",entity.get("componentIds",[]).size())
 				var shed_engine: OptionButton = _entity_option(inspector_body,"shunters","Choose owned locomotive…")
 				_button(inspector_body,"Assign shed and park locomotive",func() -> void:_send("engine_shed_park",{"buildingId":str(entity.id),"shunterId":_selection(shed_engine)}))
-			_button(inspector_body,"Recover / remove building",func() -> void: _send("remove_building",{"id":selected_id}))
+			if entity.get("kind")=="power":_note(inspector_body,"Permanent incoming utility connection. Build underground circuits from this station to supply the yard.")
+			else:_button(inspector_body,"Recover / remove building",func() -> void: _send("remove_building",{"id":selected_id}))
 		"zones":
 			_detail("Footprint","%s × %s m"%[entity.get("w",1),entity.get("d",1)])
 			_button(inspector_body,"Remove empty stockyard",func() -> void: _send("remove_zone",{"id":selected_id}))
@@ -2203,6 +2219,108 @@ func _check_notices() -> void:
 	toast.visible=true
 	toast_age=0
 
+func _inspect_incoming_power() -> void:
+	for building: Dictionary in _records("buildings"):
+		if str(building.get("kind",""))=="power":
+			_user_entity(str(building.id))
+			return
+	_switch_tab("Electrical")
+
+func _purchase_groups() -> Array[Dictionary]:
+	# Old snapshots lack group metadata, but still receive the same usable order.
+	var fallback: Array[Dictionary] = [
+		{"id":"workers","name":"Workers","items":["builder","operator","engineer","railDriver"]},
+		{"id":"equipment","name":"Equipment","items":["excavator","forklift","shunter"]},
+		{"id":"site","name":"Paving and buildings","items":["slab","office","sanitary","shed","engineShed","store","fence"]},
+		{"id":"railway","name":"Railway","items":["rail","railCurve","railPoints","railFrog","railClosure","railExit","bufferStop"]},
+		{"id":"process","name":"Tanks, pumps, and piping","items":["processTank","transferPump","processPipe","pipeElbow","pipeTee","processValve","processGauge"]},
+		{"id":"electrical","name":"Electrical and lighting","items":["lamp","electricalJunction","cableReel"]},
+		{"id":"fuel","name":"Fuel","items":["diesel"]},
+		{"id":"services","name":"Utility services","items":["water"]}
+	]
+	var groups: Array[Dictionary] = []
+	var seen: Dictionary = {}
+	for group: Dictionary in metadata.get("purchaseGroups",fallback):
+		var items: Array[String] = []
+		for value: Variant in group.get("items",[]):
+			var key: String = str(value)
+			if key=="power" or seen.has(key) or not catalog.has(key) or not bool(catalog[key].get("purchasable",true)):continue
+			items.append(key);seen[key]=true
+		if not items.is_empty():groups.append({"id":str(group.get("id","supplies")),"name":str(group.get("name","Supplies")),"items":items})
+	var remaining: Array[String] = []
+	for key: String in catalog:
+		if key!="power" and not seen.has(key) and bool(catalog[key].get("purchasable",true)):remaining.append(key)
+	if not remaining.is_empty():groups.append({"id":"other","name":"Other supplies","items":remaining})
+	return groups
+
+func _purchase_cell(parent: Node,text: String,width: float=0) -> Label:
+	var cell: Label = _label(parent,text)
+	cell.mouse_filter=Control.MOUSE_FILTER_IGNORE
+	if width>0:
+		cell.custom_minimum_size.x=width
+		cell.horizontal_alignment=HORIZONTAL_ALIGNMENT_RIGHT
+	else:
+		cell.size_flags_horizontal=Control.SIZE_EXPAND_FILL
+		cell.custom_minimum_size.x=250
+		cell.text_overrun_behavior=TextServer.OVERRUN_TRIM_ELLIPSIS
+	return cell
+
+func _purchase_row_style(key: String) -> void:
+	var row: PanelContainer = purchase_rows[key]
+	var quantity: SpinBox = purchase_quantity[key]
+	var amount: int = quantity.get_line_edit().text.to_int()
+	var selected: bool = amount>0
+	var focused: bool = quantity.get_line_edit().has_focus()
+	var hovered: bool = bool(row.get_meta("hovered",false))
+	var style: StyleBoxFlat = StyleBoxFlat.new()
+	style.bg_color=Color("edf2e7") if bool(row.get_meta("alternate",false)) else Color("f9f9ef")
+	if selected:style.bg_color=Color("dce9d1")
+	if hovered:style.bg_color=Color("d0e0c6") if selected else Color("e3ebdc")
+	if focused:style.bg_color=Color("d6e5ce")
+	style.border_color=Color("4c7258") if focused else (Color("90ac7e") if selected else Color("c6d1bd"))
+	style.border_width_bottom=1
+	style.border_width_left=3 if selected else 1
+	style.border_width_top=2 if focused else 0
+	style.border_width_right=2 if focused else 1
+	style.set_content_margin_all(5)
+	# Equal margins keep numeric columns aligned as focus and selection change.
+	row.add_theme_stylebox_override("panel",style)
+	row.set_meta("in_batch",selected)
+
+func _add_purchase_row(parent: Node,key: String,index: int) -> void:
+	var entry: Dictionary = catalog[key]
+	var panel: PanelContainer = PanelContainer.new()
+	panel.name="PurchaseRow_"+key
+	panel.size_flags_horizontal=Control.SIZE_EXPAND_FILL
+	panel.tooltip_text=str(entry.get("description",entry.name))
+	panel.set_meta("alternate",index%2==1)
+	parent.add_child(panel)
+	purchase_rows[key]=panel
+	var row: HBoxContainer = HBoxContainer.new()
+	row.add_theme_constant_override("separation",8)
+	panel.add_child(row)
+	var name: Label = _purchase_cell(row,str(entry.name))
+	name.tooltip_text=panel.tooltip_text
+	_purchase_cell(row,_money(entry.get("price",0))+(" / hire" if entry.has("wage") else ""),92)
+	_purchase_cell(row,_mass(float(entry.mass)) if entry.has("mass") else ("%s / h"%_money(entry.wage) if entry.has("wage") else "Service"),88)
+	var quantity: SpinBox = SpinBox.new()
+	quantity.min_value=0;quantity.max_value=1000;quantity.step=1
+	quantity.update_on_text_changed=true
+	quantity.custom_minimum_size.x=88
+	quantity.tooltip_text="Quantity of "+str(entry.name)+((": %s per hour"%_money(entry.wage)) if entry.has("wage") else "")
+	quantity.get_line_edit().alignment=HORIZONTAL_ALIGNMENT_RIGHT
+	row.add_child(quantity)
+	purchase_quantity[key]=quantity
+	purchase_mass_labels[key]=_purchase_cell(row,"—",96)
+	purchase_cost_labels[key]=_purchase_cell(row,"—",88)
+	quantity.value_changed.connect(func(_value: float) -> void:_purchase_changed())
+	quantity.get_line_edit().text_changed.connect(func(_typed: String) -> void:_purchase_changed())
+	quantity.get_line_edit().focus_entered.connect(func() -> void:_purchase_row_style(key))
+	quantity.get_line_edit().focus_exited.connect(func() -> void:_purchase_row_style.call_deferred(key))
+	panel.mouse_entered.connect(func() -> void:panel.set_meta("hovered",true);_purchase_row_style(key))
+	panel.mouse_exited.connect(func() -> void:panel.set_meta("hovered",false);_purchase_row_style(key))
+	_purchase_row_style(key)
+
 func _open_purchase() -> void:
 	if is_instance_valid(purchase_window):
 		_refresh_purchase_destinations()
@@ -2210,7 +2328,7 @@ func _open_purchase() -> void:
 		return
 	purchase_window=Window.new()
 	purchase_window.title="Purchase materials / equipment · Hire workers"
-	purchase_window.size=Vector2i(860,760)
+	purchase_window.size=Vector2i(960,760)
 	purchase_window.exclusive=true
 	purchase_window.theme=screen.theme
 	screen.add_child(purchase_window)
@@ -2220,12 +2338,12 @@ func _open_purchase() -> void:
 	for side: String in ["left","right","top","bottom"]: margin.add_theme_constant_override("margin_"+side,12)
 	purchase_window.add_child(margin)
 	var body: VBoxContainer = VBoxContainer.new()
-	body.add_theme_constant_override("separation",4)
+	body.add_theme_constant_override("separation",6)
 	margin.add_child(body)
-	_note(body,"Combine workers on one bus and supplies on one truck/train. Physical weight and deck space determine the carrier count. No budget limit; all costs are recorded.")
+	_note(body,"Set quantities to add items to one batch. Workers share buses; supplies share trucks or a train. Costs are recorded with no spending limit.")
 	var header: HBoxContainer = HBoxContainer.new()
 	body.add_child(header)
-	_label(header,"Preferred material transport")
+	_label(header,"Material transport")
 	purchase_mode=_option(header,["Road · 12 t truck","Rail · 48 t per car"])
 	purchase_mode.item_selected.connect(func(_index: int) -> void:
 		purchase_rail_controls.visible=purchase_mode.selected==1
@@ -2239,47 +2357,63 @@ func _open_purchase() -> void:
 	_label(purchase_rail_controls,"Unloading stockyard")
 	purchase_stockyard=_entity_option(purchase_rail_controls,"zones","Select later · train waits until unloading is requested")
 	purchase_stockyard.item_selected.connect(func(_index: int) -> void: _purchase_changed())
-	var scroll: ScrollContainer = ScrollContainer.new()
-	scroll.size_flags_vertical=Control.SIZE_EXPAND_FILL
-	body.add_child(scroll)
-	var catalog_grid: GridContainer = GridContainer.new()
-	catalog_grid.columns=5
-	catalog_grid.size_flags_horizontal=Control.SIZE_EXPAND_FILL
-	scroll.add_child(catalog_grid)
-	for title: String in ["Item / role","Unit price","Unit mass","Quantity","Ordered mass"]: _label(catalog_grid,title)
-	for key: String in catalog:
-		var entry: Dictionary = catalog[key]
-		_label(catalog_grid,str(entry.name)).size_flags_horizontal=Control.SIZE_EXPAND_FILL
-		_label(catalog_grid,_money(entry.get("price",0))+("/hire" if key in ["builder","operator","engineer"] else ""))
-		_label(catalog_grid,_mass(float(entry.get("mass",0))) if entry.has("mass") else ("%s/hour"%_money(entry.get("wage",0)) if entry.has("wage") else "Service"))
-		var quantity: SpinBox = SpinBox.new()
-		quantity.min_value=0
-		quantity.max_value=9999
-		quantity.step=1
-		quantity.update_on_text_changed=true
-		quantity.custom_minimum_size.x=76
-		catalog_grid.add_child(quantity)
-		purchase_quantity[key]=quantity
-		var mass: Label = _label(catalog_grid,"—")
-		mass.custom_minimum_size.x=90
-		purchase_mass_labels[key]=mass
-		quantity.value_changed.connect(func(value: float) -> void:
-			mass.text=_mass(value*float(entry.get("mass",0))) if entry.has("mass") else ("%d passengers"%int(value) if entry.has("wage") else "%d services"%int(value))
-			_purchase_changed.call_deferred())
-		quantity.get_line_edit().text_changed.connect(func(typed: String) -> void:
-			var amount: int = clampi(typed.to_int(),0,9999) if typed.is_valid_int() else 0
-			mass.text=_mass(amount*float(entry.get("mass",0))) if entry.has("mass") else ("%d passengers"%amount if entry.has("wage") else "%d services"%amount)
-			_purchase_changed())
-	purchase_total=_note(body,"Add catalog quantities to create one batch.")
-	_note(body,"12 seats per bus. Equipment uses dedicated lowloaders. Rail materials share one locomotive with as many cars as fit the receiving berth. Deck space can require another car before the weight limit. New trains wait for Start unloading.")
+	purchase_catalog_scroll=ScrollContainer.new()
+	purchase_catalog_scroll.vertical_scroll_mode=ScrollContainer.SCROLL_MODE_SHOW_ALWAYS
+	var heading_margin: MarginContainer = MarginContainer.new()
+	heading_margin.add_theme_constant_override("margin_left",5)
+	heading_margin.add_theme_constant_override("margin_right",5+int(purchase_catalog_scroll.get_v_scroll_bar().get_combined_minimum_size().x))
+	body.add_child(heading_margin)
+	var headings: HBoxContainer = HBoxContainer.new()
+	headings.name="PurchaseColumnHeadings"
+	headings.add_theme_constant_override("separation",8)
+	heading_margin.add_child(headings)
+	_purchase_cell(headings,"Item / role")
+	_purchase_cell(headings,"Unit cost",92)
+	_purchase_cell(headings,"Mass / rate",88)
+	_purchase_cell(headings,"Quantity",88)
+	_purchase_cell(headings,"Batch mass",96)
+	_purchase_cell(headings,"Line cost",88)
+	purchase_catalog_scroll.size_flags_vertical=Control.SIZE_EXPAND_FILL
+	purchase_catalog_scroll.horizontal_scroll_mode=ScrollContainer.SCROLL_MODE_DISABLED
+	purchase_catalog_scroll.follow_focus=true
+	body.add_child(purchase_catalog_scroll)
+	var catalog_body: VBoxContainer = VBoxContainer.new()
+	catalog_body.size_flags_horizontal=Control.SIZE_EXPAND_FILL
+	catalog_body.add_theme_constant_override("separation",0)
+	purchase_catalog_scroll.add_child(catalog_body)
+	for group: Dictionary in _purchase_groups():
+		var title: Label = _label(catalog_body,str(group.name).to_upper())
+		title.name="PurchaseGroup_"+str(group.id)
+		title.add_theme_font_size_override("font_size",12)
+		title.custom_minimum_size.y=29
+		title.vertical_alignment=VERTICAL_ALIGNMENT_CENTER
+		for i: int in group.items.size():_add_purchase_row(catalog_body,str(group.items[i]),i)
+	_label(body,"BATCH CONTENTS · Selected quantities are highlighted above")
+	purchase_manifest_scroll=ScrollContainer.new()
+	purchase_manifest_scroll.custom_minimum_size.y=68
+	purchase_manifest_scroll.horizontal_scroll_mode=ScrollContainer.SCROLL_MODE_DISABLED
+	body.add_child(purchase_manifest_scroll)
+	purchase_manifest=VBoxContainer.new()
+	purchase_manifest.add_theme_constant_override("separation",2)
+	purchase_manifest.size_flags_horizontal=Control.SIZE_EXPAND_FILL
+	purchase_manifest_scroll.add_child(purchase_manifest)
+	purchase_total=_note(body,"")
+	purchase_total.add_theme_font_size_override("font_size",14)
+	_note(body,"12 seats per bus. Equipment uses dedicated lowloaders. Rail cars must fit the receiving berth; deck space can limit loads before weight. New trains wait for Start unloading.")
 	var footer: HBoxContainer = HBoxContainer.new()
 	body.add_child(footer)
 	_button(footer,"Clear quantities",func() -> void:
-		for input: SpinBox in purchase_quantity.values(): input.value=0)
+		_reset_purchase())
 	purchase_batch=_button(footer,"Place batch order",_place_purchase)
 	_button(footer,"Close",purchase_window.hide)
 	purchase_window.close_requested.connect(purchase_window.hide)
 	purchase_window.popup_centered()
+	_purchase_changed()
+
+func _reset_purchase() -> void:
+	for quantity: SpinBox in purchase_quantity.values():
+		quantity.set_value_no_signal(0)
+		quantity.get_line_edit().text="0"
 	_purchase_changed()
 
 func _purchase_lines() -> Array[Dictionary]:
@@ -2287,23 +2421,51 @@ func _purchase_lines() -> Array[Dictionary]:
 	for key: String in purchase_quantity:
 		var spin: SpinBox = purchase_quantity[key] as SpinBox
 		var typed: String = spin.get_line_edit().text.strip_edges()
-		var quantity: int = clampi(typed.to_int(),0,9999) if typed.is_valid_int() else 0
+		var quantity: int = clampi(typed.to_int(),0,1000) if typed.is_valid_int() else 0
 		if quantity>0: lines.append({"item":key,"qty":quantity})
 	return lines
 
+func _purchase_invalid_quantity() -> String:
+	for key: String in purchase_quantity:
+		var typed: String = (purchase_quantity[key] as SpinBox).get_line_edit().text.strip_edges()
+		if not typed.is_empty() and (not typed.is_valid_int() or typed.to_int()<0 or typed.to_int()>1000):return key
+	return ""
+
 func _purchase_changed() -> void:
+	if not is_instance_valid(purchase_total):return
 	var lines: Array[Dictionary] = _purchase_lines()
+	var signature: String = JSON.stringify(_purchase_args(lines))
+	if signature!=purchase_preview_signature:
+		purchase_preview_signature=signature
+		purchase_preview_version+=1
 	var mass: float = 0
 	var total: float = 0
 	var people: int = 0
+	_clear(purchase_manifest)
+	for key: String in purchase_quantity:
+		var amount: int = clampi((purchase_quantity[key] as SpinBox).get_line_edit().text.to_int(),0,1000)
+		var entry: Dictionary = catalog[key]
+		purchase_mass_labels[key].text=_mass(amount*float(entry.mass)) if amount>0 and entry.has("mass") else ("%d passengers"%amount if amount>0 and entry.has("wage") else "—")
+		purchase_cost_labels[key].text=_money(amount*float(entry.get("price",0))) if amount>0 else "—"
+		_purchase_row_style(key)
 	for line: Dictionary in lines:
 		var entry: Dictionary = catalog[line.item]
 		mass+=float(entry.get("mass",0))*int(line.qty)
 		total+=float(entry.get("price",0))*int(line.qty)
-		if entry.has("wage"): people+=int(line.qty)
-	purchase_total.text="%d lines · %s cargo · %d workers · %s before carrier charges"%[lines.size(),_mass(mass),people,_money(total)]
-	purchase_batch.disabled=lines.is_empty()
-	if not lines.is_empty() and not purchase_preview_pending:
+		if entry.has("wage"):people+=int(line.qty)
+		var row: HBoxContainer = HBoxContainer.new()
+		row.add_theme_constant_override("separation",8)
+		purchase_manifest.add_child(row)
+		_purchase_cell(row,str(entry.name))
+		_purchase_cell(row,"× %d"%int(line.qty),60)
+		_purchase_cell(row,_mass(float(entry.mass)*int(line.qty)) if entry.has("mass") else ("Passengers" if entry.has("wage") else "Service"),96)
+		_purchase_cell(row,_money(float(entry.price)*int(line.qty)),88)
+	if lines.is_empty():_note(purchase_manifest,"No items selected. Enter a quantity above to add it to this batch.")
+	purchase_total.text="%d item lines · %s cargo · %d workers\n%s before carrier charges"%[lines.size(),_mass(mass),people,_money(total)]
+	var invalid: String = _purchase_invalid_quantity()
+	if not invalid.is_empty():purchase_total.text="Enter a whole-number quantity from 0 to 1,000 for "+_name(invalid)+"."
+	purchase_batch.disabled=lines.is_empty() or not invalid.is_empty()
+	if not lines.is_empty() and invalid.is_empty() and not purchase_preview_pending:
 		purchase_preview_pending=true
 		_request_purchase_preview.call_deferred()
 
@@ -2311,15 +2473,18 @@ func _request_purchase_preview() -> void:
 	purchase_preview_pending=false
 	if not is_instance_valid(purchase_window) or not purchase_window.visible: return
 	var lines: Array[Dictionary] = _purchase_lines()
-	if not lines.is_empty(): _send("purchase_preview",_purchase_args(lines))
+	if not lines.is_empty() and _purchase_invalid_quantity().is_empty():
+		var args: Dictionary = _purchase_args(lines)
+		args["requestId"]=purchase_preview_version
+		_send("purchase_preview",args)
 
 func _place_purchase() -> void:
+	var invalid: String = _purchase_invalid_quantity()
+	if not invalid.is_empty():
+		purchase_total.text="Enter a whole-number quantity from 0 to 1,000 for "+_name(invalid)+"."
+		return
 	for key: String in purchase_quantity:
 		var quantity: SpinBox = purchase_quantity[key] as SpinBox
-		var typed: String = quantity.get_line_edit().text.strip_edges()
-		if not typed.is_empty() and not typed.is_valid_int():
-			purchase_total.text="Enter a whole-number quantity for "+_name(key)+". "
-			return
 		quantity.apply()
 	var lines: Array[Dictionary] = _purchase_lines()
 	if lines.is_empty(): return

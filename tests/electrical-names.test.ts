@@ -8,6 +8,7 @@ test('electrical labels retain stable wiring IDs and survive reload for all supp
   const s = createState();
   const kinds = ['power', 'electricalJunction', 'lamp', 'transferPump'] as const;
   s.creative = true;
+  s.buildings = s.buildings.filter((b) => b.id !== 'BLD-0000');
   s.buildings.push({
     id: 'BLD-0100',
     kind: 'power',

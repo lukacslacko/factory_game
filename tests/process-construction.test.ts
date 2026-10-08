@@ -301,7 +301,7 @@ test('one normal construction crew builds an adjacent connected process line and
   ];
   line.forEach((kind, i) => assert.equal(S.plan(s, kind, 42 + i, 30, 0, false).error, ''));
   tickUntil(s, () => s.jobs.every((j) => j.status === 'done'), 2400);
-  assert.equal(s.buildings.length, 8);
+  assert.equal(s.buildings.filter((b) => b.kind !== 'power').length, 8);
   assert.equal(s.equipment[0].id, e.id);
   const pump = s.buildings.find((b) => b.kind === 'transferPump')!,
     tank = s.buildings.find((b) => b.kind === 'processTank')!,

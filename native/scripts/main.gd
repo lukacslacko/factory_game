@@ -993,7 +993,12 @@ func _run_self_test() -> void:
 	result = await _await_reply(client.send("save"))
 	await get_tree().create_timer(.3).timeout
 	_test_assert(bool(state.get("creative",false)) and ui.creative_button.button_pressed,"Saved creative state reaches the native toggle")
-	_test_assert(state.get("rails",[]).size()==6 and state.get("buildings",[]).size()==1,"Direct assets reach the real scene snapshot")
+	var built_sheds:int=0
+	var incoming_stations:int=0
+	for building:Dictionary in state.get("buildings",[]):
+		if building.get("kind")=="shed":built_sheds+=1
+		if building.get("kind")=="power" and building.get("id")=="BLD-0000":incoming_stations+=1
+	_test_assert(state.get("rails",[]).size()==6 and built_sheds==1 and incoming_stations==1,"Direct assets and opening supply reach the real scene snapshot")
 	_test_assert(state.get("orders",[]).is_empty() and state.get("costs",[]).is_empty(),"No hidden delivery or construction invoices")
 	var recovered_rail_id: String=str(state.rails[0].id)
 	result = await _await_reply(client.send("zone", {"rect":{"x":45,"z":60,"w":50,"d":30},"name":"Recovered track"}))

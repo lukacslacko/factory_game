@@ -12,6 +12,7 @@ function fixture() {
     e = seedHandlingResources(s, 'excavator');
   s.workers[1].role = 'engineer';
   s.workers[1].wage = 42;
+  s.buildings = s.buildings.filter((b) => b.id !== 'BLD-0000');
   const source = {
       id: S.id(s, 'building'),
       kind: 'power' as const,

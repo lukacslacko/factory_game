@@ -43,7 +43,7 @@ function balanced(s: State) {
 test('shed construction stages a real kit and erects anchors, columns, frames, roof and wall with saved physical crew', () => {
   let s = yard();
   step(s, () => s.jobs[0].shedAssembly?.phase === 'anchor');
-  assert.equal(s.buildings.length, 0);
+  assert.equal(s.buildings.filter((b) => b.kind === 'shed').length, 0);
   assert.equal(s.equipment[0].cargo, undefined);
   assert.equal(S.totals(s, 'shed').inConstruction, 1);
   const stages = new Set<string>();
@@ -86,14 +86,14 @@ test('shed construction stages a real kit and erects anchors, columns, frames, r
       s = S.load(S.save(s));
       reloads++;
     }
-    if (j.status !== 'done') assert.equal(s.buildings.length, 0);
+    if (j.status !== 'done') assert.equal(s.buildings.filter((b) => b.kind === 'shed').length, 0);
   }
   assert.equal(
     s.jobs[0].status,
     'done',
     JSON.stringify({ jobs: s.jobs, e: s.equipment, w: s.workers }),
   );
-  assert.equal(s.buildings.length, 1);
+  assert.equal(s.buildings.filter((b) => b.kind === 'shed').length, 1);
   assert.equal(reloads, 2);
   assert.ok(sawLadder, 'High shed fastening needs a real climb on the kit assembly ladder');
   assert.ok(
@@ -122,13 +122,13 @@ test('cardinally rotated shed assembly preserves all component geometry and kit 
   const s = yard(1);
   step(s, () => s.jobs[0].status === 'done');
   balanced(s);
-  assert.deepEqual([s.buildings[0].w, s.buildings[0].d, s.buildings[0].rotation], [6, 8, 1]);
+  assert.deepEqual([s.buildings.find((b) => b.kind === 'shed')!.w, s.buildings.find((b) => b.kind === 'shed')!.d, s.buildings.find((b) => b.kind === 'shed')!.rotation], [6, 8, 1]);
   const points = shedPostPoints(s.jobs[0]);
   for (const point of points)
     assert.ok(
       staticObstacleRects(s).some(
         (r) =>
-          r.id === s.buildings[0].id &&
+          r.id === s.buildings.find((b) => b.kind === 'shed')!.id &&
           Math.abs(r.x + 0.2 - point.x) < 0.01 &&
           Math.abs(r.z + 0.2 - point.z) < 0.01,
       ),
@@ -162,7 +162,7 @@ test('older active forklift shed trips stage their kit as real stock instead of 
     s,
     () => s.jobs[0].status === 'todo' && s.jobs[0].phase === 'Waiting for excavator erection',
   );
-  assert.equal(s.buildings.length, 0);
+  assert.equal(s.buildings.filter((b) => b.kind === 'shed').length, 0);
   assert.equal(s.jobs[0].delivered, false);
   assert.equal(s.jobs[0].shedAssembly, undefined);
   assert.equal(s.equipment[0].cargo, undefined);
@@ -185,7 +185,7 @@ test('canceling a carried roof section first sets it down safely then physically
   S.cancelJob(s, j.id);
   s = S.load(S.save(s));
   step(s, () => s.jobs[0].status === 'canceled');
-  assert.equal(s.buildings.length, 0);
+  assert.equal(s.buildings.filter((b) => b.kind === 'shed').length, 0);
   assert.equal(s.equipment[0].assemblyLoad, undefined);
   assert.equal(s.jobs[0].shedAssembly?.posts, 0);
   assert.equal(s.jobs[0].shedAssembly?.roofSheets, 0);
@@ -209,7 +209,7 @@ test('partially erected shed cancellation reverses physical assembly and preserv
   S.cancelJob(s, j.id);
   s = S.load(S.save(s));
   step(s, () => s.jobs[0].status === 'canceled');
-  assert.equal(s.buildings.length, 0);
+  assert.equal(s.buildings.filter((b) => b.kind === 'shed').length, 0);
   assert.equal(S.totals(s, 'shed').stored, 1);
   assert.equal(S.totals(s, 'shed').inConstruction, 0);
   assert.equal(s.jobs[0].shedAssembly!.posts, 0);

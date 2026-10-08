@@ -3,8 +3,8 @@ import assert from 'node:assert/strict';
 import * as S from '../src/sim';
 import { electricalConsumerPower } from '../src/electrical-network';
 
-/** Complete public-API bootstrap: no seeded equipment, crew, cable, or station. */
-test('an empty yard receives its station, crew and reels before physically wiring a built light', () => {
+/** Complete public-API bootstrap: the opening station, with no seeded equipment, crew, or cable. */
+test('an empty yard receives crew and reels before physically wiring a built light from its opening station', () => {
   let s = S.createState();
   assert.equal(S.addZone(s, { x: 24, z: 26, w: 27, d: 24 }), '');
   S.purchaseBatch(s, [
@@ -19,7 +19,6 @@ test('an empty yard receives its station, crew and reels before physically wirin
     { item: 'slab', qty: 1 },
     { item: 'diesel', qty: 1 },
   ]);
-  S.purchase(s, 'power', 1);
   assert.equal(S.plan(s, 'lamp', 10, 22).error, '');
   function until(done: () => boolean, seconds = 4000) {
     for (let n = 0; n < seconds * 10 && !done(); n++) S.tick(s, 0.1);

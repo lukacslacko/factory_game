@@ -66,7 +66,7 @@ function outsideMachine(e: Equipment, w: Worker) {
 test('road vehicles fit entirely inside their right-hand lane on both sides of the crossing', () => {
   let eastbound = 0,
     westbound = 0;
-  for (const item of ['builder', 'slab', 'forklift', 'power']) {
+  for (const item of ['builder', 'slab', 'forklift', 'water']) {
     const order = { item, mode: 'road' as const };
     for (let distance = 0; distance <= roadExitLength(order); distance += 0.2) {
       const p = sampleRoad(order, distance);
@@ -128,7 +128,7 @@ test('mixed arrivals never drive through a stopped worker bus or another carrier
   S.purchase(s, 'forklift', 1);
   S.purchase(s, 'excavator', 1);
   S.purchase(s, 'slab', 24);
-  S.purchase(s, 'power', 1);
+  S.purchase(s, 'water', 1);
   let parkedBusSamples = 0,
     pairedSamples = 0;
   tickUntil(

@@ -1,0 +1,135 @@
+{
+  "version": "0.29.0",
+  "build": 224,
+  "date": "2026-10-08",
+  "issues": [
+    41,
+    44
+  ],
+  "openingSupply": {
+    "newModes": [
+      "empty",
+      "starter",
+      "example"
+    ],
+    "stationsPerNewYard": 1,
+    "id": "BLD-0000",
+    "position": {
+      "x": 3,
+      "z": 15
+    },
+    "capacityKw": 16,
+    "installationPurchasable": false,
+    "downstreamCircuitsRequired": true,
+    "existingSavesPreserved": true
+  },
+  "purchaseCatalog": {
+    "thematicGroups": 8,
+    "workersFirst": true,
+    "sharedDesktopAndBrowserOrdering": true,
+    "alignedQuantitiesMassesAndPrices": true,
+    "rowHoverFocusAndBatchHighlight": true,
+    "boundedManifestAndCatalog": true,
+    "previewRequestCorrelation": true,
+    "quantityLimit": 1000
+  },
+  "builds": {
+    "native": "passed",
+    "browser": "passed with existing bundle-size advisory"
+  },
+  "nativeChecks": [
+    {
+      "name": "purchasing-ui",
+      "elapsed_seconds": 1.02,
+      "peak_resident_bytes": 158056448,
+      "returncode": 0,
+      "stopped_reason": null,
+      "assertions": 33
+    },
+    {
+      "name": "opening-electrical-ui",
+      "elapsed_seconds": 1.52,
+      "peak_resident_bytes": 192774144,
+      "returncode": 0,
+      "stopped_reason": null,
+      "assertions": 66
+    },
+    {
+      "name": "keyboard-focus",
+      "elapsed_seconds": 1.53,
+      "peak_resident_bytes": 174030848,
+      "returncode": 0,
+      "stopped_reason": null,
+      "assertions": 13
+    },
+    {
+      "name": "opening-purchase-packaged",
+      "elapsed_seconds": 5.73,
+      "peak_resident_bytes": 456900608,
+      "returncode": 0,
+      "stopped_reason": null,
+      "assertions": 19
+    },
+    {
+      "name": "opening-general-packaged",
+      "elapsed_seconds": 7.35,
+      "peak_resident_bytes": 570359808,
+      "returncode": 0,
+      "stopped_reason": null,
+      "assertions": 30
+    },
+    {
+      "name": "native-ui",
+      "passed": true,
+      "tabs": 13,
+      "inspectorTypes": 10
+    }
+  ],
+  "fullSuite": {
+    "tests": 810,
+    "passed": 810,
+    "failed": 0,
+    "elapsed_seconds": 626.88,
+    "sequential": true,
+    "nodeHeapMiB": 384,
+    "status": "passed"
+  },
+  "packaging": {
+    "repositoryNativeFiles": 95,
+    "installedFiles": 163,
+    "mismatches": [],
+    "signature": "verified",
+    "installedApp": "Plant 01 v0.29.0.app",
+    "archiveBytes": 152170800,
+    "archiveSHA256": "e5f221896281b24f01ad09f6d6e6d12d5e234b88378e4f2251d1a2e745137d52"
+  },
+  "userGame": {
+    "runningGameAndSaveUntouched": true,
+    "newAppLeftClosed": true
+  },
+  "limits": [
+    "Native UI and GPU checks use isolated temporary synthetic yards.",
+    "Browser source and build checked; Chrome was not launched and the hosted Site remains 0.18.0.",
+    "Existing saves keep their existing infrastructure; the automatic supply is for new factories.",
+    "The larger bootstrap uses an explicit receiving role and finite fuel deliveries; this is not a guarantee of arbitrary all-automatic separately ordered freight/construction schedules.",
+    "Native checks run one graphics process at a time with 55-second/2 GiB renderer watchdogs; sampled renderer memory excludes child-service and GPU memory."
+  ],
+  "initialFullSuite": {
+    "tests": 805,
+    "passed": 802,
+    "failed": 3,
+    "resolution": "Corrected obsolete empty-yard fixtures, made bootstrap receiving/fuel policy explicit, and repaired two concrete physical clearance boundaries exposed by the replay."
+  },
+  "frozenInputs": {
+    "count": 243,
+    "changed": []
+  },
+  "clearanceRegressions": {
+    "focusedTests": 5,
+    "largerStarterBase": "passed; 145 construction jobs, physical refueling, save/reload and conserved inventories",
+    "loadedRiggerContinuationSeconds": 71.2,
+    "idleSourceBlockerContinuationSeconds": 220.1,
+    "manualAndLoadedBlockersPreserved": true,
+    "counterfactualSourceSurveyNeverExecuted": true
+  }
+}

@@ -1,6 +1,6 @@
 import { writeFileSync } from 'node:fs';
 import * as S from '../src/sim';
-import { checkScenarioFuel, requestLowFuelService, stateSummary } from './support/yard';
+import { checkScenarioFuel, configureScenarioEquipment, requestLowFuelService, stateSummary } from './support/yard';
 let s = S.createState();
 S.addZone(s, { x: 24, z: 26, w: 27, d: 24 }, 'Receiving stockyard');
 s.name = 'Willow Siding';
@@ -9,9 +9,7 @@ S.purchase(s, 'builder', 3);
 S.purchase(s, 'operator', 2);
 S.purchase(s, 'excavator', 1);
 S.purchase(s, 'forklift', 1);
-S.purchase(s, 'power', 1);
 S.purchase(s, 'water', 1);
-S.purchase(s, 'diesel', 2);
 S.plan(s, 'office', 4, 32);
 S.plan(s, 'sanitary', 4, 39);
 S.plan(s, 'shed', 12, 44);
@@ -25,13 +23,19 @@ for (const [x, z] of [
   S.plan(s, 'lamp', x, z);
 for (let x = 125; x < 150; x += 5) S.plan(s, 'rail', x, 4);
 S.pave(s, { x: 56, z: 35, w: 8, d: 4 });
-S.buyMissing(s);
+S.purchaseBatch(s, [
+  { item: 'diesel', qty: 2 },
+  ...Object.entries(S.missingMaterials(s))
+    .filter(([, qty]) => qty > 0)
+    .map(([item, qty]) => ({ item, qty })),
+]);
 let elapsed = 0;
 let sawServiceCan = false;
 while (
   (s.jobs.some((j) => j.status !== 'done') || s.orders.some((o) => o.status !== 'done')) &&
   elapsed < 12000
 ) {
+  configureScenarioEquipment(s);
   requestLowFuelService(s);
   S.tick(s, 0.1);
   checkScenarioFuel(s);

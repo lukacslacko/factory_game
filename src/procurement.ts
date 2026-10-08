@@ -65,6 +65,8 @@ export function packPurchase(lines: { item: string; qty: number }[], mode: 'road
       ![MATERIALS, EQUIPMENT, ROLES, SERVICES].some((catalog) => Object.hasOwn(catalog, line.item))
     )
       throw new Error('Unknown catalog item.');
+    if ((SERVICES as Record<string, { purchasable?: boolean }>)[line.item]?.purchasable === false)
+      throw new Error('Every new factory already includes a connected 16 kW incoming electrical station. Build underground circuits from Incoming power instead.');
     const prior = normalized.find((p) => p.item === line.item);
     if (prior) {
       if (prior.qty + line.qty > 1000)

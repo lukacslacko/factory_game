@@ -8,6 +8,7 @@ import { seedHandlingResources } from './support/yard';
 function fixture() {
   const s = S.createState();
   s.utilities.power = true;
+  s.buildings = s.buildings.filter((b) => b.id !== 'BLD-0000');
   s.buildings.push(
     {
       id: 'BLD-1001',

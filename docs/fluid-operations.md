@@ -46,4 +46,4 @@ The fluid movement ledger aggregates each transfer run by physical source/destin
 
 ## Underground electrical prerequisite
 
-The pump motor needs a commissioned circuit to its own electrical box. A site-wide utility flag alone no longer supplies pumps. Open Electrical, order the incoming station and cable reels, then build a valid underground connection with an excavator, operator, and engineer. The motor draws 2 kW while enabled; each connected light draws 0.1 kW from the shared 16 kW station. See [Underground electrical service](electrical-operations.md).
+The pump motor needs a commissioned circuit to its own electrical box. A site-wide utility flag alone does not supply pumps. Every new factory includes a connected incoming station. Open Electrical, inspect the supply, order cable reels, then build a valid underground connection with an excavator, operator, and engineer. The motor draws 2 kW while enabled; each connected light draws 0.1 kW from the shared 16 kW station. See [Underground electrical service](electrical-operations.md).

@@ -304,7 +304,6 @@ test('yard maneuver reservations survive reload while arrivals and multiple bert
     ['operator', 2],
     ['excavator', 1],
     ['forklift', 1],
-    ['power', 1],
     ['water', 1],
     ['diesel', 2],
   ] as [string, number][])

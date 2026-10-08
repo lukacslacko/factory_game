@@ -309,8 +309,9 @@ export const SERVICES = {
   power: {
     name: 'Electrical connection',
     price: 1800,
+    purchasable: false,
     description:
-      'Utility crew installs a 16 kW low-voltage incoming cabinet. Each light or pump needs a separately built, tested underground cable circuit.',
+      'Every new factory includes a connected 16 kW incoming cabinet. Each light or pump needs a separately built, tested underground cable circuit.',
   },
   water: {
     name: 'Water and sewer connection',
@@ -318,6 +319,17 @@ export const SERVICES = {
     description: 'Utility crew brings a small excavator and connects site water and sewer.',
   },
 };
+/** One shared, deliberately ordered catalog for the desktop and browser stores. */
+export const PURCHASE_GROUPS: { id: string; name: string; items: string[] }[] = [
+  { id: 'workers', name: 'Workers', items: ['builder', 'operator', 'engineer', 'railDriver'] },
+  { id: 'equipment', name: 'Equipment', items: ['excavator', 'forklift'] },
+  { id: 'site', name: 'Paving and buildings', items: ['slab', 'office', 'sanitary', 'shed', 'engineShed', 'store', 'fence'] },
+  { id: 'railway', name: 'Railway', items: ['rail', 'railCurve', 'railPoints', 'railFrog', 'railClosure', 'railExit', 'bufferStop'] },
+  { id: 'process', name: 'Tanks, pumps, and piping', items: ['processTank', 'transferPump', 'processPipe', 'pipeElbow', 'pipeTee', 'processValve', 'processGauge'] },
+  { id: 'electrical', name: 'Electrical and lighting', items: ['lamp', 'electricalJunction', 'cableReel'] },
+  { id: 'fuel', name: 'Fuel', items: ['diesel'] },
+  { id: 'services', name: 'Utility services', items: ['water'] },
+];
 export const money = (n: number) =>
   new Intl.NumberFormat('en-US', {
     style: 'currency',

@@ -100,7 +100,7 @@ test('engine shed is physically erected from one delivered kit with recoverable 
   const jid = result.job!.id;
   assert.equal(equipmentCanDoJob({ ...e, kind: 'forklift' }, result.job!), false);
   tickUntil(s, () => !!s.jobs.find((j) => j.id === jid)!.shedAssembly, 800);
-  assert.equal(s.buildings.length, 0);
+  assert.equal(s.buildings.filter((b) => b.kind === 'engineShed').length, 0);
   tickUntil(s, () => s.jobs.find((j) => j.id === jid)!.shedAssembly!.posts >= 1, 1400);
   const before = s.jobs.find((j) => j.id === jid)!.shedAssembly!;
   assert.ok(staticObstacleRects(s).some((r) => r.id === jid + '-post'));
@@ -110,7 +110,7 @@ test('engine shed is physically erected from one delivered kit with recoverable 
     before.componentIds,
   );
   tickUntil(s, () => s.jobs.find((j) => j.id === jid)!.status === 'done', 2400);
-  const b = s.buildings[0];
+  const b = s.buildings.find((b) => b.kind === 'engineShed')!;
   assert.equal(b.kind, 'engineShed');
   assert.ok(b.parkingLocationId);
   assert.equal(s.stacks[0].qty, 0);
@@ -134,7 +134,7 @@ test('canceling partial engine shed physically dismantles and repacks its origin
   S.cancelJob(s, jid);
   s = S.load(S.save(s));
   tickUntil(s, () => s.jobs.find((j) => j.id === jid)!.status === 'canceled', 1600);
-  assert.equal(s.buildings.length, 0);
+  assert.equal(s.buildings.filter((b) => b.kind === 'engineShed').length, 0);
   assert.equal(S.totals(s, 'engineShed').stored, 1);
   const kit = s.stacks.find((t) => t.item === 'engineShed' && t.qty === 1)!;
   assert.equal(kit.assetId, identity);
@@ -155,7 +155,7 @@ test('owned locomotive physically enters and exits its saved engine shed bay', (
   s.creative = true;
   s.buffers = [];
   assert.equal(S.plan(s, 'engineShed', rect.x, rect.z).error, '');
-  const b = s.buildings[0];
+  const b = s.buildings.find((b) => b.kind === 'engineShed')!;
   seedHandlingResources(s, 'forklift');
   s.workers[0].railQualified = true;
   const ordered = orderShunter(s, { driverId: s.workers[0].id });
@@ -209,6 +209,6 @@ test('engine shed import rejects corrupted physical component counts and identit
   s.creative = true;
   assert.equal(S.plan(s, 'engineShed', rect.x, rect.z).error, '');
   const bad = JSON.parse(S.save(s));
-  bad.buildings[0].componentIds['post/0'] = bad.buildings[0].componentIds['post/1'];
+  bad.buildings.find((b: any) => b.kind === 'engineShed').componentIds['post/0'] = bad.buildings.find((b: any) => b.kind === 'engineShed').componentIds['post/1'];
   assert.throws(() => S.load(JSON.stringify(bad)), /Invalid save/);
 });

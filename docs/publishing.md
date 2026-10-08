@@ -262,3 +262,12 @@ The final signed package passes the exact GPU/authenticated-service integration 
 The installed **Plant 01 v0.28.1.app** matches all **163** tested bundle files and all **95** packaged repository source/asset files; its ad-hoc signature verifies. Keep the previous application and original private save. The public archive retains the usual **Plant 01.app** name and includes offline guides and the public fluid example. The browser Site remains v0.18.0.
 
 Release: [v0.28.1](https://github.com/lukacslacko/factory_game/releases/tag/v0.28.1). `Plant-01-macOS-arm64-v0.28.1.zip` is **152,166,889 bytes**, SHA-256 **`165388004a36da7bf13a6191d8bd04a6bba73d7552fd134d8c3565ac56214d17`**. Measured verification: `native/tests/delivery-reapproach-verified-results.json`.
+
+
+## Native v0.29.0 — opening electricity and grouped purchasing
+
+Release v0.29.0 build 224 includes the creator's simplified #41 scope: one connected 16 kW incoming station in every new factory, including Empty, with no installation purchase. Downstream cables remain physical work. Existing saves retain their infrastructure. #44 adds shared thematic purchase ordering, dense separated and highlighted rows, aligned quantities/masses/prices, a visible batch manifest, and correlated transport totals. The native walkthrough and electrical help describe the opening supply.
+
+Install **Plant 01 v0.29.0.app** beside the repository, retain the earlier app, and leave the update closed. The user's running game and save are untouched. The self-contained Apple Silicon macOS 14+ bundle passes its packaged purchasing and general integration checks, source/installed-file comparison and ad-hoc signature verification. Its public ZIP contains only the app, runtime notices, and player guides, with no saves, private logs, test fixtures, or repository metadata. The browser Site remains v0.18.0; this request publishes a native update. Verification details are in `native/tests/opening-purchase-verified-results.json`.
+
+Release: [v0.29.0](https://github.com/lukacslacko/factory_game/releases/tag/v0.29.0). `Plant-01-macOS-arm64-v0.29.0.zip` is **152,170,800 bytes**, SHA-256 **`e5f221896281b24f01ad09f6d6e6d12d5e234b88378e4f2251d1a2e745137d52`**. The complete suite passes **810/810** sequential tests in **626.88 seconds**, with all **243** frozen inputs unchanged. Both builds and the final packaged purchasing (19 assertions) and general integration (30 assertions) pass; all **95** packaged repository files and **163** installed files match.

@@ -666,7 +666,7 @@ for (const mergeExisting of [false, true]) {
     tickUntil(s, () => s.jobs.find((j) => j.id === jid)!.status === 'done', 600);
     assert.equal(s.stacks.find((q) => q.id === sourceId)!.qty, 2);
     assert.equal(physicalCount(s, 'processPipe'), mergeExisting ? 7 : 5);
-    assert.equal(s.buildings.length, 0, 'Moving several pipe kits does not install process piping');
+    assert.equal(s.buildings.filter((b) => b.kind === 'processPipe').length, 0, 'Moving several pipe kits does not install process piping');
     S.load(S.save(s));
   });
 }

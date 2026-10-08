@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import * as S from '../src/sim.ts';
-import { EQUIPMENT, MATERIALS } from '../src/catalog.ts';
+import { EQUIPMENT, MATERIALS, SERVICES } from '../src/catalog.ts';
 import { carrierRects, shipmentLots } from '../src/delivery.ts';
 import { localPoint } from '../src/motion.ts';
 import { overlap } from '../src/path.ts';
@@ -452,30 +452,42 @@ test('manual deployment uses the chosen operator even with automatic operators o
   assert.equal(selected.duty, 'manual');
 });
 
-test('utility crews wait for a pedestrian, then depart and free the service berth', () => {
-  const s = emptyYard();
-  const [powerId] = S.purchase(s, 'power', 1);
+test('legacy utility crews wait for a pedestrian, then depart and free the service berth for water', () => {
+  let s = emptyYard();
+  s.buildings = [];
+  s.utilities.power = false;
+  // Simulate an outstanding utility order imported from an older yard.
+  // Its carrier matches water; electricity cannot be purchased in a new yard.
+  const [legacyId] = S.purchase(s, 'water', 1);
+  const legacy = s.orders.find((o) => o.id === legacyId)!;
+  legacy.item = 'power';
+  legacy.total = SERVICES.power.price + 90;
+  s = S.load(S.save(s));
+  const service = s.orders.find((o) => o.id === legacyId)!;
   const [waterId] = S.purchase(s, 'water', 1);
-  const power = s.orders.find((o) => o.id === powerId)!;
-  tickUntil(s, () => power.contractor?.phase === 'seated');
+  const water = s.orders.find((o) => o.id === waterId)!;
+  tickUntil(s, () => service.contractor?.phase === 'seated');
   const pedestrian = {
     ...S.demoState().workers[0],
     id: S.id(s, 'worker'),
     name: 'Worker #1',
     duty: 'rest' as const,
-    x: power.vehicle.x - 6,
-    z: power.vehicle.z,
+    x: service.vehicle.x - 6,
+    z: service.vehicle.z,
     path: [],
   };
   s.workers.push(pedestrian);
-  tickUntil(s, () => power.note.includes(pedestrian.id), 30);
-  assert.equal(power.status, 'departing');
-  const stopped = { ...power.vehicle };
+  tickUntil(s, () => service.note.includes(pedestrian.id), 30);
+  assert.equal(service.status, 'departing');
+  assert.equal(water.status, 'ordered', 'The following utility must wait for the occupied service berth');
+  const stopped = { ...service.vehicle };
   advance(s, 2);
-  assert.deepEqual(power.vehicle, stopped, 'A seated utility crew must keep waiting for clearance');
+  assert.deepEqual(service.vehicle, stopped, 'A seated utility crew must keep waiting for clearance');
+  assert.equal(water.status, 'ordered');
   assert.equal(S.moveWorker(s, pedestrian.id, { x: pedestrian.x, z: pedestrian.z + 8 }), '');
   tickUntil(s, () => s.orders.every((o) => o.status === 'done'), 900);
-  assert.equal(s.orders.find((o) => o.id === waterId)!.status, 'done');
+  assert.equal(service.status, 'done');
+  assert.equal(water.status, 'done');
   assert.deepEqual(s.utilities, { power: true, water: true });
   assert.equal(s.buildings.filter((b) => b.kind === 'power').length, 1);
   assert.equal(s.buildings.filter((b) => b.kind === 'water').length, 1);

@@ -2,7 +2,7 @@
 
 ## Native game
 
-The playable Godot migration uses the approved Concept C art and a separate local simulation process. Open **Plant 01.app** in the surrounding `outputs/` folder, or double-click **Open Plant 01.command** for development. No browser is required. [Download the Mac app](https://github.com/lukacslacko/factory_game/releases/tag/v0.28.1). See [native game instructions](native/README.md) and [migration notes](docs/native-migration.md). The browser game and static visual proof remain available below.
+The playable Godot migration uses the approved Concept C art and a separate local simulation process. Open **Plant 01 v0.29.0.app** in the surrounding `outputs/` folder, or double-click **Open Plant 01.command** for development. No browser is required. [Download the Mac app](https://github.com/lukacslacko/factory_game/releases/tag/v0.29.0). See [native game instructions](native/README.md) and [migration notes](docs/native-migration.md). The browser game and static visual proof remain available below.
 
 
 A playable first version of the fantasy chemistry plant game. Build and operate the construction yard before chemical production arrives: hire a crew, receive physical materials, move equipment, pave ground, extend track, and assemble a small base.
@@ -10,6 +10,12 @@ A playable first version of the fantasy chemistry plant game. Build and operate 
 The world uses a true perspective 3D camera, with a meter grid, dimensional stock, angled lighting, and grid-aligned parked equipment. The records use the approved Condensed direction. The visual target is the latest **80% A / 20% B** selection, rather than the earlier rejected flat world studies.
 
 ![Native gameplay](native/screenshots/02-native-equipment.png)
+
+## Opening supply and clearer purchasing — native v0.29.0
+
+Every new factory, including Empty yard, starts with one connected 16 kW electrical station. Build underground circuits to power lights and pumps. Purchase / hire now uses thematic groups, clearly separated and highlighted rows, aligned quantities, weights and prices, and a visible batch manifest. Installation is removed from purchasing. Existing saves retain their infrastructure.
+
+![Grouped native purchasing with a visible batch manifest](native/screenshots/purchasing-grouped.png)
 
 ## Move material to storage — native v0.28.0
 
@@ -25,7 +31,7 @@ Electrical work excavates the full run, pulls cable along the open trench, conne
 
 ## Underground electrical circuits — native v0.26.0
 
-Order the incoming 16 kW station and physical 50-meter cable reels, then plan a circuit in **Electrical**. An excavator, operator, and engineer lift paving, dig meter-grid trenches, stage the conserved soil beside them, lay cable, backfill, restore paving, terminate and test. Lights and tanker pumps require commissioned circuits; protected light-base junctions can extend branches within the shared capacity. Safe cancellation, physical cable recovery, linked warnings, local saves, and SQL retain the work and every meter. See the [electrical walkthrough](docs/electrical-operations.md).
+Every new yard includes a connected 16 kW station. Order physical 50-meter cable reels, then plan a circuit in **Electrical**. An excavator, operator, and engineer lift paving, dig meter-grid trenches, stage the conserved soil beside them, lay cable, backfill, restore paving, terminate and test. Lights and tanker pumps require commissioned circuits; protected light-base junctions can extend branches within the shared capacity. Safe cancellation, physical cable recovery, linked warnings, local saves, and SQL retain the work and every meter. See the [electrical walkthrough](docs/electrical-operations.md).
 
 ![Actual cable installation before backfill](native/screenshots/electrical-cable-laid.png)
 
@@ -73,7 +79,7 @@ An independent [Godot visual study](native-proof/README.md) recreates the concep
 
 Current electrical controls are implemented in Godot. The source browser UI is retained for reference; use the native app for current gameplay.
 
-The private game Site is **https://plant-01-starter-yard.lukacslacko.chatgpt.site**. The browser deployment remains **0.18.0**; the native release is **0.28.1**. Browser deployment status is recorded in `docs/publishing.md`. Sign in with the account that owns the Site. Local and hosted browser saves are separate; use Export save / Import save to transfer a yard.
+The private game Site is **https://plant-01-starter-yard.lukacslacko.chatgpt.site**. The browser deployment remains **0.18.0**; the native release is **0.29.0**. Browser deployment status is recorded in `docs/publishing.md`. Sign in with the account that owns the Site. Local and hosted browser saves are separate; use Export save / Import save to transfer a yard.
 
 On this Mac, double-click **Start Plant 01.command**. It starts the included local server and opens the game at **http://127.0.0.1:4173/**. Keep its Terminal window open while playing; Control-C stops the server.
 
@@ -104,7 +110,7 @@ Open **manual.html** through the local server for the illustrated player guide, 
 - Road traffic keeps right on an 8.4 m road, queues behind stopped vehicles, and yields at the crossing. Carriers take turns through the connecting yard maneuver, while parked deliveries release it for other arrivals. Buses continue forward; freight and utility trucks back clear inside the yard before departing forward; lowloaders use a forward turning loop. Machinery yields to workers and routes around obstructions.
 - Rail construction stages panels beside the track, unbolts and lifts the existing buffer aside, and lowers and joins each panel. A connected multi-panel work order refastens that same buffer once at its final end. Keep space beside the extension for staging and lifting.
 - Consume diesel, receive low-fuel notices, and refuel through a worker carrying a 20 L service can. Fuel held in a can survives saving and loading.
-- Order electrical and water/sewer services. Utility crews install the incoming station; delivered cable reels, an excavator, an operator, and an engineer build underground circuits to lights and tanker pumps. See [Underground electrical service](docs/electrical-operations.md).
+- Order water/sewer service. Every new yard already includes its incoming electrical station; delivered cable reels, an excavator, an operator, and an engineer build underground circuits to lights and tanker pumps. See [Underground electrical service](docs/electrical-operations.md).
 - Inspect materials, workers, equipment, structures, deliveries, jobs, events, material movements, actual costs, and outstanding commitments. Track notifications in To do / Doing / Done.
 - Query a fresh SQLite reporting snapshot and export costs as CSV. Autosave locally, export/import a portable save, and restore the previous yard backup.
 

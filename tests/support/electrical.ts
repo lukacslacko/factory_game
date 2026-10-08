@@ -9,6 +9,8 @@ export function wireOpeningConsumer(
   cells?: Point[],
 ) {
   if (!source) {
+    // Focused fixtures position the single opening supply beside their circuit.
+    s.buildings = s.buildings.filter((b) => b.id !== 'BLD-0000');
     source = {
       id: S.id(s, 'building'),
       kind: 'power',

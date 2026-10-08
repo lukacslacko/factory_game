@@ -11,6 +11,7 @@ import { electricalRemovalConflict, electricalRecoveryConflict } from '../src/el
 import { electricalValidationProblem } from '../src/electrical-validation';
 import type { State, Building } from '../src/types';
 function building(s: State, kind: Building['kind'], x: number, z: number) {
+  if (kind === 'power') s.buildings = s.buildings.filter((b) => b.id !== 'BLD-0000');
   const b = {
     id: S.id(s, 'building'),
     kind,

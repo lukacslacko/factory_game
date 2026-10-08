@@ -7,6 +7,7 @@ import { electricalRecoveryConflict } from '../src/electrical';
 import { MATERIALS, BUILDINGS } from '../src/catalog';
 import type { State, Building } from '../src/types';
 function building(s: State, kind: Building['kind'], x: number, z: number, name = kind as string) {
+  if (kind === 'power') s.buildings = s.buildings.filter((b) => b.id !== 'BLD-0000');
   const b = {
     id: S.id(s, 'building'),
     kind,
@@ -160,7 +161,6 @@ test('an empty yard procures and mechanically builds a junction, then physically
     { item: 'slab', qty: 2 },
     { item: 'diesel', qty: 1 },
   ]);
-  S.purchase(s, 'power', 1);
   assert.equal(S.plan(s, 'electricalJunction', 10, 22).error, '');
   assert.equal(S.plan(s, 'lamp', 10, 26).error, '');
   function until(done: () => boolean, seconds = 5000) {
@@ -194,8 +194,8 @@ test('an empty yard procures and mechanically builds a junction, then physically
       sourceId: source.id,
       targetId: junction.id,
       cells: [
-        ...Array.from({ length: 7 }, (_, i) => ({ x: 3, z: 16 + i })),
-        ...Array.from({ length: 6 }, (_, i) => ({ x: 4 + i, z: 22 })),
+        ...Array.from({ length: 7 }, (_, i) => ({ x: 4 + i, z: 15 })),
+        ...Array.from({ length: 6 }, (_, i) => ({ x: 10, z: 16 + i })),
       ],
     }).error,
     undefined,

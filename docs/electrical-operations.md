@@ -1,10 +1,10 @@
 # Underground starter electrical service
 
-Native v0.27.0's Electrical page connects junction cabinets, yard lights, and tanker-transfer pumps to a modest 16 kW incoming station. Every connection is a physical underground circuit. Ordering the utility service alone does not energize the yard. High-voltage distribution, substations, building interiors, and overhead networks remain future work. The v0.24 tutorial booklet predates this feature; this guide and in-game Electrical help describe the new steps.
+Native v0.29.0's Electrical page connects junction cabinets, yard lights, and tanker-transfer pumps to a modest 16 kW incoming station. Every connection is a physical underground circuit. Every new factory includes the connected incoming station, even Empty yard; this alone does not energize any consumer. High-voltage distribution, substations, building interiors, and overhead networks remain future work. The v0.24 tutorial booklet predates this feature; this guide and in-game Electrical help describe the new steps.
 
 ## Prepare the site
 
-Open **Electrical → Order 16 kW utility station…**. The electrical company arrives by road and installs the incoming cabinet near the receiving access. Keep this area accessible until the visiting crew has finished. The utility service price and its transport charges appear in Costs.
+Every new factory starts with one connected **16 kW incoming electrical station** at **E3, S15**, beside the access road. Select **Incoming power** in the Yard toolbar or **Electrical → Incoming station…** to inspect it. Its 1 × 1 meter footprint is occupied from the start, so construction cannot accidentally overlap it. No purchase, delivery, installation crew, or service charge is required. Existing saves retain their actual infrastructure; this change does not add a second supply to an older yard.
 
 Build the lights or transfer pumps you want to connect using the usual construction tools. For a branch point, purchase an **Electrical junction cabinet kit** and choose **Electrical → Build junction cabinet**. Its 1 × 1 meter foundation and cabinet are built by your normal construction crew and equipment. A cabinet uses no power itself and does not add capacity. Order **Low-voltage cable reel · 50 m** through Purchase / hire. Each delivered reel occupies a physical storage square, starts with 50 meters of cable, and remains as a partially used or empty reel afterward. Keep a driving approach to its storage face.
 
@@ -33,6 +33,8 @@ Open the run in Electrical or click its ID in Work. Its linked records identify 
 Cancellation is a safe stop, not an undo: the crew lowers carried equipment, returns unlaid cable, backfills every open cell, and restores all lifted paving before releasing the assignment. Installed cable remains recorded and the unfinished circuit stays disconnected. Resume the same run to continue. Saving and loading preserves these states and the meter ledger.
 
 ![Actual native electrical register](../native/screenshots/electrical-register.png)
+
+This construction example predates v0.29.0. The former station-order button is now **Incoming station…**; every new yard already has its supply.
 
 ## Return a reel to storage
 

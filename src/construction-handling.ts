@@ -385,6 +385,20 @@ function begin(s: State, j: Job, e: Equipment, api: RailWorkAPI) {
       }
     }
   }
+  if (!from && !loaded) {
+    // An idle machine can occupy every otherwise valid pickup face after its
+    // previous work or fuel service. Survey the same stock without those idle
+    // actors, then let at() request their normal checked clearance in the real scene.
+    const idle = s.equipment.filter((other) =>
+      other.id !== e.id && !other.job && !other.deliveryOrder && !other.transportOrder &&
+      !other.refueling && !other.cargo && !other.assemblyLoad && !other.work &&
+      !other.path.length && !other.trafficGoal);
+    if (idle.length)
+      from = dock(
+        { ...s, equipment: s.equipment.filter((other) => !idle.includes(other)) },
+        e, source, reach, api, e.kind === 'forklift' ? 1.1 : 0,
+      );
+  }
   if (!from) {
     if (!e.cargo) {
       api.release(s, j);
@@ -955,7 +969,7 @@ function tickHandling(s: State, j: Job, dt: number, api: RailWorkAPI) {
   }
   const h = j.handling!;
   syncConstructionLoad(s, j);
-  if (w?.yieldingTo === e.id) {
+  if (w?.yieldingTo === e.id && (h.phase !== 'clear' || !e.cargo || !w.path.length)) {
     w.yieldTarget = undefined;
     w.yieldingTo = undefined;
   }

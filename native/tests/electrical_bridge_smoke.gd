@@ -81,15 +81,14 @@ func _run()->void:
 		if reel.get("item")=="cableReel":reel.cableMeters=50;reel.reserved=0;reel.cableReservedMeters=0
 	var no_station:Dictionary=opening.duplicate(true);no_station.buildings.remove_at(0);no_station.utilities.power=false
 	await _load(no_station);game.ui.receive_reply({"action":"continue","ok":true})
-	Electrical.station_dialog(game.ui);var order_button:Button=_button(game.ui,"Order station service")
-	_check(order_button!=null,"Production utility station purchase button exists")
-	if order_button:
-		order_button.pressed.emit();var reply:Dictionary=await _wait_reply(int(client.counter),"purchase")
-		_check(bool(reply.get("ok",false)),"Station button reaches actual authenticated purchase facade")
-	var purchased:Dictionary=await _state();var ordered:bool=false
-	for order:Dictionary in purchased.orders:
-		if order.get("item")=="power":ordered=true
-	_check(ordered,"Station button creates a real utility service order")
+	Electrical.station_dialog(game.ui)
+	_check(_button(game.ui,"Order station service")==null,"Production station dialog never offers installation purchase")
+	var rejected_purchase:Dictionary=await _request("purchase",{"item":"power","qty":1,"mode":"road"})
+	_check(not bool(rejected_purchase.get("ok",true)),"Authenticated host rejects obsolete installation purchase")
+	var preserved:Dictionary=await _state()
+	_check(preserved.orders==no_station.orders,"Rejected station purchase creates no order in a legacy yard")
+	var close_button:Button=_button(game.ui,"Close")
+	if close_button:close_button.pressed.emit()
 	await process_frame
 	await _load(opening)
 	var source_id:String=str(opening.buildings[0].id);var target_id:String=str(opening.buildings[1].id)

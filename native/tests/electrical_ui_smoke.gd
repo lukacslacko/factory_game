@@ -120,8 +120,9 @@ func _run()->void:
 	_press(ui,"Inspect existing station");await process_frame
 	fixture.state.buildings.remove_at(0);fixture.electrical.sources=[];ui.update_snapshot(fixture)
 	Electrical.station_dialog(ui)
-	_press(ui,"Order station service")
-	_check(actions.back()=={"action":"purchase","args":{"item":"power","qty":1,"mode":"road"}},"Utility station uses the real purchase service command")
+	_check(_button(ui,"Order station service")==null and _button(ui,"Inspect existing station")==null,"Legacy yard without a source does not offer installation purchase")
+	_check(_text(ui).contains("Every new factory") and _text(ui).contains("older saved yard"),"Supply dialog explains the pre-installed station and preserved older saves")
+	_press(ui,"Close")
 	await process_frame
 	_check(ui.catalog.cableReel.mass==185 and ui.catalog.cableReel.price==600,"Native catalog exposes delivered 185 kg 50 m reel")
 	ui.show_entity("STK-1001")

@@ -83,7 +83,7 @@ export async function checkShedRendering(page, base) {
       samples.push({
         kind: a.part.kind,
         phase: a.phase,
-        buildings: s.buildings.length,
+        buildings: s.buildings.filter((building) => building.kind === 'shed').length,
         counts: [a.posts, a.beams, a.roofSheets, a.wallPanels, a.braces],
         frameMembers: world.models
           .get(`${job.id}-shed-frame`)
@@ -99,7 +99,7 @@ export async function checkShedRendering(page, base) {
       );
     world.update(s, 0, 1);
     const completed = world.staticGroup.children.find(
-      (g) => g.userData.selection?.id === s.buildings[0].id,
+      (g) => g.userData.selection?.id === s.buildings.find((building) => building.kind === 'shed').id,
     );
     if (!completed) throw new Error('Missing completed shed render');
     let completeMembers = 0;
@@ -116,7 +116,7 @@ export async function checkShedRendering(page, base) {
       animation,
       ladder,
       completeMembers,
-      buildingCount: s.buildings.length,
+      buildingCount: s.buildings.filter((building) => building.kind === 'shed').length,
       waitingLiftSamples,
     };
   });

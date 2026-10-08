@@ -1105,6 +1105,8 @@ export function walkRoute(
   staticObstacles: Rect[],
   /** External railway staff may walk back to an engine waiting outside the yard. */
   allowOutsideYard = false,
+  /** Finer checked clearance is reserved for a mutually blocked construction crew. */
+  gridSpacing = 0.5,
 ): Point[] | null {
   const minX = allowOutsideYard ? -260 : -48, maxX = allowOutsideYard ? 520 : 230;
   if (goal.x < minX || goal.x > maxX || goal.z < -30 || goal.z > 115) return null;
@@ -1144,7 +1146,7 @@ export function walkRoute(
     score = new Map<string, number>(),
     parent = new Map<string, string>();
   const key = (x: number, z: number) => `${x},${z}`;
-  const point = (x: number, z: number) => ({ x: w.x + x * 0.5, z: w.z + z * 0.5 });
+  const point = (x: number, z: number) => ({ x: w.x + x * gridSpacing, z: w.z + z * gridSpacing });
   const heuristic = (x: number, z: number) => {
     const p = point(x, z),
       dx = Math.abs(p.x - goal.x),
@@ -1192,7 +1194,7 @@ export function walkRoute(
         z = p.z + dz,
         q = point(x, z),
         k = key(x, z),
-        g = p.g + Math.hypot(dx, dz) * 0.5;
+        g = p.g + Math.hypot(dx, dz) * gridSpacing;
       if (
         q.x < minX ||
         q.x > maxX ||
