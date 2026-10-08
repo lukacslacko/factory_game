@@ -1,4 +1,5 @@
 import { electricalValidationProblem } from './electrical-validation';
+import { storageMoveValidationProblem } from './storage-move-validation';
 import { collectionValidationProblem } from './collection-validation';
 import { validTrackPiece, trackGeometry } from './track';
 import { validRailLocation } from './rail-locations';
@@ -433,7 +434,8 @@ export function validateState(value: any): asserts value is State {
       (!(e.cargo.item in MATERIALS) ||
         !Number.isInteger(e.cargo.qty) ||
         e.cargo.qty < 1 ||
-        (e.cargo.yaw !== undefined && !finite(e.cargo.yaw)))
+        (e.cargo.yaw !== undefined && !finite(e.cargo.yaw)) ||
+        (e.cargo.storageMove !== undefined && typeof e.cargo.storageMove !== 'boolean'))
     )
       fail('invalid equipment cargo');
   }
@@ -577,9 +579,14 @@ export function validateState(value: any): asserts value is State {
         !m ||
         typeof m.sourceId !== 'string' ||
         j.target !== m.sourceId ||
-        !j.item?.startsWith('rail') ||
+        (!j.stockMove?.toStorage && !j.item?.startsWith('rail')) ||
         !MATERIALS[j.item as keyof typeof MATERIALS] ||
-        j.qty !== 1 ||
+        (!Number.isInteger(j.qty) || j.qty < 1 || (!m.toStorage && j.qty !== 1)) ||
+        (m.toStorage !== undefined && typeof m.toStorage !== 'boolean') ||
+        (m.queuedReservation !== undefined && typeof m.queuedReservation !== 'boolean') ||
+        (m.zoneId !== undefined && typeof m.zoneId !== 'string') ||
+        (m.afterJobId !== undefined && typeof m.afterJobId !== 'string') ||
+        (m.load && (m.load.item !== j.item || m.load.qty !== j.qty || m.load.reserved !== 0 || !point(m.load) || !finite(m.load.w) || !finite(m.load.d))) ||
         (m.mergeId !== undefined && typeof m.mergeId !== 'string') ||
         !finite(m.yaw) ||
         !point(m.destination) ||
@@ -689,7 +696,7 @@ export function validateState(value: any): asserts value is State {
         (!s.equipment.some((e: any) => e.id === j.equipment) &&
           j.kind !== 'throwSwitch' &&
           !(
-            (j.kind === 'slab' || j.item === 'bufferStop') &&
+            (j.kind === 'slab' || j.item === 'bufferStop' || (j.kind === 'moveStock' && j.stockMove?.toStorage)) &&
             j.handling?.equipmentReleased === true &&
             j.handling.phase === 'settle' &&
             j.handling.state === 'placed'
@@ -797,7 +804,7 @@ export function validateState(value: any): asserts value is State {
       )
         fail('invalid independent slab finishing crew');
       if (
-        (j.kind !== 'slab' && j.item !== 'bufferStop') ||
+        (j.kind !== 'slab' && j.item !== 'bufferStop' && !(j.kind === 'moveStock' && j.stockMove?.toStorage)) ||
         ![
           'approach',
           'rig',
@@ -830,13 +837,13 @@ export function validateState(value: any): asserts value is State {
         fail('invalid construction slab handling');
       if (j.status === 'doing') {
         const e = s.equipment.find((e: any) => e.id === j.equipment);
-        if (h.state === 'carried' && (e?.cargo?.item !== j.item || e.cargo.qty !== 1))
+        if (h.state === 'carried' && (e?.cargo?.item !== j.item || e.cargo.qty !== (j.stockMove?.toStorage ? j.qty : 1)))
           fail('missing carried construction slab');
         if (
           h.state === 'placed' &&
           !s.stacks.some(
             (t: any) =>
-              t.id === h.placedStack && t.item === j.item && t.qty === 1 && t.reserved === 1,
+              t.id === h.placedStack && t.item === j.item && (j.stockMove?.toStorage ? t.qty >= j.qty && t.reserved >= j.qty : t.qty === 1 && t.reserved === 1),
           )
         )
           fail('missing placed construction slab');
@@ -1285,6 +1292,7 @@ export function validateState(value: any): asserts value is State {
         fail('unloading destination stack is missing');
     }
   }
+  const storageMoveError=storageMoveValidationProblem(s);if(storageMoveError)fail(storageMoveError);
   const electricalError=electricalValidationProblem(s);if(electricalError)fail(electricalError);
   const collectionError=collectionValidationProblem(s, ids); if(collectionError)fail(collectionError);
   const processError=processValidationProblem(s);if(processError)fail(processError);

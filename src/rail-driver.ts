@@ -1,3 +1,4 @@
+import { storageMoveOwnsStack } from './storage-locks';
 import type { State, Worker, RailShunter, Point } from './types';
 import { localPoint } from './motion';
 import { walkRoute, staticObstacleRects } from './traffic';
@@ -35,7 +36,7 @@ export function beginShunterRefueling(s: State, shunterId: string): string | und
     (w!.shiftPhase && w!.shiftPhase!=='working') || (w!.railAssignment && w!.railAssignment!==e.id) ||
     (w!.vehicle && w!.vehicle!==e.id))return 'The assigned driver must be available and on duty.';
   if(e.fuel>=e.tank-0.01)return 'The fuel tank is already full.';
-  const barrel=s.stacks.filter(t=>t.item==='diesel' && (t.liters||0)>0 && Math.hypot(t.x+t.w/2-e.x,t.z+t.d/2-e.z)<=8 && !s.shunters?.some(q=>q.refueling?.barrelId===t.id) && !s.jobs.some(j=>j.kind==='refuel' && j.status!=='done' && j.stack===t.id)).sort((a,b)=>Math.hypot(a.x-e.x,a.z-e.z)-Math.hypot(b.x-e.x,b.z-e.z))[0];
+  const barrel=s.stacks.filter(t=>t.item==='diesel' && t.qty>0 && !t.reserved && !t.storageCarriedBy && !storageMoveOwnsStack(s,t.id) && (t.liters||0)>0 && Math.hypot(t.x+t.w/2-e.x,t.z+t.d/2-e.z)<=8 && !s.shunters?.some(q=>q.refueling?.barrelId===t.id) && !s.jobs.some(j=>j.kind==='refuel' && j.status!=='done' && j.stack===t.id)).sort((a,b)=>Math.hypot(a.x-e.x,a.z-e.z)-Math.hypot(b.x-e.x,b.z-e.z))[0];
   if(!barrel)return 'Park within 8 m of an available diesel barrel before refueling.';
   const aboard=w!.vehicle===e.id;
   e.refueling={barrelId:barrel.id,workerId:w!.id,phase:aboard?'alighting':'approach-engine',clock:0,carried:0,delivered:0};

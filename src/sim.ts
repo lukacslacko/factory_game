@@ -1,3 +1,6 @@
+import { storageDestinationReserved } from './storage-locks';
+import { planStorageMove, requestStorageMove } from './storage-moves';
+import type { StorageMoveRequest } from './storage-moves';
 import { planElectricalRun, tickElectricalJob, cancelElectricalRun, resumeElectricalRun, recoverElectricalRun, electricalRemovalConflict } from './electrical';
 import type { ElectricalRequest } from './electrical-types';
 import { electricalObstacles, electricalPlannedRects } from './electrical-geometry';
@@ -145,6 +148,7 @@ import {
   footprint,
   label,
   bounds,
+  stockUnitMass,
 } from './catalog';
 import { key, overlap, dist, center, route, approach } from './path';
 import {
@@ -627,6 +631,7 @@ function newJob(
 export function stockMoveError(s: State, sourceId: string, destination: Rect): string {
   const source = s.stacks.find((t) => t.id === sourceId);
   if (!source || !source.item.startsWith('rail')) return 'Select a physical stack of rail panels.';
+  if (storageDestinationReserved(s,source.id)) return 'This stack is reserved as the destination of a storage move.';
   if (collectionOwnsStack(s,source.id)) return 'This stack is reserved for physical collection.';
   if (railStagingStackOwned(s, source.id))
     return 'This rail stack belongs to active staging or withdrawal. Wait until its handling crew releases it.';
@@ -702,6 +707,14 @@ export function moveRailStock(
   );
   s.revision++;
   return { job: j, error: '' };
+}
+
+export function previewStorageMove(s: State, request: StorageMoveRequest) {
+  const { placements: _, ...preview } = planStorageMove(s, request);
+  return preview;
+}
+export function moveToStorage(s: State, request: StorageMoveRequest) {
+  return requestStorageMove(s, request, { id, createGroup: createJobGroup, createJob: newJob, event });
 }
 
 /** Creative placement completes only newly created records; existing real work is untouched. */
@@ -2415,6 +2428,7 @@ export function cancelJob(s: State, jid: string) {
     j.reason = 'Cancel requested. The current load will be placed safely before recovery.';
     return;
   }
+  if (j.stockMove?.queuedReservation) j.cancel = true;
   finishRelease(s, j);
   j.status = 'canceled';
   j.phase = 'Canceled';
@@ -2465,7 +2479,13 @@ function queueLooseRailBufferCleanup(s: State) {
 function finishRelease(s: State, j: Job) {
   clearActionClearance(s,j.id);
   const stack = s.stacks.find((t) => t.id === j.stack);
-  if (stack && stack.reserved > 0) stack.reserved = Math.max(0, stack.reserved - j.qty);
+  if (j.stockMove?.queuedReservation) {
+    if (j.cancel || ['done','canceled'].includes(j.status)) {
+      const source = s.stacks.find(t => t.id === j.stockMove!.sourceId);
+      if (source) source.reserved = Math.max(0, source.reserved - j.qty);
+      j.stockMove.queuedReservation = false;
+    }
+  } else if (stack && stack.reserved > 0) stack.reserved = Math.max(0, stack.reserved - j.qty);
   for (const w of s.workers.filter((w) => w.job === j.id)) {
     noteWorkerAssignment(s,w,{equipmentId:j.equipment,workId:j.parentId||j.id});
     w.job = j.resumeJob;
@@ -2601,7 +2621,14 @@ function assign(s: State, j: Job) {
       return;
     }
   }
-  if (j.kind === 'moveStock') j.railStageOnly = true;
+  if (j.kind === 'moveStock') {
+    j.railStageOnly = j.item?.startsWith('rail') || undefined;
+    const prior = s.jobs.find(q => q.id === j.stockMove?.afterJobId);
+    if (prior && !['done', 'canceled'].includes(prior.status)) {
+      j.reason = `Waiting for preceding storage lift ${prior.id}`;
+      return;
+    }
+  }
   if (j.kind === 'rail') {
     j.railStageOnly = !!railCrewGroup(s, j) && railNeedsStaging(j) && !j.cancel;
     if (j.railStageOnly && !railStagingAllowed(s, j)) {
@@ -2718,13 +2745,14 @@ function assign(s: State, j: Job) {
             (t) =>
               t.id === j.stockMove?.sourceId &&
               !collectionOwnsStack(s,t.id) &&
-              t.qty - t.reserved >= j.qty &&
+              (j.stockMove?.queuedReservation ? t.qty >= j.qty && t.reserved >= j.qty : t.qty - t.reserved >= j.qty) &&
               !railStagingStackOwned(s, t.id),
           )
         : s.stacks.find((t) => t.qty >= j.qty && stagedRailStackOwnedBy(s, t, j)) ||
           s.stacks.find(
             (t) =>
               t.item === j.item &&
+              !storageDestinationReserved(s,t.id) &&
               !collectionOwnsStack(s, t.id) &&
               (!railStagingStackOwned(s, t.id) ||
                 (j.legacyRailHandoff === 'staged' && t.source === j.id)) &&
@@ -2835,7 +2863,9 @@ function assign(s: State, j: Job) {
       (equipmentAllows(e, jobActivity(j)) &&
         automaticEquipmentAllowsJob(s, e, j) &&
         !equipmentReservedForDelivery(s, e)));
-  const mass = MATERIALS[j.item!]?.mass || 1;
+  const mass = j.stockMove?.toStorage
+    ? stockUnitMass(j.stockMove.load || stack || { item: j.item! }) * j.qty
+    : MATERIALS[j.item!]?.mass || 1;
   const helperFinishingSlab = (e: Equipment) =>
     j.kind === 'slab' &&
     prefetch &&
@@ -3053,7 +3083,7 @@ function assign(s: State, j: Job) {
   operator.path = operatorPath;
   operator.status = 'Board equipment';
   eq.job = j.id;
-  if (stack && (!stagedRailStackOwnedBy(s, stack, j) || stack.reserved < j.qty))
+  if (stack && !j.stockMove?.queuedReservation && (!stagedRailStackOwnedBy(s, stack, j) || stack.reserved < j.qty))
     stack.reserved += j.qty;
   s.revision++;
 }
@@ -3149,7 +3179,7 @@ function tickJob(s: State, j: Job, dt: number) {
       s.revision++;
     }
   }
-  if (w && (j.kind === 'slab' || j.item === 'bufferStop') && j.handling?.phase === 'settle') {
+  if (w && (j.kind === 'slab' || j.item === 'bufferStop' || (j.kind === 'moveStock' && j.stockMove?.toStorage)) && j.handling?.phase === 'settle') {
     if (w.yieldingTo?.startsWith('PO-')) {
       j.reason = `Waiting for ${w.yieldingTo} to pass safely`;
       return;
@@ -3245,7 +3275,7 @@ function tickJob(s: State, j: Job, dt: number) {
     }
   }
   if (
-    (j.railRecovery || ['rail', 'moveStock'].includes(j.kind)) &&
+    (j.railRecovery || j.kind === 'rail' || (j.kind === 'moveStock' && j.item?.startsWith('rail'))) &&
     tickRailWork(s, j, dt, {
       id,
       allocate,
@@ -3258,7 +3288,7 @@ function tickJob(s: State, j: Job, dt: number) {
   )
     return;
   if (
-    (j.kind === 'slab' || j.item === 'bufferStop') &&
+    (j.kind === 'slab' || j.item === 'bufferStop' || (j.kind === 'moveStock' && !j.item?.startsWith('rail'))) &&
     tickConstructionHandling(s, j, dt, {
       id,
       obstacles,

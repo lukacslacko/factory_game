@@ -352,6 +352,7 @@ const readonly = new Set([
   'sql',
   'purchase_preview',
   'collection_quote',
+  'storage_move_preview',
   'export',
   'export_costs',
   'diagnostics',
@@ -732,6 +733,12 @@ async function dispatch(action: string, a: any) {
     case 'recover':
       check(Sim.recoverAt(state, point(a)));
       return {};
+    case 'storage_move_preview':
+      return { ...Sim.previewStorageMove(state, { id: entityId(a), zoneId: a.zoneId, quantity: a.quantity }), requestId: a.requestId };
+    case 'move_to_storage': {
+      const result = Sim.moveToStorage(state, { id: entityId(a), zoneId: a.zoneId, quantity: a.quantity });
+      return { ...result, requestId: a.requestId };
+    }
     case 'move_stock': {
       const id = entityId(a),
         source = state.stacks.find((s) => s.id === id);

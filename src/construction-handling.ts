@@ -1,3 +1,5 @@
+import { storageMoveDestinationError } from './storage-move-destination';
+import { storageDestinationReserved } from './storage-locks';
 import {
   requestActionClearance,
   clearActionClearance,
@@ -31,6 +33,7 @@ import {
   boxOverlap,
   boxRect,
   machineRoute,
+  storageMoveStockHeight,
   equipmentBoxes,
   equipmentMoveBlocked,
   equipmentSweepBlocked,
@@ -39,15 +42,23 @@ import {
 } from './traffic';
 import { constructionStorageClearance, parcelPitch } from './delivery';
 
-const handlingItem = (j: Job): Item => (j.item === 'bufferStop' ? 'bufferStop' : 'slab');
+const storageMove = (j: Job) => j.kind === 'moveStock' && !!j.stockMove?.toStorage;
+const handlingQty = (j: Job) => storageMove(j) ? j.qty : 1;
+const handlingPitch = (j: Job) => storageMove(j)&&['processPipe','pipeElbow','pipeTee','processValve','processGauge'].includes(j.item!) ? .8 : parcelPitch(handlingItem(j));
+const handlingItem = (j: Job): Item => storageMove(j) ? j.item! : (j.item === 'bufferStop' ? 'bufferStop' : 'slab');
+const handlingReach = (j: Job, e: Equipment) => Math.max(e.kind === 'forklift' ? 3 : 4,
+  storageMove(j) ? Math.max(j.w,j.d)/2+2.5 : 0);
 const targetPoint = (j: Job) =>
+  (storageMove(j) && j.item === 'bufferStop' ? localPoint({...center(j),yaw:j.stockMove!.yaw},-.5,0) : undefined) ||
   j.bufferTarget ||
   (j.bufferDestination
     ? localPoint({ ...center(j.bufferDestination), yaw: 0 }, -0.5, 0)
     : center(j));
 const stockContact = (t: Stack, j: Job) =>
   j.item === 'bufferStop' ? localPoint({ ...center(t), yaw: t.yaw || 0 }, -0.5, 0) : center(t);
-const supportHeight = (j: Job) => (j.item === 'bufferStop' ? 0.2 : 0.08);
+const toolOffset = (e: Equipment,j?: Job) => e.kind === 'excavator' ?
+  (j&&storageMove(j)?storageMoveStockHeight(handlingItem(j),handlingQty(j))+.7:.82) : 0;
+const supportHeight = (j: Job) => (j.item === 'bufferStop' ? 0.2 : storageMove(j) && j.item !== 'slab' ? 0 : 0.08);
 const sourceStack = (s: State, j: Job, id?: string): Stack | undefined =>
   s.stacks.find((t) => t.id === id) || bufferSource(s, j);
 const recoveryBuffer = (j: Job) => j.kind === 'remove' && j.item === 'bufferStop';
@@ -118,6 +129,7 @@ function phase(s: State, j: Job, name: ConstructionPhase) {
           } as Record<ConstructionPhase, string>
         )[name]
       : labels[name];
+  if (storageMove(j)) j.phase = ({approach:'Approach reserved material',rig:'Prepare storage load',engage:'Insert forks under material',lift:'Lift material from actual stock',clear:'Withdraw with supported material',carry:'Carry material to selected stockyard',lower:'Lower material onto storage supports',withdraw:'Withdraw lifting tools',settle:'Release stored material',complete:'Complete'} as Record<ConstructionPhase,string>)[name];
   j.reason = '';
   s.revision++;
 }
@@ -180,7 +192,8 @@ function dock(
           ...equipmentBoxes({ ...m, reach }, { ...p, yaw: t.dropYaw }).map((b) => boxRect(b, 0.18)),
         );
     }
-    const future = { ...e, reach, cargo: { item: (e.cargo?.item || 'slab') as Item, qty: 1 } };
+    const job=s.jobs.find(j=>j.id===e.job);
+    const future = { ...e, reach, cargo: { item: (e.cargo?.item || (job&&storageMove(job)?job.item:undefined) || 'slab') as Item, qty: job&&storageMove(job)?job.qty:1, storageMove: !!(job&&storageMove(job)) } };
     if (
       [c.point, c.clear].some((p) =>
         equipmentBoxes(future, { ...p, yaw: c.yaw }).some((b) =>
@@ -267,7 +280,7 @@ export function constructionSourceBusy(s: State, stackId: string, except?: strin
   return s.jobs.some(
     (j) =>
       j.id !== except &&
-      ['slab', 'bufferStop'].includes(j.item || '') &&
+      (['slab', 'bufferStop'].includes(j.item || '') || storageMove(j)) &&
       j.status === 'doing' &&
       ((j.stack === stackId && !j.handling) ||
         (j.handling?.sourceId === stackId &&
@@ -293,8 +306,8 @@ function begin(s: State, j: Job, e: Equipment, api: RailWorkAPI) {
     j.retryRevision = s.revision;
     return true;
   }
-  const reach = e.kind === 'forklift' ? 3 : 4;
-  const dest = dock(s, e, targetPoint(j), reach, api);
+  const reach = handlingReach(j, e);
+  let dest = dock(s, e, targetPoint(j), reach, api);
   if (!dest) {
     if (!e.cargo) {
       api.release(s, j);
@@ -325,7 +338,7 @@ function begin(s: State, j: Job, e: Equipment, api: RailWorkAPI) {
           surface(s, center(stack)) +
           (stack.baseHeight || 0) +
           supportHeight(j) +
-          (stack.qty - 1) * parcelPitch(handlingItem(j)),
+          (stack.qty - handlingQty(j)) * handlingPitch(j),
         yaw: stack.yaw || 0,
       }
     : {
@@ -341,11 +354,12 @@ function begin(s: State, j: Job, e: Equipment, api: RailWorkAPI) {
         yaw: yaw(e),
       }
     : dock(s, e, source, reach, api, e.kind === 'forklift' ? 1.1 : 0);
-  if (!from && !loaded) {
+  if (!from && !loaded && !storageMove(j)) {
     for (const t of s.stacks
       .filter(
         (t) =>
           t.item === handlingItem(j) &&
+          !storageDestinationReserved(s,t.id) &&
           t.qty - t.reserved >= 1 &&
           !constructionSourceBusy(s, t.id, j.id),
       )
@@ -356,7 +370,7 @@ function begin(s: State, j: Job, e: Equipment, api: RailWorkAPI) {
           surface(s, center(t)) +
           (t.baseHeight || 0) +
           supportHeight(j) +
-          (t.qty - 1) * parcelPitch(handlingItem(j)),
+          (t.qty - 1) * handlingPitch(j),
         yaw: t.yaw || 0,
       };
       const candidate = dock(s, e, p, reach, api, e.kind === 'forklift' ? 1.1 : 0);
@@ -381,6 +395,19 @@ function begin(s: State, j: Job, e: Equipment, api: RailWorkAPI) {
     }
     j.reason = 'Slab stock needs an accessible face and a turning area';
     return true;
+  }
+  if (storageMove(j) && e.kind === 'forklift') {
+    // Forkloads cannot rotate independently of the chassis: preserve their
+    // source orientation by choosing the same final working face.
+    const wanted = loaded ? yaw(e) : facing(from.point, source);
+    const point = offset(targetPoint(j), wanted + Math.PI, reach);
+    const clear = offset(targetPoint(j), wanted + Math.PI, reach + 1.4);
+    if (equipmentMoveBlocked(s,{...e,cargo:undefined},{...point,yaw:wanted}) ||
+        equipmentMoveBlocked(s,{...e,cargo:undefined},{...clear,yaw:wanted})) {
+      j.reason = 'Storage needs a clear approach matching the supported load orientation';
+      return true;
+    }
+    dest = {point,clear,approach:point,yaw:wanted};
   }
   const h: ConstructionHandling = {
     phase: loaded ? 'carry' : 'approach',
@@ -419,7 +446,7 @@ function clearPlannedDestination(s: State, j: Job, e: Equipment, api: RailWorkAP
   const future = {
     ...e,
     reach: e.kind === 'forklift' ? 3 : 4,
-    cargo: { item: handlingItem(j), qty: 1 },
+    cargo: { item: handlingItem(j), qty: handlingQty(j), storageMove: storageMove(j) },
   };
   const boxes = [h.destinationDock, h.destinationClear].flatMap((p) =>
     equipmentBoxes(future, { ...p, yaw: angle }),
@@ -774,7 +801,7 @@ export function syncConstructionLoad(s: State, j: Job) {
 }
 function tools(s: State, e: Equipment, h: ConstructionHandling) {
   if (h.state === 'carried' || h.state === 'placed') {
-    h.toolLift = h.pose.y + (e.kind === 'excavator' ? 0.82 : 0) - surface(s, e);
+    h.toolLift = h.pose.y + toolOffset(e,s.jobs.find(j=>j.id===e.job)) - surface(s, e);
     if (h.state === 'carried') h.toolReach = dist(e, h.pose);
   }
   e.lift = h.pose.y - surface(s, e);
@@ -824,6 +851,19 @@ function settle(s: State, j: Job, w: Worker, dt: number, api: RailWorkAPI) {
       j.reason = conflict;
       return true;
     }
+  }
+  if (storageMove(j)) {
+    const stack = s.stacks.find(t=>t.id===h.placedStack);
+    if (!stack) { j.reason='Stored material is unavailable'; return true; }
+    if (!walkToSlab(s,j,undefined,w,target,api)) return true;
+    if (!turn(w,facing(w,target),dt,2)) return true;
+    w.status='Check storage supports and release load';h.clock+=dt;
+    if(h.clock<2)return true;
+    stack.reserved=Math.max(0,stack.reserved-j.qty);
+    h.state='stored';h.phase='complete';j.delivered=true;
+    if(j.cancel) {api.release(s,j);j.status='canceled';j.phase='Canceled; material safely stored';j.reason='';j.finished=s.time;s.revision++;}
+    else api.complete(s,j);
+    return true;
   }
   if (!walkToSlab(s, j, undefined, w, target, api)) return true;
   if (!turn(w, facing(w, target), dt, 2)) return true;
@@ -894,7 +934,7 @@ function settle(s: State, j: Job, w: Worker, dt: number, api: RailWorkAPI) {
 }
 
 function tickHandling(s: State, j: Job, dt: number, api: RailWorkAPI) {
-  if (j.kind !== 'slab' && j.item !== 'bufferStop') return false;
+  if (j.kind !== 'slab' && j.item !== 'bufferStop' && !storageMove(j)) return false;
   const e = s.equipment.find((e) => e.id === j.equipment),
     w = s.workers.find((w) => w.id === j.worker),
     op = s.workers.find((w) => w.id === j.operator);
@@ -933,7 +973,7 @@ function tickHandling(s: State, j: Job, dt: number, api: RailWorkAPI) {
       return true;
     }
     const stack = sourceStack(s, j, h.sourceId);
-    if (!stack || stack.qty < 1 || stack.reserved < 1) {
+    if (!stack || stack.qty < handlingQty(j) || stack.reserved < handlingQty(j)) {
       j.reason = 'Reserved slab unavailable';
       return true;
     }
@@ -955,7 +995,7 @@ function tickHandling(s: State, j: Job, dt: number, api: RailWorkAPI) {
       surface(s, h.source) +
       (stack.baseHeight || 0) +
       supportHeight(j) +
-      (stack.qty - 1) * parcelPitch(handlingItem(j));
+      (stack.qty - handlingQty(j)) * handlingPitch(j);
     h.pose = copy(h.source);
     if (
       (e.kind === 'excavator' || j.item === 'bufferStop') &&
@@ -964,7 +1004,7 @@ function tickHandling(s: State, j: Job, dt: number, api: RailWorkAPI) {
     )
       return true;
     h.clock += dt;
-    const tip = h.pose.y + (e.kind === 'excavator' ? 0.82 : 0) - surface(s, e);
+    const tip = h.pose.y + toolOffset(e,j) - surface(s, e);
     const initial = e.kind === 'excavator' ? 2 : 0.12;
     h.toolLift = initial + (tip - initial) * smoothstep(h.clock / 1.5);
     h.toolReach =
@@ -1008,14 +1048,15 @@ function tickHandling(s: State, j: Job, dt: number, api: RailWorkAPI) {
   } else if (h.phase === 'carry') {
     // Imported v4 cargo starts at its old physical location. Reach changes
     // gradually so it cannot jump from an old 2.7 m tool to a new 3/4 m dock.
-    const preferred = e.kind === 'forklift' ? 3 : 4;
+    const preferred = handlingReach(j,e);
     if (Math.abs(h.reach - preferred) > 0.005) {
       h.reach += Math.max(-dt * 0.65, Math.min(dt * 0.65, preferred - h.reach));
       syncConstructionLoad(s, j);
     }
     h.toolReach = h.reach;
     e.reach = h.reach;
-    const travelY = Math.max(0.45, surface(s, e) + 0.4);
+    const destinationStack=storageMove(j)?s.stacks.find(t=>t.id===j.stockMove!.mergeId):undefined;
+    const travelY = Math.max(0.45, surface(s, e) + 0.4, destinationStack?surface(s,target)+(destinationStack.baseHeight||0)+storageMoveStockHeight(destinationStack.item,destinationStack.qty)+.15:0);
     h.pose.y += Math.max(-dt * 0.35, Math.min(dt * 0.35, travelY - h.pose.y));
     const arrived = at(s, j, e, w, h.destinationDock, target, dt, api);
     syncConstructionLoad(s, j);
@@ -1028,6 +1069,14 @@ function tickHandling(s: State, j: Job, dt: number, api: RailWorkAPI) {
       phase(s, j, 'lower');
     }
   } else if (h.phase === 'lower') {
+    const destinationError = storageMoveDestinationError(s,j);
+    if (destinationError) { j.reason=destinationError; return true; }
+    if (storageMove(j)) {
+      const envelopes=[{...target,yaw:j.stockMove!.yaw,length:j.w,width:j.d}];
+      const blockers=actionEnvelopeBlockers(s,e,envelopes,[w.id,j.operator || '']);
+      for (const blockerId of blockers) requestActionClearance(s,{ownerId:j.id,requesterEquipmentId:e.id,blockerId,action:'lower material into storage',envelopes});
+      if(blockers.length) {j.reason=`Waiting for ${blockers.join(', ')} to clear the storage landing space`;return true;}
+    }
     if (j.kind === 'bufferStop') {
       const conflict = bufferPlacementConflict(s, j.bufferTarget!);
       if (conflict) {
@@ -1047,12 +1096,28 @@ function tickHandling(s: State, j: Job, dt: number, api: RailWorkAPI) {
         h,
         {
           ...target,
-          y: j.item === 'bufferStop' ? 0.2 : 0.08,
+          y: storageMove(j) ? surface(s,target)+(s.stacks.find(t=>t.id===j.stockMove!.mergeId)?.baseHeight ?? j.stockMove!.load?.baseHeight ?? 0)+supportHeight(j)+(s.stacks.find(t=>t.id===j.stockMove!.mergeId)?.qty||0)*handlingPitch(j) : j.item === 'bufferStop' ? 0.2 : 0.08,
           yaw: j.bufferTarget?.yaw ?? h.pose.yaw,
         },
         2.5,
       )
     ) {
+      if (storageMove(j)) {
+        const m=j.stockMove!, load=m.load!;
+        let stock=s.stacks.find(t=>t.id===m.mergeId);
+        if(!stock) {stock={...load,...m.destination,id:m.mergeId!,qty:0,reserved:0,source:j.id};s.stacks.push(stock);}
+        const original=s.stacks.find(t=>t.id===m.sourceId);if(original?.storageCarriedBy===j.id)original.storageCarriedBy=undefined;
+        const oldQty=stock.qty;
+        Object.assign(stock,m.destination,{yaw:h.pose.yaw,storageCarriedBy:undefined});
+        if(!oldQty) stock.baseHeight=load.baseHeight;
+        if(!oldQty) {stock.assetId=load.assetId;stock.liters=load.liters;stock.cableMeters=load.cableMeters;}
+        stock.qty+=j.qty;stock.reserved+=j.qty;
+        h.placedStack=stock.id;h.state='placed';e.cargo=undefined;
+        api.movement(s,j.item!,j.qty,e.id,stock.id,'Material lowered into storage');
+        phase(s,j,'withdraw');
+        tools(s,e,h);
+        return true;
+      }
       const stack = {
         x:
           j.bufferDestination?.x ??
@@ -1139,12 +1204,15 @@ function pickup(s: State, j: Job, e: Equipment, api: RailWorkAPI) {
     j.assetId = b.id;
     s.buffers = ensureBuffers(s).filter((b) => b.id !== j.target);
   } else {
-    stack.qty--;
-    stack.reserved--;
+    if(storageMove(j)) {
+      j.stockMove!.load={...stack,qty:j.qty,reserved:0,railAssetIds:undefined,storageCarriedBy:undefined};
+      stack.qty-=j.qty;stack.reserved-=j.qty;j.stockMove!.queuedReservation=false;
+      if(!stack.qty) {stack.storageCarriedBy=j.id;stack.liters=0;stack.cableMeters=stack.item==='cableReel'?0:undefined;}
+    } else {stack.qty--;stack.reserved--;}
     j.assetId = stack.assetId;
   }
   j.stack = undefined;
-  e.cargo = { item: handlingItem(j), qty: 1, yaw: h.pose.yaw };
+  e.cargo = { item: handlingItem(j), qty: handlingQty(j), yaw: h.pose.yaw, ...(storageMove(j)?{storageMove:true}:{}) };
   h.state = 'carried';
   h.yawOffset = h.pose.yaw - yaw(e);
   h.reach = dist(e, h.pose);
@@ -1152,7 +1220,7 @@ function pickup(s: State, j: Job, e: Equipment, api: RailWorkAPI) {
   api.movement(
     s,
     handlingItem(j),
-    1,
+    handlingQty(j),
     stack.id,
     e.id,
     recoveryBuffer(j) && stack.source === 'opening'
@@ -1167,9 +1235,9 @@ function pickup(s: State, j: Job, e: Equipment, api: RailWorkAPI) {
 /** Keep the shared physical pipeline's equipment diagnostics specific to its load. */
 export function tickConstructionHandling(s: State, j: Job, dt: number, api: RailWorkAPI) {
   const active = tickHandling(s, j, dt, api);
-  if (j.item === 'bufferStop') {
+  if (j.item === 'bufferStop' || storageMove(j)) {
     const noun = (text: string) =>
-      text.replace(/\bslabs?\b/gi, (word) => (word[0] === 'S' ? 'Buffer stop' : 'buffer stop'));
+      text.replace(/\bslabs?\b/gi, (word) => (j.item === 'bufferStop' ? (word[0] === 'S' ? 'Buffer stop' : 'buffer stop') : (word[0] === 'S' ? 'Material' : 'material')));
     j.reason = noun(j.reason);
     j.phase = noun(j.phase);
     for (const worker of s.workers.filter((w) => w.job === j.id)) {

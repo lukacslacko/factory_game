@@ -1,6 +1,6 @@
 import { releaseActionYield } from './action-clearance';
 import type { Equipment, Item, Job, JobGroup, Rect, State } from './types';
-import { EQUIPMENT, MATERIALS, label } from './catalog';
+import { EQUIPMENT, MATERIALS, label, stockUnitMass } from './catalog';
 import { equipmentAllows, jobActivity } from './equipment-roles';
 import { railBatchHeld, stagedRailStackOwnedBy, releaseUnliftedRailBatch } from './rail-staging';
 
@@ -286,7 +286,9 @@ export function equipmentCanDoJob(e: Equipment, j: Job, s?: State): boolean {
       (j.kind === 'rail' && j.railStageOnly) ||
       e.kind === 'excavator') &&
     !(j.kind === 'remove' && s && !item) &&
-    EQUIPMENT[e.kind].capacity >= (MATERIALS[item!]?.mass || 1)
+    EQUIPMENT[e.kind].capacity >= (j.stockMove?.toStorage
+      ? stockUnitMass(j.stockMove.load || s?.stacks.find(t=>t.id===j.stockMove?.sourceId) || {item:item!}) * j.qty
+      : MATERIALS[item!]?.mass || 1)
   );
 }
 function assignmentGroupIds(s: State, groupId: string): Set<string> {
@@ -363,7 +365,7 @@ export function reconcileEquipmentAssignments(s: State): void {
     releaseUnliftedRailBatch(s, j);
     const stack = s.stacks.find((q) => q.id === j.stack);
     const ownedStaged = !!stack && stagedRailStackOwnedBy(s, stack, j);
-    if (stack && !ownedStaged) stack.reserved = Math.max(0, stack.reserved - j.qty);
+    if (stack && !ownedStaged && !j.stockMove?.queuedReservation) stack.reserved = Math.max(0, stack.reserved - j.qty);
     for (const w of s.workers.filter((q) => q.job === j.id)) {
       w.job = undefined;
       if (!w.transition && !w.yieldingTo) w.path = [];

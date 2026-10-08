@@ -1,7 +1,7 @@
 import { electricalObstacles } from './electrical-geometry';
 import { bufferAssets } from './buffers';
 import { railFreightCarPose, railFreightCarBogies, railMovementPose } from './rail-freight';
-import type { State, Point, Equipment, Order, Worker, Rect } from './types';
+import type { State, Point, Equipment, Order, Worker, Rect, Item } from './types';
 import { MATERIALS } from './catalog';
 import { forkTip } from './fork-geometry';
 import { shedComponentPose, shedPostPoints, shedPartSize } from './shed-geometry';
@@ -188,7 +188,7 @@ export function equipmentBoxes(
         yaw:
           e.cargo.yaw === undefined
             ? yaw
-            : ['slab', 'bufferStop'].includes(e.cargo.item)
+            : e.cargo.storageMove || ['slab', 'bufferStop'].includes(e.cargo.item)
               ? e.cargo.yaw + angleDelta(e.yaw ?? (e.heading * Math.PI) / 2, yaw)
               : e.cargo.yaw,
         length: e.cargo.yaw === undefined ? m.d : m.w,
@@ -372,7 +372,7 @@ export function boxRect(b: TrafficBox, pad = 0): Rect {
  * wall are solid. All coordinates follow the rendered cardinal rotation. */
 export function staticObstacleRects(s: State): (Rect & { id: string })[] {
   const out: (Rect & { id: string })[] = s.stacks
-    .filter((t) => t.qty > 0 || t.item === 'diesel')
+    .filter((t) => !t.storageCarriedBy && (t.qty > 0 || t.item === 'diesel'))
     .map((t) => ({ x: t.x, z: t.z, w: t.w, d: t.d, id: t.id }));
   for (const j of s.jobs) {
     const h = j.shedAssembly;
@@ -477,13 +477,115 @@ export function roadMoveBlocked(s: State, o: Order, pose: Point & { yaw: number 
   for (const p of people(s)) if (next.some((b) => personTouchesBox(p, b, 0.55))) return p.id;
   return '';
 }
+
+/** Heights of the actual storage props, including finite supported layers. */
+export function storageMoveStockHeight(item: Item, qty: number): number {
+  if (qty <= 0) return 0;
+  if (item === 'slab') return 0.02 + qty * 0.18;
+  if (item.startsWith('rail')) return 0.325 + (qty - 1) * 0.36;
+  if (item === 'office' || item === 'sanitary') return 3;
+  if (item === 'diesel') return 0.94;
+  if (item === 'cableReel') return 0.94;
+  if (item === 'bufferStop') return 1.1;
+  if (item === 'lamp') return 0.395 + (qty - 1) * 0.16;
+  if (
+    [
+      'processTank',
+      'transferPump',
+      'processPipe',
+      'pipeElbow',
+      'pipeTee',
+      'processValve',
+      'processGauge',
+    ].includes(item)
+  )
+    return (item === 'processTank' ? 1.3 : 0.8) * (qty - 1) + 1.1;
+  return Math.max(1.1, 0.35 + qty * (item === 'fence' ? 0.14 : 0));
+}
+interface StorageSolid extends TrafficBox {
+  top: number;
+}
+/** New storage hauling opts into load/solid checks; legacy delivery and rail
+ * handling retain their existing policies. A work-owned source/target permits
+ * support contact, never carrying a low load through the rest of a stack. */
+function storageLoadStaticContext(s: State, e: Equipment, extra: Rect[] = []) {
+  if (!e.cargo || e.cargo.item.startsWith('rail')) return;
+  const job = s.jobs.find(
+    (j) =>
+      (j.id === e.job || j.equipment === e.id) &&
+      j.kind === 'moveStock' &&
+      j.stockMove?.toStorage &&
+      !['done', 'canceled'].includes(j.status),
+  );
+  if (!e.cargo.storageMove && !job) return;
+  const heights = new Map<string, number>();
+  const surface = (p: Point) => (s.paving[`${Math.floor(p.x)},${Math.floor(p.z)}`] ? 0.105 : 0);
+  for (const t of s.stacks)
+    heights.set(
+      t.id,
+      surface({ x: t.x + t.w / 2, z: t.z + t.d / 2 }) +
+        (t.baseHeight || 0) +
+        storageMoveStockHeight(t.item, t.qty || (t.item === 'diesel' ? 1 : 0)),
+    );
+  const buildingHeights: Partial<Record<string, number>> = {
+    office: 3,
+    sanitary: 3,
+    store: 4,
+    shed: 6,
+    engineShed: 7,
+    lamp: 7,
+    power: 1.6,
+    water: 1.6,
+    electricalJunction: 1.3,
+    fence: 2.3,
+    processTank: 4.5,
+    transferPump: 1.8,
+    processPipe: 1.4,
+    pipeElbow: 1.4,
+    pipeTee: 1.4,
+    processValve: 1.8,
+    processGauge: 1.8,
+  };
+  for (const b of s.buildings)
+    heights.set(b.id, surface(b) + (buildingHeights[b.kind] ?? Infinity));
+  for (const b of bufferAssets(s)) heights.set(b.id, (b.y || 0) + 1.1);
+  for (const run of s.electrical?.runs || [])
+    for (const [i, c] of run.cells.entries()) {
+      heights.set(`${run.id}/trench/${i}`, 0);
+      heights.set(`${run.id}/spoil/${i}`, 1.1);
+      heights.set(`${run.id}/slab/${i}`, surface(c) + 0.2);
+    }
+  const unique = new Map<string, Rect & { id?: string }>();
+  for (const r of [...staticObstacleRects(s), ...extra])
+    unique.set(`${(r as { id?: string }).id || ''}/${r.x}/${r.z}/${r.w}/${r.d}`, r);
+  const solids: StorageSolid[] = [...unique.values()].map((r) => ({
+    x: r.x + r.w / 2,
+    z: r.z + r.d / 2,
+    length: r.w,
+    width: r.d,
+    yaw: 0,
+    id: r.id,
+    top: r.id ? (heights.get(r.id) ?? Infinity) : Infinity,
+  }));
+  const bottom =
+    job?.handling?.state === 'carried' ? job.handling.pose.y : (e.y || 0) + (e.lift ?? 0.12);
+  return {
+    solids,
+    bottom,
+    clearance: (id?: string) =>
+      id && (id === job?.stockMove?.sourceId || id === job?.stockMove?.mergeId) ? 0.025 : -0.035,
+  };
+}
+
 export function equipmentMoveBlocked(
   s: State,
   e: Equipment,
   pose: Point & { yaw?: number },
 ): string {
-  const boxes = equipmentBoxes(e, pose),
-    prior = equipmentBoxes(e);
+  const loadStatic = storageLoadStaticContext(s, e);
+  const moving = loadStatic ? {...e,cargo:{...e.cargo!,storageMove:true}} : e;
+  const boxes = equipmentBoxes(moving, pose),
+    prior = equipmentBoxes(moving);
   const blocks = (a: TrafficBox, b: TrafficBox, part: number, margin = 0.06) => {
     if (!boxOverlap(a, b, margin)) return false;
     const next = boxPenetrationDepth(a, b, margin),
@@ -498,6 +600,13 @@ export function equipmentMoveBlocked(
       blocks(boxes[0], { x: r.x + r.w / 2, z: r.z + r.d / 2, yaw: 0, length: r.w, width: r.d }, 0)
     )
       return r.id;
+  }
+  if (loadStatic) {
+    const part = boxes.length - 1;
+    for (const solid of loadStatic.solids) {
+      if (loadStatic.bottom + loadStatic.clearance(solid.id) >= solid.top) continue;
+      if (blocks(boxes[part], solid, part)) return solid.id || 'static load obstruction';
+    }
   }
   for (const p of people(s)) {
     if (p.worker?.transition?.equipmentId === e.id) continue;
@@ -603,6 +712,8 @@ export function machineRoute(
   allowWorkerYield = false,
   finalYaw?: number,
 ): Point[] | null {
+  const loadStatic = storageLoadStaticContext(s, e, staticObstacles);
+  if(loadStatic) e = {...e,cargo:{...e.cargo!,storageMove:true}};
   const solid = staticObstacles.map((r) => ({
     x: r.x + r.w / 2,
     z: r.z + r.d / 2,
@@ -654,7 +765,10 @@ export function machineRoute(
           }),
       ) &&
       !carriers.some((b) => replayBlocked(chassis, b, 0)) &&
-      !solid.some((b) => replayBlocked(chassis, b, 0))
+      !solid.some((b) => replayBlocked(chassis, b, 0)) &&
+      (!loadStatic || !loadStatic.solids.some(b =>
+        loadStatic.bottom + loadStatic.clearance(b.id) < b.top &&
+        replayBlocked(boxes[boxes.length - 1], b, boxes.length - 1)))
     );
   };
   // A storage dock can fit the final chassis yet have no room for a turn

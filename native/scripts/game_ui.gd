@@ -13,8 +13,10 @@ const Table = preload("res://scripts/ui_table.gd")
 const ProcessUI = preload("res://scripts/process_ui.gd")
 const CollectionUI = preload("res://scripts/collection_ui.gd")
 const ElectricalUI = preload("res://scripts/electrical_ui.gd")
+const StorageMoveUI = preload("res://scripts/storage_move_ui.gd")
 var collection_ui: RefCounted = CollectionUI.new()
 var electrical_ui: RefCounted = ElectricalUI.new()
+var storage_move_ui: RefCounted = StorageMoveUI.new()
 const TABS: Array[String] = ["Yard","Railway","Process","Electrical","Materials","Workers","Equipment","Deliveries","Work","Activity","Costs","SQL","Inbox"]
 const ACTIVITIES: Array[String] = ["receiving","paving","construction","rail","recovery"]
 const CATALOG: Dictionary = {
@@ -553,6 +555,7 @@ func show_error(text: String) -> void:
 
 func receive_reply(message: Dictionary) -> void:
 	collection_ui.receive(self,message)
+	storage_move_ui.receive(self,message)
 	if bool(message.get("ok",true)):
 		error_label.visible=false
 		if str(message.get("action",""))=="purchase_batch" and is_instance_valid(purchase_window):
@@ -1076,7 +1079,7 @@ func _render_inspector() -> void:
 				_detail("Quantity",stock_quantity)
 			_detail("Reserved",entity.get("reserved",0))
 			_detail("Footprint","%s × %s m"%[entity.get("w",1),entity.get("d",1)])
-			_detail("Mass",_mass(20.0*stock_quantity+.825*float(entity.get("liters",0)) if stock_item=="diesel" else stock_quantity*float(catalog.get(stock_item,{}).get("mass",0))))
+			_detail("Mass",_mass(20.0*stock_quantity+.825*float(entity.get("liters",0)) if stock_item=="diesel" else 35.0*stock_quantity+3.0*float(entity.get("cableMeters",50)) if stock_item=="cableReel" else stock_quantity*float(catalog.get(stock_item,{}).get("mass",0))))
 			_detail("Source",entity.get("source",""))
 			if entity.get("item")=="diesel": _detail("Contents","%.1f / 200 L"%float(entity.get("liters",0)))
 			if entity.get("item")=="cableReel":
@@ -1084,6 +1087,7 @@ func _render_inspector() -> void:
 				_detail("Reserved cable","%.1f m"%float(entity.get("cableReservedMeters",0)))
 				_detail("Reserved recovery capacity","%.1f m"%float(entity.get("cableReservedSpaceMeters",0)))
 				_note(inspector_body,"Cable is consumed by the meter; the physical wooden reel stays on site when empty. Electrical's cable meter ledger links every withdrawal and buried segment.")
+			_button(inspector_body,"Move to storage…",func()->void:storage_move_ui.open(self,str(entity.id)))
 			_button(inspector_body,"Collect unwanted units…",func()->void:collection_ui.open(self,str(entity.id)))
 			if str(entity.get("item","")).begins_with("rail"):
 				_button(inspector_body,"Relocate one exposed rail panel",func() -> void: _select_tool("relocate"))
@@ -1392,7 +1396,7 @@ func _equipment_inspector(equipment: Dictionary) -> void:
 	popup.hide_on_checkable_item_selection=false
 	var activities: Array = equipment.get("allowedWork",ACTIVITIES if equipment.get("workRole","all")=="all" else ([] if equipment.get("workRole")=="hold" else [equipment.get("workRole")]))
 	for i: int in range(ACTIVITIES.size()):
-		popup.add_check_item(ACTIVITIES[i].capitalize(),i)
+		popup.add_check_item("Recovery / relocation" if ACTIVITIES[i]=="recovery" else ACTIVITIES[i].capitalize(),i)
 		popup.set_item_checked(i,ACTIVITIES[i] in activities)
 	popup.add_separator()
 	popup.add_item("All work",10)
@@ -1476,6 +1480,16 @@ func _work_inspector(work: Dictionary,group: bool) -> void:
 			_detail("Staging position",_position(work.railWork.stage))
 		_detail("Progress","%d%%"%roundi(float(work.get("progress",0))*100))
 		if work.has("item"): _detail("Material","%s × %s"%[work.get("qty",0),_name(str(work.item))])
+		if work.get("stockMove",{}).get("toStorage",false):
+			var move: Dictionary=work.stockMove
+			_detail("Move source",move.get("sourceId","—"))
+			_detail("Destination stockyard",move.get("zoneId","Automatic choice"))
+			_detail("Storage placement","%s · %s × %s m"%[_position(move.get("destination",{})),move.get("destination",{}).get("w",1),move.get("destination",{}).get("d",1)])
+			if move.has("mergeId"):_detail("Stack to join",move.mergeId)
+			if move.has("afterJobId"):_detail("After previous lift",move.afterJobId)
+			var load: Dictionary=move.get("load",{})
+			if load.get("item")=="cableReel":_detail("Cable in carried reel","%.1f m"%float(load.get("cableMeters",50)))
+			if load.get("item")=="diesel":_detail("Diesel in carried drum","%.1f L"%float(load.get("liters",0)))
 		if str(work.get("kind",""))=="refuel":_fuel_details(work)
 		if work.has("electricalRunId"):
 			_detail("Electrical circuit",work.electricalRunId)

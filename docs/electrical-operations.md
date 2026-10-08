@@ -34,6 +34,10 @@ Cancellation is a safe stop, not an undo: the crew lowers carried equipment, ret
 
 ![Actual native electrical register](../native/screenshots/electrical-register.png)
 
+## Return a reel to storage
+
+After electrical work releases a staged reel, click it in Yard or open its STK ID and choose **Move to storage…**. Leave the destination automatic, or search stockyards by name/ID and select one. **Create move work** opens its parent order; assign a fueled forklift or excavator, operator, and builder or engineer, or allow automatic **Recovery / relocation**. The crew carries the same reel back with its exact remaining cable. Empty reels are movable too and remain useful for cable recovery. A reel still reserved by installation or recovery must first be released through completion or safe cancellation. See [Move existing material to storage](storage-moves.md).
+
 ## Recover or change a route
 
 Select a run in Electrical and choose **Recover underground cable**. Recover downstream branches before their upstream feed. The engineer isolates the real terminals before excavation; requesting recovery alone does not cut power early. The crew reopens the trench, retrieves its cable into an accessible partially used or empty reel, and backfills and restores the ground. Recovery needs enough free reel capacity and the same crew and excavator as construction. An empty reel is useful stock; do not collect it off site if you intend to recover cable.

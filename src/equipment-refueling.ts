@@ -1,3 +1,4 @@
+import { storageMoveOwnsStack } from './storage-locks';
 import type { Equipment, Item, Job, Point, Rect, Stack, State, Worker } from './types';
 import { boardMachine, leaveMachine, machineStep } from './boarding';
 import { center, dist } from './path';
@@ -70,6 +71,7 @@ function clearBlocked(s: State, j: Job) {
 function barrelAvailable(s: State, j: Job, t: Stack) {
   return (
     t.item === 'diesel' &&
+    t.qty > 0 && !t.reserved && !t.storageCarriedBy && !storageMoveOwnsStack(s,t.id) &&
     (t.liters || 0) > 0 &&
     !s.jobs.some((k) => k.id !== j.id && k.kind === 'refuel' && active(k) && k.stack === t.id) &&
     !s.shunters?.some((e) => e.refueling?.barrelId === t.id)

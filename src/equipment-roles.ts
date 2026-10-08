@@ -7,7 +7,7 @@ export const EQUIPMENT_ROLES: Record<EquipmentWorkRole, string> = {
   paving: 'Paving only',
   construction: 'Building only',
   rail: 'Rail work only',
-  recovery: 'Recovery only',
+  recovery: 'Recovery / relocation only',
   hold: 'Hold new work',
 };
 export const EQUIPMENT_ACTIVITIES: Record<EquipmentActivity, string> = {
@@ -15,7 +15,7 @@ export const EQUIPMENT_ACTIVITIES: Record<EquipmentActivity, string> = {
   paving: 'Paving',
   construction: 'Building',
   rail: 'Rail work',
-  recovery: 'Recovery / dismantling',
+  recovery: 'Recovery / relocation',
 };
 export const equipmentRole = (e: Pick<Equipment, 'workRole'>): EquipmentWorkRole =>
   e.workRole ?? 'all';

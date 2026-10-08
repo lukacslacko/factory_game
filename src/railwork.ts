@@ -1,3 +1,5 @@
+import { storageDestinationReserved } from './storage-locks';
+import { storageMoveDestinationError } from './storage-move-destination';
 import { requestActionClearance, clearActionClearance } from './action-clearance';
 import { appendRailLayers, takeRailLayers, recoveryStackCandidates } from './rail-stock';
 import { recoverySource, railRecoveryConflict } from './rail-recovery';
@@ -593,6 +595,7 @@ function initialize(s: State, j: Job, e: Equipment, api: RailWorkAPI) {
           (t) =>
             t.id !== oldSource.id &&
             t.item === railItem(j) &&
+            !storageDestinationReserved(s,t.id) &&
             (t.trackHand ?? 1) === (oldSource.trackHand ?? 1) &&
             t.qty - t.reserved >= j.qty &&
             !railStagingStackOwned(s, t.id) &&
@@ -1887,6 +1890,7 @@ export function tickRailWork(s: State, j: Job, dt: number, api: RailWorkAPI): bo
       } else {
         j.railAssetIds = takeRailLayers(stack, qty);
         stack.reserved -= qty;
+        if (j.stockMove?.toStorage) j.stockMove.queuedReservation = false;
       }
       if (j.railRecovery) j.railAssetIds = [j.railRecovery.railId];
       j.assetId = qty === 1 ? j.railAssetIds?.[0] || undefined : undefined;
@@ -1995,8 +1999,10 @@ export function tickRailWork(s: State, j: Job, dt: number, api: RailWorkAPI): bo
         'Rail staging landing space has become obstructed; clear the supported-panel footprint';
       return true;
     }
+    const storageError=storageMoveDestinationError(s,j);
+    if(storageError) {j.reason=storageError;return true;}
     const merge = s.stacks.find((t) => t.id === j.stockMove?.mergeId);
-    if (j.stockMove?.mergeId && (!merge || merge.qty >= MATERIALS[railItem(j)].max)) {
+    if (j.stockMove?.mergeId && ((!merge && !j.stockMove.toStorage) || (merge && merge.qty >= MATERIALS[railItem(j)].max))) {
       j.reason = 'Reserved recovery stack is unavailable or full; clear its receiving space';
       return true;
     }

@@ -61,7 +61,7 @@ launcher.chmod(0o755)
 shutil.copy2(ROOT / 'LICENSE', resources / 'LICENSE')
 (resources / 'README.md').write_text((ROOT / 'native/README.md').read_text().replace('../docs/', 'docs/'))
 (resources / 'docs').mkdir()
-for guide in ['electrical-operations.md', 'site-services.md', 'rail-operations.md', 'fluid-operations.md', 'worker-assignment-and-clearance.md', 'native-migration.md']:
+for guide in ['storage-moves.md', 'electrical-operations.md', 'site-services.md', 'rail-operations.md', 'fluid-operations.md', 'worker-assignment-and-clearance.md', 'native-migration.md']:
     shutil.copy2(ROOT / 'docs' / guide, resources / 'docs' / guide)
     if guide == 'electrical-operations.md':
         page = resources / 'docs' / guide
@@ -74,8 +74,8 @@ if icon.exists():
     shutil.copy2(icon, resources / 'Plant01.icns')
 info = {'CFBundleName': 'Plant 01', 'CFBundleDisplayName': 'Plant 01',
         'CFBundleIdentifier': 'com.lukacslacko.factory-game', 'CFBundleExecutable': 'Plant01',
-        'CFBundlePackageType': 'APPL', 'CFBundleShortVersionString': '0.27.1',
-        'CFBundleVersion': '221', 'CFBundleIconFile': 'Plant01.icns',
+        'CFBundlePackageType': 'APPL', 'CFBundleShortVersionString': '0.28.0',
+        'CFBundleVersion': '222', 'CFBundleIconFile': 'Plant01.icns',
         'NSHighResolutionCapable': True, 'LSMinimumSystemVersion': '14.0',
         'NSHumanReadableCopyright': 'Plant 01 contributors · MIT; runtime notices in Resources/native/licenses'}
 (app / 'Contents/Info.plist').write_bytes(plistlib.dumps(info))

@@ -1,3 +1,4 @@
+import { storageMoveOwnsStack } from './storage-locks';
 import { tickCollection, collectionOwnsEquipment, collectionOwnsStack } from './collection';
 import type { TrafficBox } from './traffic';
 import { requestActionClearance, clearActionClearance, actionEnvelopeBlockers } from './action-clearance';
@@ -505,6 +506,7 @@ function chooseStorage(
     .filter(
       (t) =>
         t.item === item &&
+        !storageMoveOwnsStack(s,t.id) &&
         !collectionOwnsStack(s,t.id) &&
         (!item.startsWith('rail') || item === 'rail' || (t.trackHand ?? 1) === 1) &&
         inDestination(t) &&

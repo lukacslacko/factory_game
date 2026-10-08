@@ -112,7 +112,13 @@ export interface Equipment extends Point, Move, Motion {
   job?: string;
   refueling?: string;
   lowFuelWarned?: boolean;
-  cargo?: { item: Item; qty: number; yaw?: number };
+  cargo?: {
+    item: Item;
+    qty: number;
+    yaw?: number;
+    /** New generic storage hauling uses the complete rotated solid load. */
+    storageMove?: boolean;
+  };
   assemblyLoad?: {
     job: string;
     kind: ShedPartKind;
@@ -151,6 +157,8 @@ export interface Stack extends Rect {
   cableReservedMeters?: number;
   cableReservedSpaceMeters?: number;
   electricalCarriedBy?: string;
+  /** Hidden source placeholder while its complete stock is physically carried. */
+  storageCarriedBy?: string;
 }
 export interface Building extends Rect {
   id: string;
@@ -412,7 +420,12 @@ export interface Job extends Rect {
   kind: BuildKind | 'refuel' | 'remove' | 'throwSwitch' | 'moveStock' | 'cableRun';
   electricalRunId?: string;
   /** Exact-source physical rail relocation, never a construction material demand. */
-  stockMove?: { sourceId: string; destination: Rect; yaw: number; mergeId?: string };
+  stockMove?: {
+    sourceId: string; destination: Rect; yaw: number; mergeId?: string;
+    toStorage?: boolean; zoneId?: string; queuedReservation?: boolean; afterJobId?: string;
+    /** Exact conserved contents of the supported physical load. */
+    load?: Stack;
+  };
   /** Installed steel remains in the network until its joints and slings are released. */
   railRecovery?: {
     railId: string;

@@ -151,7 +151,7 @@ func sync_snapshot(message:Dictionary)->void:
 	for work in render.get("construction",[]):
 		if str(work.get("state","stored")) in ["stored","installed"]:continue
 		var id:=str(work.jobId)+"/handling"; live[id]=true
-		_ensure_load(id,str(work.get("item","slab")),int(work.get("qty",1)),1,str(work.get("item",""))=="bufferStop"); _new_pose(id,_attachment_pose(work.get("pose",{}),str(work.get("equipmentId","")),str(work.get("state",""))=="carried"))
+		_ensure_load(id,str(work.get("item","slab")),int(work.get("qty",1)),1,str(work.get("item",""))=="bufferStop",float(work.get("cableMeters",50))); _new_pose(id,_attachment_pose(work.get("pose",{}),str(work.get("equipmentId","")),str(work.get("state",""))=="carried"))
 	for assembly in render.get("sheds",[]):
 		for index in range(assembly.get("anchorPoses",[]).size()):
 			var id:=str(assembly.jobId)+"/anchor/"+str(index);live[id]=true
@@ -356,17 +356,20 @@ func _sync_statics()->void:
 		if bool(task.get("lifted",false)) and index>=0 and index<collection.get("lines",[]).size():collection_lifts[str(collection.lines[index].get("stackId",""))]=true
 	for data in state.get("stacks",[]):
 		var id:=str(data.id); live[id]=true
-		var hidden:bool=int(data.get("qty",0))<=0 and str(data.get("item",""))!="diesel"
-		if not str(data.get("electricalCarriedBy","")).is_empty():hidden=true
+		var display_qty:int=int(data.get("qty",0))
+		var hidden:bool=display_qty<=0 and str(data.get("item",""))!="diesel"
+		if not str(data.get("electricalCarriedBy","")).is_empty() or not str(data.get("storageCarriedBy","")).is_empty():hidden=true
 		if collection_lifts.has(id) and int(data.get("qty",0))<=0:hidden=true
 		for work in render.get("construction",[]):
-			if str(work.get("placedStack",""))==id and str(work.get("state",""))=="placed":hidden=true
+			if str(work.get("placedStack",""))==id and str(work.get("state",""))=="placed":
+				display_qty=maxi(0,display_qty-int(work.get("qty",1)))
+				if display_qty==0:hidden=true
 		for work in render.get("railWork",[]):
 			if str(work.get("phase",""))=="configure-staged-panel" and str(work.get("panel",{}).get("stackId",""))==id:hidden=true
-		var key:=JSON.stringify([data.get("item"),data.get("qty"),data.get("trackHand"),data.get("baseHeight"),data.get("cableMeters"),hidden])
+		var key:=JSON.stringify([data.get("item"),display_qty,data.get("trackHand"),data.get("baseHeight"),data.get("cableMeters"),hidden])
 		if static_keys.get(id,"")!=key:
 			_drop_static(id)
-			var model:=Models.stock(self,str(data.item),int(data.get("qty",0)),int(data.get("trackHand",1)),float(data.get("cableMeters",50)))
+			var model:=Models.stock(self,str(data.item),display_qty,int(data.get("trackHand",1)),float(data.get("cableMeters",50)))
 			statics[id]=model; static_keys[id]=key; model.visible=not hidden
 			if float(data.get("baseHeight",0))>0:
 				var support:float=float(data.baseHeight); var wood:Material=Models.materials().wood

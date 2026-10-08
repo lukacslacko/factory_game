@@ -1,4 +1,8 @@
-import type { Item, BuildKind, EquipmentKind, Role } from './types';
+import type { Item, BuildKind, EquipmentKind, Role, Stack } from './types';
+/** Actual remaining contents travel with each single drum or cable reel. */
+export const stockUnitMass = (t: Pick<Stack,'item'|'liters'|'cableMeters'>): number =>
+  t.item === 'diesel' ? 20 + .825 * (t.liters ?? 0) :
+  t.item === 'cableReel' ? 35 + 3 * (t.cableMeters ?? 50) : MATERIALS[t.item].mass;
 export const TRACK_GAUGE = 1.435;
 export const RAIL_HEAD_WIDTH = 0.072;
 /** Eight supported layers stay below 3 m; lift and carrier mass limits are independent. */
@@ -334,7 +338,7 @@ export const label = (key: string) =>
   (
     {
       cableRun: 'Underground electrical circuit',
-      moveStock: 'Relocate rail stock',
+      moveStock: 'Move material to storage',
       remove: 'Recovery',
       refuel: 'Refueling',
       throwSwitch: 'Operate turnout lever',

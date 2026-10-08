@@ -1,0 +1,83 @@
+{
+  "version": "0.28.0",
+  "build": 222,
+  "date": "2026-10-08",
+  "frozenInputs": 200,
+  "builds": {
+    "nativeTypeScript": "passed",
+    "browserTypeScriptVite": "passed; existing bundle-size advisory"
+  },
+  "coverage": [
+    "Automatic or searchable named stockyard; actual contents mass; read-only preview and atomic source/destination reservations.",
+    "Physical partial/full/empty reel and drum movement, same identity and exact remaining meters or liters.",
+    "Grouped sequential capacity-limited lifts; finite compatible stacking; recovered rail identities, orientation and handedness.",
+    "Per-phase save/reload, safe cancellation and manual equipment reassignment without double reservation or material loss.",
+    "Incoming-target locking against collection, construction and a second move; booked drums excluded from equipment and shunter refueling.",
+    "Full rotated generic load against buildings and stacked material, support heights, late landing obstruction and capacity changes.",
+    "Native UI commands, actual physical carry/setdown, atomic disk load while carried, and preexisting stack layers retained during top-up.",
+    "Legacy exact-source rail relocation and supported withdrawal save semantics remain valid.",
+    "Automatic dispatch rejects a closer undersized forklift for a 3,360 kg slab batch and completes it using the actual larger excavator."
+  ],
+  "focusedNewTests": 45,
+  "nativeChecks": [
+    {
+      "name": "v028-packaged-storage-final",
+      "elapsed_seconds": 28.48,
+      "peak_resident_bytes": 377307136,
+      "returncode": 0,
+      "stopped_reason": null,
+      "countedAssertions": 112
+    },
+    {
+      "name": "v028-packaged-general-final",
+      "elapsed_seconds": 9.13,
+      "peak_resident_bytes": 587202560,
+      "returncode": 0,
+      "stopped_reason": null,
+      "countedAssertions": 30
+    }
+  ],
+  "privateData": {
+    "runningGameUntouched": true,
+    "playerSaveUntouched": true,
+    "isolatedSyntheticFixtures": true,
+    "previousAppRetained": true,
+    "newAppLeftClosed": true
+  },
+  "scopeLimits": [
+    "Moves existing physical stock; installed infrastructure must first be recovered.",
+    "Existing stock moves physically in Creative; canceling a carried move still requires safe access and landing space.",
+    "Focused scenarios and regression suite, not an arbitrary-layout or multi-hour factory guarantee.",
+    "Apple Silicon macOS 14+ local app; browser Site remains v0.18.0."
+  ],
+  "nativeUiAssertions": 37,
+  "developmentBridgeAssertions": 112,
+  "packaging": {
+    "installedFiles": 163,
+    "mismatches": [],
+    "archiveBytes": 152166031,
+    "archiveSHA256": "f470ccd0dbdad3e04005e51805c483c1cca9383cd725aa998fc4ed5dc63b6766",
+    "repositoryFiles": 95,
+    "signature": "verified",
+    "installedApp": "Plant 01 v0.28.0.app"
+  },
+  "fullSuite": {
+    "tests": 787,
+    "pass": 787,
+    "fail": 0,
+    "duration_ms": 596912.138375,
+    "scope": "Complete suite before the isolated new-storage automatic dispatch capacity correction and its added regression."
+  },
+  "finalFollowup": {
+    "focusedTests": 53,
+    "newStorageAndClearanceTests": 45,
+    "legacyRailRelocationTests": 8,
+    "nativeHostTests": 19,
+    "fail": 0,
+    "scope": "After the capacity correction, automatic dispatch must lift the actual full batch mass; the existing assignment branch is unchanged."
+  },
+  "finalFrozenInputs": {
+    "count": 200,
+    "changedDuringFinalFocusedBuildAndPackagedVerification": []
+  }
+}

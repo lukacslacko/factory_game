@@ -1,3 +1,4 @@
+import { storageMoveStockHeight } from '../src/traffic';
 import { electricalRender, electricalToolPose } from './electrical-render';
 import { collectionLots } from '../src/collection';
 /** Engine-neutral render records. Coordinates remain the simulation's meters and radians;
@@ -233,7 +234,8 @@ export function renderState(s: State) {
         lift = handling.toolLift;
         reach = handling.toolReach;
         if (handling.state === 'carried') {
-          lift = handling.pose.y - pose.y + (e.kind === 'excavator' ? 0.82 : 0);
+          const storageJob=s.jobs.find(j=>j.id===e.job&&j.stockMove?.toStorage);
+          lift = handling.pose.y - pose.y + (e.kind === 'excavator' ? storageJob?storageMoveStockHeight(e.cargo!.item,e.cargo!.qty)+.7:.82 : 0);
           reach = Math.hypot(handling.pose.x - pose.x, handling.pose.z - pose.z);
           if (e.kind === 'excavator')
             upperYaw = -angleDelta(
@@ -488,6 +490,7 @@ export function renderState(s: State) {
       equipmentId: j.equipment,
       item: j.item || j.kind,
       qty: j.qty,
+      cableMeters: j.stockMove?.load?.cableMeters,
       ...j.handling,
     }));
   const sheds = s.jobs

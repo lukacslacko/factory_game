@@ -66,7 +66,9 @@
     "electrical_plan": "same as electrical_preview; creates real linked cable construction work or commissions instantly in creative",
     "electrical_cancel": "{id:runId|jobId}; request safe cancellation with physical material and soil restoration",
     "electrical_resume": "{id:runId|jobId}; resume safely canceled unfinished circuit",
-    "electrical_recover": "{id:runId|jobId}; queue physical isolation, re-excavation, cable retrieval to real available reel capacity, backfill and paving restoration; downstream branches must be recovered first"
+    "electrical_recover": "{id:runId|jobId}; queue physical isolation, re-excavation, cable retrieval to real available reel capacity, backfill and paving restoration; downstream branches must be recovered first",
+    "storage_move_preview": "{id:stackId,quantity?:int,zoneId?:stockyardId,requestId?:string}; read-only physical source/route/space preview: {error,quantity,mass,zoneId,destination,requestId}",
+    "move_to_storage": "same as storage_move_preview; reserves source and destination, creates grouped physical lifting work, returns {error,job,groupId,jobIds,requestId}"
   },
   "snapshot": {
     "state": "Existing src/types.ts State JSON; events/movements/costs snapshot tails bounded, complete history retained for saves/SQL",
