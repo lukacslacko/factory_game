@@ -305,7 +305,7 @@ func _command(action: String, args: Dictionary = {}) -> void:
 		return
 	if action in ["new_game","import","load","continue","restore_backup"] and is_instance_valid(audio):audio.reset_history()
 	if action == "audio_settings":
-		if is_instance_valid(audio):audio.show_settings()
+		if is_instance_valid(audio):audio.show_settings(ui.screen.theme)
 		return
 	if action == "native_resolution":
 		native_resolution = bool(args.get("value",false))
@@ -896,6 +896,7 @@ func _request_file(action: String) -> void:
 	if is_instance_valid(file_dialog):
 		file_dialog.queue_free()
 	file_dialog = FileDialog.new()
+	file_dialog.theme = ui.screen.theme
 	file_dialog.access = FileDialog.ACCESS_FILESYSTEM
 	file_dialog.use_native_dialog = true
 	file_dialog.file_mode = FileDialog.FILE_MODE_OPEN_FILE if action in ["import", "load"] else FileDialog.FILE_MODE_SAVE_FILE

@@ -60,38 +60,32 @@ func open(ui, stack_id: String) -> void:
 	if stack.is_empty():ui.show_error("This stock is no longer on site.");return
 	var dialog: Dictionary=ui._rail_dialog("Move material to storage",Vector2i(680,480))
 	window=dialog.window
-	ui._label(dialog.body,"%s · %s"%[source_id,ui._name(str(stack.get("item","")))])
-	source_note=ui._note(dialog.body,"")
+	var source: VBoxContainer=ui._section(dialog.body,"Source material")
+	ui._label(source,"%s · %s"%[source_id,ui._name(str(stack.get("item","")))])
+	source_note=ui._note(source,"")
 	_show_source(ui,stack)
-	ui._note(dialog.body,"Owned equipment and qualified workers physically lift and carry the selected units. Fuel and cable stay in their original drum or reel; moving them does not refill them. Active work must release its material first. This handling also takes place physically in Creative.")
+	ui._note(source,"Owned equipment and qualified workers physically lift and carry the selected units. Fuel and cable stay in their original drum or reel; moving them does not refill them. Active work must release its material first. This handling also takes place physically in Creative.")
 	var available: int=maxi(0,int(stack.get("qty",0))-int(stack.get("reserved",0)))
-	quantity=ui._number(dialog.body,"Units to move",maxi(1,available),1,maxi(1,available))
+	var options: VBoxContainer=ui._section(dialog.body,"Quantity and destination")
+	quantity=ui._number(options,"Units to move",maxi(1,available),1,maxi(1,available))
 	quantity.editable=available>0
-	ui._label(dialog.body,"Destination stockyard · optional")
+	ui._label(options,"Destination stockyard · optional")
 	zone_search=LineEdit.new()
 	zone_search.placeholder_text="Filter stockyards by name or ID…";zone_search.clear_button_enabled=true
-	_style_search_input(zone_search)
-	dialog.body.add_child(zone_search)
-	zone_choice=ui._option(dialog.body,[])
+	options.add_child(zone_search)
+	zone_choice=ui._option(options,[])
 	zone_choice.fit_to_longest_item=false;zone_choice.clip_text=true
 	_fill_zones(ui)
 	zone_search.text_changed.connect(func(_text: String)->void:_fill_zones(ui))
 	zone_choice.item_selected.connect(func(_index: int)->void:selected_zone=ui._selection(zone_choice);_request_preview(ui))
 	quantity.value_changed.connect(func(_value: float)->void:_request_preview(ui))
-	preview_note=ui._note(dialog.body,"")
+	preview_note=ui._note(ui._section(dialog.body,"Move preview"),"")
 	refresh_button=ui._button(dialog.footer,"Refresh preview",func()->void:_request_preview(ui))
 	submit_button=ui._button(dialog.footer,"Create move work",func()->void:_submit(ui))
 	submit_button.disabled=true
 	ui._button(dialog.footer,"Cancel",func()->void:window.hide();window.queue_free())
 	window.popup_centered()
 	_request_preview(ui)
-
-func _style_search_input(input: LineEdit) -> void:
-	input.add_theme_color_override("font_color",Color("34503e"))
-	input.add_theme_color_override("font_placeholder_color",Color("617660"))
-	input.add_theme_color_override("caret_color",Color("34503e"))
-	input.add_theme_color_override("font_selected_color",Color.WHITE)
-	input.add_theme_color_override("selection_color",Color("48765f"))
 
 func _show_source(ui, stack: Dictionary) -> void:
 	source_note.text="At %s · %d units · %d reserved"%[ui._position(stack),int(stack.get("qty",0)),int(stack.get("reserved",0))]

@@ -2,6 +2,8 @@
 
 The existing factory simulation now runs in a local Node.js service, with Godot rendering the approved Concept C yard and providing native controls. The service owns simulation time and file persistence, so gameplay can continue while the window is unfocused. No web page, Chrome process, web server, or Internet connection is needed to play.
 
+Native v0.30.0 improves readability throughout the game. Shared paper surfaces, dark text, distinct hover/press/focus states, and visible disabled labels cover buttons, menus, inputs, tables, and sound settings. Tab navigation and construction controls wrap to fit the window. Full-screen records have separated sections with matching/total counts, alternating rows, and horizontal scrolling when many columns need more space. Click a section heading to collapse it, or use **Jump to section…** to reach another register. Search, column filters, clickable IDs, and sorting still work together. Dialog actions stay below their scrolling contents. Inspectors have labeled status and assignment blocks; selecting a different asset starts at its heading.
+
 Native v0.29.0 includes a connected incoming electrical station in every new yard. **Purchase / hire** groups workers, equipment, buildings, railway, process equipment, electrical supplies, fuel, and utility services. Each separated row shows its own quantity, batch weight, and line cost. Highlighted rows and the batch manifest identify what is included; totals separate items from carrier charges. Quantity zero removes a line. Material transport still determines physical truck or rail loads; workers arrive by bus and equipment by lowloader. For a larger build, reserve a forklift for **Receiving deliveries** while freight is pending, and keep the excavator available for heavy loads as well as construction. Get real diesel drums unloaded before long equipment work consumes the initial fuel. Slab handling also repairs a reciprocal ground-worker wait during loaded withdrawal and requests operator-driven clearance when an idle empty machine blocks the stock pickup. Manual control and supported loads remain protected.
 
 Native v0.28.1 physically retracts the supported load after clearing its carrier and checks the final turning angle on delivery storage routes. A machine caught at an angled dock can reverse a short verified distance, then approach forward with its original load. If that face is blocked, it checks the opposite face of the same reserved stack. It never moves stored material merely to make an avoidable turn, and enclosed approaches retain their linked warning until access is cleared.
@@ -18,9 +20,9 @@ It retains walking-distance worker selection, safe action clearance, linked pers
 
 ## Download or open on this Mac
 
-[Download the Apple Silicon Mac app](https://github.com/lukacslacko/factory_game/releases/tag/v0.29.0), unzip it, and open **Plant 01.app**. This checkpoint targets macOS 14 or newer.
+[Download the Apple Silicon Mac app](https://github.com/lukacslacko/factory_game/releases/tag/v0.30.0), unzip it, and open **Plant 01.app**. This checkpoint targets macOS 14 or newer.
 
-On the creator’s Mac, the new build is **Plant 01 v0.29.0.app** beside the repository in `outputs/`. Save and quit the older game before opening it; the previous app is retained. Downloaded releases use the usual **Plant 01.app** name. It includes the Godot runner, Node runtime, simulation, terrain maps, and license notices. It is a local app for this Mac, not a notarized public release.
+On the creator’s Mac, the new build is **Plant 01 v0.30.0.app** beside the repository in `outputs/`. Save and quit the older game before opening it; the previous app is retained. Downloaded releases use the usual **Plant 01.app** name. It includes the Godot runner, Node runtime, simulation, terrain maps, and license notices. It is a local app for this Mac, not a notarized public release.
 
 For development, double-click **Open Plant 01.command** in the repository root. It uses Godot in `/Applications` and the installed Node runtime, building the simulation bundle when needed. Or run `npm run native:build` and open `native/project.godot` in Godot.
 

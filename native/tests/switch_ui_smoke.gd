@@ -128,7 +128,7 @@ func _run()->void:
 	var after:Array[Vector3]=_red_vertices(world.statics["BUFFER-9002"])
 	_check(before==after,"Fastening a buffer preserves all crossbar vertices without a final sideways jump")
 	_check(not world.models.has("JOB-9003/handling"),"Finished buffer installation removes its temporary handling model")
-	var main:=MainHarness.new();root.add_child(main);main.world=world;main.ui=ui;var client:=FakeClient.new();main.client=client;main.add_child(client);main.add_child(main.camera);main.add_child(main.sun)
+	var main:=MainHarness.new();root.add_child(main);main.world=world;main.ui=ui;var client:=FakeClient.new();main.client=client;main.add_child(client);main.add_child(main.camera);main.add_child(main.sun);main.add_child(main.moon)
 	ui.tool_selected.connect(main._select_tool)
 	main.placement_rotation=2;main.rail_hand=-1
 	# Exercise the exact old failure: choose convergence, then another rail

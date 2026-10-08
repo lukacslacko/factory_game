@@ -1,0 +1,497 @@
+{
+  "version": "0.30.0",
+  "build": 225,
+  "issue": 43,
+  "date": "2026-10-08",
+  "scope": "Native UI readability; no simulation or world-rendering behavior changes. Browser Site not redeployed.",
+  "readability": {
+    "passed": true,
+    "checks": 12092,
+    "views": [
+      "1440x900_yard",
+      "1440x900_railway",
+      "1440x900_process",
+      "1440x900_electrical",
+      "1440x900_materials",
+      "1440x900_workers",
+      "1440x900_equipment",
+      "1440x900_deliveries",
+      "1440x900_work",
+      "1440x900_activity",
+      "1440x900_costs",
+      "1440x900_sql",
+      "1440x900_inbox",
+      "1440x900_help",
+      "1440x900_help_end",
+      "1280x800_yard",
+      "1280x800_railway",
+      "1280x800_process",
+      "1280x800_electrical",
+      "1280x800_materials_final_column",
+      "1280x800_materials",
+      "1280x800_workers",
+      "1280x800_equipment",
+      "1280x800_deliveries",
+      "1280x800_work",
+      "1280x800_activity",
+      "1280x800_costs",
+      "1280x800_sql",
+      "1280x800_inbox",
+      "1280x800_help",
+      "1280x800_help_end",
+      "sql_selected_text",
+      "inspector_new_entity",
+      "startup_disabled_continue",
+      "purchase_empty",
+      "purchase_selected_batch",
+      "purchase_button_normal",
+      "purchase_button_hover",
+      "purchase_button_pressed",
+      "purchase_button_focus",
+      "purchase_button_disabled",
+      "electrical_plan_disabled",
+      "electrical_rename_selection",
+      "electrical_rename_placeholder",
+      "electrical_rename_read_only",
+      "collection_unquoted",
+      "rail_location_form",
+      "menu_selected_disabled",
+      "new_yard_confirmation",
+      "confirmation_ok_normal",
+      "confirmation_ok_hover",
+      "confirmation_ok_pressed",
+      "confirmation_ok_focus",
+      "confirmation_ok_disabled",
+      "sound_settings",
+      "sound_ok_normal",
+      "sound_ok_hover",
+      "sound_ok_pressed",
+      "sound_ok_focus",
+      "sound_ok_disabled",
+      "column_filter_switch_normal",
+      "column_filter_switch_hover",
+      "column_filter_switch_pressed",
+      "column_filter_switch_focus",
+      "column_filter_switch_disabled",
+      "activity_selected_warning",
+      "warning_banner"
+    ],
+    "states": [
+      "normal",
+      "hover",
+      "pressed",
+      "keyboard-focus",
+      "disabled",
+      "normal",
+      "hover",
+      "pressed",
+      "keyboard-focus",
+      "disabled",
+      "normal",
+      "hover",
+      "pressed",
+      "keyboard-focus",
+      "disabled",
+      "normal",
+      "hover",
+      "pressed",
+      "keyboard-focus",
+      "disabled"
+    ],
+    "contrastMeasurements": 42,
+    "lowestContrast": [
+      {
+        "background": "f4f3e9ff",
+        "context": "SQL (1440, 900) / Button Run query focus outline",
+        "foreground": "8a783dff",
+        "ratio": 3.9,
+        "required": 3.0
+      },
+      {
+        "background": "a6bfdbff",
+        "context": "Yard (1440, 900) / Button Yard focus outline",
+        "foreground": "315c42ff",
+        "ratio": 4.06,
+        "required": 3.0
+      },
+      {
+        "background": "c8d8bcff",
+        "context": "Railway (1440, 900) / Tree selected custom cell LOC-9001",
+        "foreground": "315c4fff",
+        "ratio": 5.05,
+        "required": 4.5
+      },
+      {
+        "background": "e8e9dfff",
+        "context": "Yard (1440, 900) / Button P 01  PLANT 01 disabled",
+        "foreground": "596153ff",
+        "ratio": 5.26,
+        "required": 3.0
+      },
+      {
+        "background": "e8e9dfff",
+        "context": "SQL (1440, 900) / Button Run query disabled",
+        "foreground": "52634fff",
+        "ratio": 5.27,
+        "required": 3.0
+      },
+      {
+        "background": "e8e9dfff",
+        "context": "Yard (1440, 900) / SpinBoxLineEdit read-only",
+        "foreground": "52634fff",
+        "ratio": 5.27,
+        "required": 4.5
+      },
+      {
+        "background": "c8d8bcff",
+        "context": "Process (1440, 900) / Tree selected custom cell Warning: no commissioned supply",
+        "foreground": "704311ff",
+        "ratio": 5.6,
+        "required": 4.5
+      },
+      {
+        "background": "f4f3e9ff",
+        "context": "Yard (1440, 900) / Label EX-6 tracked excavator",
+        "foreground": "52634fff",
+        "ratio": 5.79,
+        "required": 4.5
+      },
+      {
+        "background": "d6e5ceff",
+        "context": "purchase_selected_batch / SpinBoxLineEdit focus outline",
+        "foreground": "315c42ff",
+        "ratio": 5.82,
+        "required": 3.0
+      },
+      {
+        "background": "dde4d3ff",
+        "context": "Railway (1440, 900) / Button \u25be Named locations focus outline",
+        "foreground": "315c42ff",
+        "ratio": 5.88,
+        "required": 3.0
+      },
+      {
+        "background": "c8d8bcff",
+        "context": "Railway (1440, 900) / Tree title_button_pressed",
+        "foreground": "334f43ff",
+        "ratio": 5.98,
+        "required": 4.5
+      },
+      {
+        "background": "dce9d1ff",
+        "context": "purchase_selected_batch / SpinBoxLineEdit focus outline",
+        "foreground": "315c42ff",
+        "ratio": 6.07,
+        "required": 3.0
+      },
+      {
+        "background": "c8d8bcff",
+        "context": "Yard (1440, 900) / Button P 01  PLANT 01 pressed",
+        "foreground": "304b40ff",
+        "ratio": 6.35,
+        "required": 4.5
+      },
+      {
+        "background": "fffef7ff",
+        "context": "Yard (1440, 900) / SpinBoxLineEdit placeholder",
+        "foreground": "52634fff",
+        "ratio": 6.38,
+        "required": 4.5
+      },
+      {
+        "background": "fffef7ff",
+        "context": "Application menu disabled",
+        "foreground": "52634fff",
+        "ratio": 6.38,
+        "required": 3.0
+      },
+      {
+        "background": "eaeedfff",
+        "context": "Materials (1440, 900) / Tree cell STK-0016",
+        "foreground": "315c4fff",
+        "ratio": 6.41,
+        "required": 4.5
+      },
+      {
+        "background": "cedcc2ff",
+        "context": "Railway (1440, 900) / Button \u25be Named locations hover",
+        "foreground": "304b40ff",
+        "ratio": 6.64,
+        "required": 4.5
+      },
+      {
+        "background": "edf2e7ff",
+        "context": "purchase_empty / SpinBoxLineEdit focus outline",
+        "foreground": "315c42ff",
+        "ratio": 6.74,
+        "required": 3.0
+      },
+      {
+        "background": "d6e5ceff",
+        "context": "purchase_selected_batch / Label Equipment operator",
+        "foreground": "334f43ff",
+        "ratio": 6.82,
+        "required": 4.5
+      },
+      {
+        "background": "f4f3e9ff",
+        "context": "Yard (1440, 900) / Button P 01  PLANT 01 focus outline",
+        "foreground": "315c42ff",
+        "ratio": 6.88,
+        "required": 3.0
+      }
+    ],
+    "horizontalInventory": {
+      "cellAfter": "[P: (811.0, 33.0), S: (100.0, 28.0)]",
+      "cellBefore": "[P: (1074.0, 33.0), S: (100.0, 28.0)]",
+      "columnWidth": 100.0,
+      "header": "Mass stored",
+      "headerAvailableSize": "(88.0, 30.0)",
+      "headerTextSize": "(77.0, 18.0)",
+      "page": 908.0,
+      "range": 1171.0,
+      "scrollbarSize": "(908.0, 12.0)",
+      "treeSize": "(914.0, 212.0)",
+      "value": 263.0,
+      "viewport": "(1280, 800)",
+      "visible": true
+    },
+    "iconReadbacks": 12,
+    "iconInkEvaluations": 12,
+    "gpuRendering": true,
+    "serviceStarted": false,
+    "userSaveOpened": false
+  },
+  "headlessReadability": {
+    "passed": true,
+    "checks": 11983,
+    "views": 67
+  },
+  "workflowChecks": [
+    {
+      "test": "ui_smoke",
+      "passed": true,
+      "returncode": 0,
+      "seconds": 2.04,
+      "summary": [
+        "UI_SMOKE {\"commands\":1,\"failures\":[],\"inspectorTypes\":10,\"passed\":true,\"tabs\":13}"
+      ],
+      "errors": []
+    },
+    {
+      "test": "keyboard_focus_smoke",
+      "passed": true,
+      "returncode": 0,
+      "seconds": 1.06,
+      "summary": [
+        "KEYBOARD_FOCUS_SMOKE {\"checks\":13,\"failures\":[],\"gpuRendering\":false,\"passed\":true,\"serviceStarted\":false}"
+      ],
+      "errors": []
+    },
+    {
+      "test": "purchasing_ui_smoke",
+      "passed": true,
+      "returncode": 0,
+      "seconds": 0.67,
+      "summary": [
+        "PURCHASING_UI_SMOKE {\"checks\":33,\"failures\":[],\"gpuRendering\":false,\"passed\":true,\"serviceStarted\":false}"
+      ],
+      "errors": []
+    },
+    {
+      "test": "electrical_ui_smoke",
+      "passed": true,
+      "returncode": 0,
+      "seconds": 1.35,
+      "summary": [
+        "ELECTRICAL_UI_SMOKE {\"checks\":66,\"failures\":[],\"passed\":true}"
+      ],
+      "errors": []
+    },
+    {
+      "test": "process_ui_smoke",
+      "passed": true,
+      "returncode": 0,
+      "seconds": 0.95,
+      "summary": [
+        "PROCESS_UI_SMOKE {\"checks\":46,\"failures\":[],\"gpuRendering\":false,\"passed\":true,\"serviceStarted\":false}"
+      ],
+      "errors": []
+    },
+    {
+      "test": "storage_move_ui_smoke",
+      "passed": true,
+      "returncode": 0,
+      "seconds": 0.66,
+      "summary": [
+        "STORAGE_MOVE_UI_SMOKE {\"checks\":37,\"failures\":[],\"passed\":true}"
+      ],
+      "errors": []
+    },
+    {
+      "test": "fuel_collection_ui_smoke",
+      "passed": true,
+      "returncode": 0,
+      "seconds": 0.76,
+      "summary": [
+        "FUEL_COLLECTION_UI_SMOKE {\"checks\":15,\"failures\":[],\"passed\":true}"
+      ],
+      "errors": []
+    },
+    {
+      "test": "freight_ui_smoke",
+      "passed": true,
+      "returncode": 0,
+      "seconds": 0.88,
+      "summary": [
+        "FREIGHT_UI_SMOKE {\"checks\":27,\"failures\":[],\"gpuRendering\":false,\"passed\":true,\"serviceStarted\":false}"
+      ],
+      "errors": []
+    },
+    {
+      "test": "shunting_ui_smoke",
+      "passed": true,
+      "returncode": 0,
+      "seconds": 1.25,
+      "summary": [
+        "SHUNTING_UI_SMOKE {\"checks\":65,\"failures\":[],\"gpuRendering\":false,\"passed\":true,\"serviceStarted\":false}"
+      ],
+      "errors": []
+    },
+    {
+      "test": "rail_recovery_ui_smoke",
+      "passed": true,
+      "returncode": 0,
+      "seconds": 1.6,
+      "summary": [
+        "RAIL_RECOVERY_UI_SMOKE {\"checks\":49,\"failures\":[],\"gpuRendering\":false,\"passed\":true,\"serviceStarted\":false}"
+      ],
+      "errors": []
+    },
+    {
+      "test": "switch_ui_smoke",
+      "passed": true,
+      "returncode": 0,
+      "seconds": 2.3,
+      "summary": [
+        "SWITCH_UI_SMOKE {\"checks\":62,\"failures\":[],\"gpuRendering\":false,\"passed\":true,\"serviceStarted\":false}"
+      ],
+      "errors": []
+    },
+    {
+      "test": "manual_control_smoke",
+      "passed": true,
+      "returncode": 0,
+      "seconds": 0.78,
+      "summary": [
+        "MANUAL_CONTROL_SMOKE {\"commands\":3,\"failures\":[],\"passed\":true}"
+      ],
+      "errors": []
+    },
+    {
+      "test": "action_clearance_ui_smoke",
+      "passed": true,
+      "returncode": 0,
+      "seconds": 0.75,
+      "summary": [
+        "ACTION_CLEARANCE_UI_SMOKE {\"checks\":22,\"failures\":[],\"gpuRendering\":false,\"passed\":true,\"serviceStarted\":false}"
+      ],
+      "errors": []
+    },
+    {
+      "test": "inspector_close_smoke",
+      "passed": true,
+      "returncode": 0,
+      "seconds": 1.07,
+      "summary": [
+        "INSPECTOR_CLOSE_SMOKE {\"checks\":13,\"failures\":[],\"gpuRendering\":false,\"passed\":true,\"serviceStarted\":false}"
+      ],
+      "errors": []
+    },
+    {
+      "test": "creative_ui_smoke",
+      "passed": true,
+      "returncode": 0,
+      "seconds": 0.64,
+      "summary": [
+        "CREATIVE_UI_SMOKE {\"checks\":7,\"failures\":[],\"passed\":true}"
+      ],
+      "errors": []
+    },
+    {
+      "test": "audio_smoke",
+      "passed": true,
+      "returncode": 0,
+      "seconds": 0.66,
+      "summary": [
+        "AUDIO_SMOKE {\"checks\":79,\"dataDirectory\":\"/tmp/plant01-audio-smoke-1082\",\"failures\":[],\"fixtureOnly\":true,\"originalSounds\":17,\"passed\":true,\"voices\":12}"
+      ],
+      "errors": []
+    }
+  ],
+  "nativeHost": {
+    "passed": true,
+    "tests": 20
+  },
+  "builds": {
+    "native": true,
+    "browser": true
+  },
+  "packaged": {
+    "readability": {
+      "elapsed_seconds": 6.81,
+      "peak_resident_bytes": 356794368,
+      "returncode": 0,
+      "stopped_reason": null
+    },
+    "normalMacScalingPurchase": {
+      "elapsed_seconds": 3.93,
+      "peak_resident_bytes": 546553856,
+      "returncode": 0,
+      "stopped_reason": null,
+      "checks": 19,
+      "passed": true
+    },
+    "general": {
+      "elapsed_seconds": 7.87,
+      "peak_resident_bytes": 613351424,
+      "returncode": 0,
+      "stopped_reason": null,
+      "checks": 30,
+      "backgroundSeconds": 2.2,
+      "passed": true
+    }
+  },
+  "sourceHashes": {
+    "native/scripts/ui_theme.gd": "69f92c0594dc01e944a4d2fb85e11e3004558b4ba58bd3368d2d1f9b9da93d07",
+    "native/scripts/ui_table.gd": "019d922f2343117a6c7efe17dfbad1de88a33ce09932694433d4cd6cc735b3b1",
+    "native/scripts/game_ui.gd": "a90f47b54e9851c2e291b561bb7c8946ed65c9191b683311bf53796c55774295",
+    "native/scripts/main.gd": "2ae87ca3e3659e5d9261b0783048eeefc822a7fdc0a7d81e517f128f7c11d8a8",
+    "native/scripts/game_audio.gd": "0fb588a283cd752edd23fca2b0380ddb2d1036a76c2cea0bf602d74249da697a",
+    "native/scripts/process_ui.gd": "f65aae4c3d8796868599806bdcfc8909829a0a4b34c2f1d51df644ef535ff7e3",
+    "native/scripts/electrical_ui.gd": "dcf672dcf72ddf19009fe2f2c7bd20d508772e3d51f7c9631f5d88f8abdebfed",
+    "native/scripts/collection_ui.gd": "53c1abff382e06121c6b2736b6b87eceb6b980c38a06def1f8421fc3eee12cdd",
+    "native/scripts/storage_move_ui.gd": "1b164285b29a4dd1d5295cea3596e12b406553a56c7e6b977eee74668c68a149",
+    "native/tests/ui_readability_smoke.gd": "625d6d79be156b7b8898e576d74e66cf118724bbc013075e5364d960a930ef37",
+    "native/tests/freight_ui_smoke.gd": "9706fee2f33b1267eb98b4a462f44a558fb5af49f89e7f97a95e0de7ea2cfa99",
+    "native/tests/shunting_ui_smoke.gd": "703d53f2e24e2834aecd3caa6a799a251768b6281f79fc7cf9358ab20a256eaf",
+    "native/tests/rail_recovery_ui_smoke.gd": "ba66106afc06213d74ee644c00b323a90f2143be6cfdaf96c07acdf082a617d5",
+    "native/tests/inspector_close_smoke.gd": "f91de875550dc24fc077dd70165b3989606f7eb0d6844e06c8d912c7775b7f04",
+    "native/tests/switch_ui_smoke.gd": "ac87df66e3724dfc63bde619f4a7db6802aff9c6c35109b420168cca88d7119d"
+  },
+  "limits": [
+    "Only synthetic fixtures and isolated temporary yards were used; the running player game and saves were not read or changed.",
+    "The 810-test core suite passed in v0.29.0 and was not repeated for this native layout/theme-only update; focused workflows, native-host checks, builds, and exact packaged checks pass.",
+    "Contrast numbers are resolved theme paint measurements; actual Mac GPU captures were separately inspected.",
+    "Native text-first styling remains compact. Wide registers scroll horizontally, and sections can collapse."
+  ],
+  "packaging": {
+    "repositoryNativeFiles": 96,
+    "installedFiles": 164,
+    "mismatches": [],
+    "signature": "verified",
+    "installedApp": "Plant 01 v0.30.0.app",
+    "archiveBytes": 152177375,
+    "archiveSHA256": "495addf04948e5a375391adc35f7cd8dad0b8f4f9c0228eeb763fa00b085eff0"
+  }
+}

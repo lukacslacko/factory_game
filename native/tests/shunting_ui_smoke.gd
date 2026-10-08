@@ -50,14 +50,20 @@ func _run() -> void:
 	ui.update_snapshot(fixture);ui.receive_reply({"action":"continue","ok":true});ui.show_tab("Railway")
 	await process_frame;await process_frame
 	_check(ui.tables.size()==9,"Railway includes every infrastructure, locomotive and live reservation register")
-	_check(ui.tables[8].get_global_rect().end.y<=ui.register_panel.get_global_rect().end.y,"The final rail reservation table fits the 810-pixel information panel")
+	ui.register_scroll.ensure_control_visible(ui.tables[8])
+	await process_frame;await process_frame
+	_check(ui.register_scroll.get_global_rect().encloses(ui.tables[8].get_global_rect()),"The final rail reservation table is fully reachable by scrolling")
 	_check(ui.tables[8].rows.size()==1 and ui.tables[8].rows[0].cells==["SHUNTER-9001","parking","RAIL-9010","5.0 / 20.0","CAR-9001","WRK-9002"],"Reservation rows expose owning engine, car, sections, progress and identified blocker")
 	for reference: Array in [[0,"SHUNTER-9001"],[4,"CAR-9001"],[5,"WRK-9002"]]:
 		var reservation_item: TreeItem=ui.tables[8].tree.get_root().get_first_child()
 		reservation_item.select(int(reference[0]));ui.tables[8]._selected()
 		_check(ui.selected_id==str(reference[1]),"Reservation reference opens "+str(reference[1]))
 	ui.show_entity("");await process_frame
-	_check(ui.tables[5].get_global_rect().end.y<=ui.register_panel.get_global_rect().end.y,"The final shunter table fits the 810-pixel information panel")
+	ui.register_scroll.ensure_control_visible(ui.tables[5])
+	await process_frame;await process_frame
+	_check(ui.register_scroll.get_global_rect().encloses(ui.tables[5].get_global_rect()),"The shunter table is fully reachable at a readable height")
+	_check(ui.tables[5].tree.size.y>=150,"Shunter rows retain usable height instead of compressing all registers")
+	ui.register_scroll.scroll_vertical=0
 	_check(ui.tables[5].rows[0].cells[0]=="SHUNTER-9001","Owned shunter ID is shown in the real table")
 	_check(ui.tables[5].row_id_pattern.search("SHUNTER-9001")!=null and ui.tables[5].row_id_pattern.search("RETURN-9001")!=null,"Owned engine and return-train IDs are recognized as navigable")
 	_button(ui.register_body,"+ Yard access switch").pressed.emit()
@@ -195,7 +201,7 @@ func _run() -> void:
 	await process_frame
 	fixture.state.railReturns=[{"id":"RETURN-9001","locomotiveId":"LOCO-9011","orderIds":["ORD-9001"],"carIds":["CAR-9001","CAR-9002"],"phase":"coupling","status":"Coupling return cars"}]
 	ui.update_snapshot(fixture);ui.show_tab("Deliveries")
-	_check(ui.tables.size()==2 and ui.tables[1].rows.size()==1,"Deliveries shows the actual empty return train lifecycle")
+	_check(ui.tables.size()==3 and ui.tables[1].rows.size()==1,"Deliveries retains the empty return train lifecycle beside orders and collection")
 	ui.show_entity("LOCO-9011")
 	_check(_button(ui.inspector_body,"Open empty return train")!=null,"The collection locomotive identity opens the return consist")
 	_button(ui.inspector_body,"Open empty return train").pressed.emit()

@@ -9,6 +9,7 @@ class RecoveryWorld:
 	func _sync_siding_rail()->void:pass
 	func _sync_paving()->void:pass
 	func _sync_wear()->void:pass
+	func _sync_electrical()->void:pass
 	func _mask_vegetation()->void:pass
 	func _update_selection(_rebuild:bool=true)->void:pass
 	func set_dusk(_enabled:bool)->void:pass
@@ -123,17 +124,17 @@ func _run()->void:
 	var world:=RecoveryWorld.new();root.add_child(world)
 	var carried:Dictionary={"state":{"jobs":[{"id":"JOB-9201","kind":"remove","item":"railCurve","status":"doing","railRecovery":{"railId":"RAIL-9201"}}]},"render":{"railWork":[{"jobId":"JOB-9201","phase":"stage-travel","configuredHand":-1,"panel":{"x":135,"z":20,"y":.65,"yaw":0,"state":"carried"}}]}}
 	world.sync_snapshot(carried)
-	_check(world.models.has("JOB-9201/panel") and str(world.models["JOB-9201/panel"].get_meta("load_key",""))=="railCurve/1/-1/false","Recovered left-hand curve stays left-handed while carried without construction-track metadata")
+	_check(world.models.has("JOB-9201/panel") and str(world.models["JOB-9201/panel"].get_meta("load_key",""))=="railCurve/1/-1/false/50.0","Recovered left-hand curve stays left-handed while carried without construction-track metadata")
 	var left_id:int=world.models["JOB-9201/panel"].get_instance_id()
 	world.sync_snapshot(carried)
 	_check(world.models["JOB-9201/panel"].get_instance_id()==left_id,"Unchanged physical hand reuses the carried panel model")
 	carried.render.railWork[0].configuredHand=1
 	world.sync_snapshot(carried)
-	_check(str(world.models["JOB-9201/panel"].get_meta("load_key",""))=="railCurve/1/1/false" and world.models["JOB-9201/panel"].get_instance_id()!=left_id,"A physical hand configuration change updates the actual carried geometry")
+	_check(str(world.models["JOB-9201/panel"].get_meta("load_key",""))=="railCurve/1/1/false/50.0" and world.models["JOB-9201/panel"].get_instance_id()!=left_id,"A physical hand configuration change updates the actual carried geometry")
 	carried.render.railWork[0].erase("configuredHand")
 	carried.state.jobs[0].track={"hand":-1}
 	world.sync_snapshot(carried)
-	_check(str(world.models["JOB-9201/panel"].get_meta("load_key",""))=="railCurve/1/-1/false","Legacy rendering snapshots still honor the construction track's hand")
+	_check(str(world.models["JOB-9201/panel"].get_meta("load_key",""))=="railCurve/1/-1/false/50.0","Legacy rendering snapshots still honor the construction track's hand")
 	print("RAIL_RECOVERY_UI_SMOKE ",JSON.stringify({"passed":failures.is_empty(),"checks":checks,"failures":failures,"serviceStarted":false,"gpuRendering":false}))
 	ui.queue_free();world.queue_free()
 	await process_frame

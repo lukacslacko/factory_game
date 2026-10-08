@@ -79,7 +79,6 @@ func build_register(ui) -> void:
 	_table(ui,"Consumers",["ID","Kind","Rated kW","Demand kW","Source","Incoming station","Cable route","Powered","State / reason","Name"])
 	_table(ui,"Underground cable runs",["ID","Source","Consumer","Length m","Installed m","State","Work","Phase / waiting"])
 	_table(ui,"Cable meter ledger · reels, worker, and buried cable remain accounted for",["Time","Run","From","To","Meters","Reason"])
-	for table: Control in ui.tables:table.tree.custom_minimum_size.y=48
 
 static func _table(ui,title: String,headers: Array[String]) -> void:
 	ui._table(ui.register_body,title,headers)
@@ -144,18 +143,10 @@ func _fill_choices(ui, role: String) -> void:
 		option.add_item(selected+" · unavailable; choose another asset")
 		option.set_item_metadata(option.item_count-1,selected);option.set_item_disabled(option.item_count-1,true);option.select(option.item_count-1)
 
-static func _style_name_input(input: LineEdit) -> void:
-	input.add_theme_color_override("font_color",Color("34503e"))
-	input.add_theme_color_override("font_placeholder_color",Color("617660"))
-	input.add_theme_color_override("caret_color",Color("34503e"))
-	input.add_theme_color_override("font_selected_color",Color.WHITE)
-	input.add_theme_color_override("selection_color",Color("48765f"))
-
 func _choice_section(ui, parent: Node, role: String) -> void:
-	ui._label(parent,"Source · incoming station or commissioned junction" if role=="source" else "Destination · junction cabinet, light, or pump")
+	parent=ui._section(parent,"Source · incoming station or commissioned junction" if role=="source" else "Destination · junction cabinet, light, or pump")
 	var search:=LineEdit.new();search.placeholder_text="Search by name, ID, or type…";search.clear_button_enabled=true;parent.add_child(search)
 	search.size_flags_horizontal=Control.SIZE_EXPAND_FILL
-	_style_name_input(search)
 	var option: OptionButton=_option(ui,parent,[]);option.fit_to_longest_item=false;option.clip_text=true
 	if role=="source":source_filter=search;source_choice=option
 	else:target_filter=search;target_choice=option
@@ -181,11 +172,10 @@ func plan_dialog(ui, source_id: String="", target_id: String="") -> void:
 	if is_instance_valid(plan_window):plan_window.queue_free()
 	var dialog: Dictionary=ui._rail_dialog("Plan underground electrical circuit",Vector2i(760,460));plan_window=dialog.window
 	source_selected=source_id;target_selected=target_id
-	ui._note(dialog.body,"Search by name or ID for a large site, or pick either object directly in Yard. Both methods select the same stable asset IDs. Locate selected keeps your choices and takes you to that object; reopen Cable to continue. Then draw between the highlighted terminals. R swaps the elbow; Escape cancels the preview.")
+	ui._note(ui._section(dialog.body,"Choose circuit endpoints"),"Search by name or ID for a large site, or pick either object directly in Yard. Both methods select the same stable asset IDs. Locate selected keeps your choices and takes you to that object; reopen Cable to continue. Then draw between the highlighted terminals. R swaps the elbow; Escape cancels the preview.")
 	_choice_section(ui,dialog.body,"source")
-	dialog.body.add_child(HSeparator.new())
 	_choice_section(ui,dialog.body,"target")
-	choice_note=ui._note(dialog.body,"")
+	choice_note=ui._note(ui._section(dialog.body,"Selected circuit"),"")
 	draw_button=ui._button(dialog.footer,"Draw this circuit in Yard",func()->void:
 		ui._send("electrical_draw",{"sourceId":source_selected,"targetId":target_selected})
 		plan_window.queue_free())
@@ -206,8 +196,9 @@ func _update_choices(ui) -> void:
 
 func rename_dialog(ui, asset: Dictionary) -> void:
 	var dialog: Dictionary=ui._rail_dialog("Name electrical asset · "+str(asset.id),Vector2i(570,235))
-	ui._note(dialog.body,"Use a recognizable name, such as North yard lights or Tanker bay pump. IDs and wiring stay unchanged; duplicate names remain distinguishable by ID.")
-	var name:=LineEdit.new();name.max_length=80;_style_name_input(name);name.text=str(asset.get("name",ui._name(str(asset.get("kind","")))));dialog.body.add_child(name)
+	var fields: VBoxContainer=ui._section(dialog.body,"Asset name")
+	ui._note(fields,"Use a recognizable name, such as North yard lights or Tanker bay pump. IDs and wiring stay unchanged; duplicate names remain distinguishable by ID.")
+	var name:=LineEdit.new();name.max_length=80;name.text=str(asset.get("name",ui._name(str(asset.get("kind","")))));fields.add_child(name)
 	var save: Button=ui._button(dialog.footer,"Save name",func()->void:ui._send("electrical_rename",{"id":str(asset.id),"name":name.text});dialog.window.queue_free())
 	save.disabled=name.text.strip_edges().is_empty()
 	name.text_changed.connect(func(text: String)->void:save.disabled=text.strip_edges().is_empty())
@@ -218,19 +209,19 @@ func rename_dialog(ui, asset: Dictionary) -> void:
 
 static func station_dialog(ui) -> void:
 	var dialog: Dictionary=ui._rail_dialog("Incoming electrical supply",Vector2i(590,310))
-	ui._note(dialog.body,"Every new factory, including Empty yard, starts with a connected incoming electrical station. Its 16 kVA rating is modeled as a shared 16 kW load limit. The station is opening infrastructure, so no installation order or service charge is needed.")
-	ui._note(dialog.body,"The station does not automatically power the yard. Build and commission underground circuits to junction cabinets, lights, and rail pumps using an excavator, operator, site engineer, and delivered cable reels. Every branch shares the incoming capacity.")
+	ui._note(ui._section(dialog.body,"Incoming supply"),"Every new factory, including Empty yard, starts with a connected incoming electrical station. Its 16 kVA rating is modeled as a shared 16 kW load limit. The station is opening infrastructure, so no installation order or service charge is needed.")
+	ui._note(ui._section(dialog.body,"Local circuits"),"The station does not automatically power the yard. Build and commission underground circuits to junction cabinets, lights, and rail pumps using an excavator, operator, site engineer, and delivered cable reels. Every branch shares the incoming capacity.")
 	var existing: String="";var incoming: String=""
 	for building: Dictionary in ui.state.get("buildings",[]):
 		if building.get("kind")=="power":existing=str(building.id)
 	for order: Dictionary in ui.state.get("orders",[]):
 		if order.get("item")=="power" and order.get("status")!="done":incoming=str(order.id)
 	if not existing.is_empty() or not incoming.is_empty():
-		ui._note(dialog.body,"Inspect the installed station to see its position, capacity, and connected circuits. An incoming service retained from an older save can still finish its installation.")
+		ui._note(ui._section(dialog.body,"Installed supply"),"Inspect the installed station to see its position, capacity, and connected circuits. An incoming service retained from an older save can still finish its installation.")
 		var station_id: String=existing if not existing.is_empty() else incoming
 		ui._button(dialog.footer,"Inspect existing station" if not existing.is_empty() else "Inspect incoming service",func()->void:ui._user_entity(station_id);dialog.window.queue_free())
 	else:
-		ui._note(dialog.body,"This older saved yard has no incoming station. Existing saves are preserved; start a new yard to use the pre-installed supply.")
+		ui._note(ui._section(dialog.body,"Saved factory"),"This older saved yard has no incoming station. Existing saves are preserved; start a new yard to use the pre-installed supply.")
 	ui._button(dialog.footer,"Close",func()->void:dialog.window.queue_free())
 	dialog.window.popup_centered()
 
@@ -239,12 +230,10 @@ func asset_inspector(ui, asset: Dictionary) -> void:
 	if source.is_empty() and consumer.is_empty():return
 	ui._label(ui.inspector_body,"Electrical connection")
 	ui._detail("Name",asset.get("name",ui._name(str(asset.get("kind","")))))
-	ui._button(ui.inspector_body,"Rename electrical asset…",func()->void:rename_dialog(ui,asset))
 	if not source.is_empty():
 		ui._detail("Modeled capacity","%.2f kW"%float(source.get("capacityKw",16)))
 		ui._detail("Connected demand","%.2f kW"%float(source.get("demandKw",0)))
 		ui._detail("Available capacity","%.2f kW"%float(source.get("availableKw",0)))
-		ui._button(ui.inspector_body,"Plan cable from this station…",func()->void:plan_dialog(ui,id))
 	else:
 		ui._detail("Rated load","%.2f kW"%float(consumer.get("ratedKw",consumer.get("loadKw",0))))
 		ui._detail("Current demand","%.2f kW"%float(consumer.get("loadKw",0)))
@@ -255,16 +244,20 @@ func asset_inspector(ui, asset: Dictionary) -> void:
 		ui._detail("Electrically connected","Yes" if consumer.get("connected",false) else "No")
 		ui._detail("Powered","Yes" if consumer.get("powered",false) else "No")
 		ui._detail("Power status",consumer.get("reason",consumer.get("status","")))
-		ui._button(ui.inspector_body,"Plan cable to this consumer…",func()->void:plan_dialog(ui,"",id))
 		ui._reference_controls(ui.inspector_body,consumer.get("runIds",[]))
 	if not junction.is_empty():
 		ui._detail("Junction incoming station",junction.get("rootSourceId","—"))
 		ui._detail("Inherited available capacity","%.2f kW"%float(junction.get("availableKw",0)))
 		ui._reference_controls(ui.inspector_body,[junction.get("rootSourceId","")])
+	var actions: VBoxContainer=ui._section(ui.inspector_body,"Electrical actions")
+	ui._button(actions,"Rename electrical asset…",func()->void:rename_dialog(ui,asset))
+	if not source.is_empty():ui._button(actions,"Plan cable from this station…",func()->void:plan_dialog(ui,id))
+	else:ui._button(actions,"Plan cable to this consumer…",func()->void:plan_dialog(ui,"",id))
+	if not junction.is_empty():
 		if junction.get("connected",false):
-			ui._button(ui.inspector_body,"Extend cable from this junction…" if asset.get("kind")=="electricalJunction" else "Extend cable from this light base…",func()->void:plan_dialog(ui,id))
-		else:ui._note(ui.inspector_body,"Commission an incoming circuit to this cabinet before using it as a branch source.")
-	ui._button(ui.inspector_body,"Open Electrical register",func()->void:ui._switch_tab("Electrical"))
+			ui._button(actions,"Extend cable from this junction…" if asset.get("kind")=="electricalJunction" else "Extend cable from this light base…",func()->void:plan_dialog(ui,id))
+		else:ui._note(actions,"Commission an incoming circuit to this cabinet before using it as a branch source.")
+	ui._button(actions,"Open Electrical register",func()->void:ui._switch_tab("Electrical"))
 
 static func run_inspector(ui, run: Dictionary) -> void:
 	var id: String=str(run.id)
@@ -286,12 +279,13 @@ static func run_inspector(ui, run: Dictionary) -> void:
 	var recovering: bool=bool(run.get("recovering",false))
 	if recovering:
 		ui._detail("Operation","Physical cable recovery" if status!="canceled" else ("Cable recovery complete" if installed==0 else "Recovery safely stopped; installed cable remains"))
-	if status=="canceled" and not recovering:ui._button(ui.inspector_body,"Resume canceled circuit",func()->void:ui._send("electrical_resume",{"id":id}))
+	var actions: VBoxContainer=ui._section(ui.inspector_body,"Circuit controls")
+	if status=="canceled" and not recovering:ui._button(actions,"Resume canceled circuit",func()->void:ui._send("electrical_resume",{"id":id}))
 	if status in ["commissioned","canceled"] and installed>0:
-		ui._button(ui.inspector_body,"Recover installed circuit",func()->void:ui._send("electrical_recover",{"id":id}))
-	elif status not in ["canceling","canceled"]:ui._button(ui.inspector_body,"Cancel recovery safely" if recovering else "Cancel remaining circuit work",func()->void:ui._send("electrical_cancel",{"id":id}))
-	ui._note(ui.inspector_body,"Canceling safely restores open ground and keeps installed cable recorded as uncommissioned. Resume continues that same circuit. Recovery sends the engineer to physically isolate both terminals before digging; queued work alone does not disconnect power. It then digs, retrieves measured cable into a real reel, and restores the ground. Recover downstream branches first and keep a reel with enough spare capacity accessible. Canceling restores every open trench cell. Active installation must be safely canceled before recovery.")
-	ui._button(ui.inspector_body,"Electrical help",func()->void:help_dialog(ui))
+		ui._button(actions,"Recover installed circuit",func()->void:ui._send("electrical_recover",{"id":id}))
+	elif status not in ["canceling","canceled"]:ui._button(actions,"Cancel recovery safely" if recovering else "Cancel remaining circuit work",func()->void:ui._send("electrical_cancel",{"id":id}))
+	ui._note(actions,"Canceling safely restores open ground and keeps installed cable recorded as uncommissioned. Resume continues that same circuit. Recovery sends the engineer to physically isolate both terminals before digging; queued work alone does not disconnect power. It then digs, retrieves measured cable into a real reel, and restores the ground. Recover downstream branches first and keep a reel with enough spare capacity accessible. Canceling restores every open trench cell. Active installation must be safely canceled before recovery.")
+	ui._button(actions,"Electrical help",func()->void:help_dialog(ui))
 
 static func help_paragraphs() -> Array[String]:
 	return [
@@ -306,6 +300,8 @@ static func help_paragraphs() -> Array[String]:
 
 static func help_dialog(ui) -> void:
 	var dialog: Dictionary=ui._rail_dialog("Underground electrical guide",Vector2i(790,650))
-	for paragraph: String in help_paragraphs():ui._note(dialog.body,paragraph)
+	var titles: Array[String]=["Incoming power","Supplies and equipment","Choose endpoints","Draw the circuit","Construction sequence","Capacity and status","Cancel, resume, and recover"]
+	var paragraphs: Array[String]=help_paragraphs()
+	for i: int in paragraphs.size():ui._note(ui._section(dialog.body,titles[i]),paragraphs[i])
 	ui._button(dialog.footer,"Close",func()->void:dialog.window.queue_free())
 	dialog.window.popup_centered()

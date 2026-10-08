@@ -24,7 +24,7 @@ func _mouse(position:Vector2,pressed:bool)->void:
 	root.push_input(event,true)
 func _run()->void:
 	var fixture:Dictionary=JSON.parse_string(FileAccess.get_file_as_string("res://tests/renderer-fixtures.json")).empty.duplicate(true)
-	fixture.state.orders=[{"id":"PO-9001","item":"slab","qty":8,"mode":"truck","status":"done"},{"id":"PO-9002","mode":"rail","status":"unloading","railFreight":{"locomotiveId":"LOCO-9002","cars":[],"storageZoneId":"ZONE-9001","unloadRequested":false}}]
+	fixture.state.orders=[{"id":"PO-9001","item":"slab","qty":8,"mode":"truck","status":"done"},{"id":"PO-9002","mode":"rail","status":"unloading","railFreight":{"locomotiveId":"LOCO-9002","cars":[{"id":"CAR-9002","kind":"flatcar","manifest":[{"item":"slab","qty":8,"arrived":0}]}],"storageZoneId":"ZONE-9001","unloadRequested":false}}]
 	fixture.state.zones=[{"id":"ZONE-9001","label":"Test stockyard","x":30,"z":20,"w":10,"d":10}]
 	var ui:=UI.new();root.add_child(ui);ui.setup()
 	ui.entity_selected.connect(func(id:String)->void:

@@ -9,6 +9,7 @@ signal grid_requested(value: bool)
 signal lighting_requested(value: bool)
 signal file_requested(action: String)
 
+const UITheme = preload("res://scripts/ui_theme.gd")
 const Table = preload("res://scripts/ui_table.gd")
 const ProcessUI = preload("res://scripts/process_ui.gd")
 const CollectionUI = preload("res://scripts/collection_ui.gd")
@@ -42,7 +43,12 @@ var active_tool: String = "select"
 var screen: Control
 var content: Control
 var register_panel: PanelContainer
+var register_layout: VBoxContainer
+var register_scroll: ScrollContainer
 var register_body: VBoxContainer
+var yard_tool_panel: PanelContainer
+var yard_camera_bar: HFlowContainer
+var rendered_inspector_id: String = ""
 var tables: Array[Control] = []
 var audit_label: Label
 var search_field: LineEdit
@@ -58,6 +64,7 @@ var time_label: Label
 var summary_label: Label
 var status_label: Label
 var error_label: Label
+var error_panel: PanelContainer
 var pause_button: Button
 var tab_buttons: Dictionary = {}
 var startup: Window
@@ -101,7 +108,7 @@ var buffer_endpoint_window: Window
 var buffer_summary_label: Label
 var rail_edit_window: Window
 var rail_edit_body: VBoxContainer
-var rail_edit_footer: HBoxContainer
+var rail_edit_footer: HFlowContainer
 var rail_edit_request: Dictionary = {}
 var purchase_reception: OptionButton
 var purchase_stockyard: OptionButton
@@ -126,12 +133,19 @@ func setup() -> void:
 	bar.add_child(top)
 	var brand: Button = _button(top,"P 01  PLANT 01",_open_menu)
 	brand.custom_minimum_size=Vector2(132,34)
+	var navigation := HFlowContainer.new()
+	navigation.size_flags_horizontal=Control.SIZE_EXPAND_FILL
+	navigation.add_theme_constant_override("h_separation",2)
+	navigation.add_theme_constant_override("v_separation",2)
+	top.add_child(navigation)
 	for tab: String in TABS:
-		var button: Button = _button(top,tab,func() -> void: _switch_tab(tab))
+		var button: Button = _button(navigation,tab,func() -> void: _switch_tab(tab))
+		button.theme_type_variation="NavigationTab"
+		button.custom_minimum_size.y=34
 		button.toggle_mode=true
 		tab_buttons[tab]=button
 	time_label=_label(top,"Connecting…")
-	time_label.size_flags_horizontal=Control.SIZE_EXPAND_FILL
+	time_label.custom_minimum_size.x=122
 	time_label.horizontal_alignment=HORIZONTAL_ALIGNMENT_RIGHT
 	pause_button=_button(top,"Ⅱ",func() -> void: _send("pause",{"paused":not bool(state.get("paused",true))}))
 	pause_button.tooltip_text="Pause / resume (Space)"
@@ -147,9 +161,10 @@ func setup() -> void:
 	register_panel.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	register_panel.offset_right=-354
 	content.add_child(register_panel)
-	register_body=VBoxContainer.new()
-	register_body.add_theme_constant_override("separation",4)
-	register_panel.add_child(register_body)
+	register_layout=VBoxContainer.new()
+	register_layout.add_theme_constant_override("separation",8)
+	register_panel.add_child(register_layout)
+	register_body=register_layout
 	inspector=PanelContainer.new()
 	inspector.set_anchors_and_offsets_preset(Control.PRESET_RIGHT_WIDE)
 	inspector.offset_left=-348
@@ -173,13 +188,18 @@ func setup() -> void:
 	status_label.size_flags_horizontal=Control.SIZE_EXPAND_FILL
 	status_label.clip_text=true
 	summary_label=_label(footer,"")
+	error_panel=PanelContainer.new()
+	error_panel.set_anchors_and_offsets_preset(Control.PRESET_TOP_WIDE)
+	error_panel.offset_left=8;error_panel.offset_right=-8;error_panel.offset_top=8
+	error_panel.add_theme_stylebox_override("panel",UITheme.box(Color("fff2dd"),UITheme.WARNING,8))
+	error_panel.mouse_filter=Control.MOUSE_FILTER_IGNORE
+	content.add_child(error_panel)
 	error_label=Label.new()
-	error_label.set_anchors_and_offsets_preset(Control.PRESET_TOP_WIDE)
-	error_label.offset_top=38
-	error_label.add_theme_color_override("font_color",Color("a44830"))
+	error_label.autowrap_mode=TextServer.AUTOWRAP_WORD_SMART
+	error_label.add_theme_color_override("font_color",UITheme.WARNING)
 	error_label.horizontal_alignment=HORIZONTAL_ALIGNMENT_CENTER
-	error_label.visible=false
-	screen.add_child(error_label)
+	error_panel.add_child(error_label)
+	error_panel.visible=false
 	_build_menu()
 	_build_toast()
 	_build_startup()
@@ -187,60 +207,40 @@ func setup() -> void:
 	set_process(true)
 
 func _theme() -> Theme:
-	var theme: Theme = Theme.new()
-	theme.default_font_size=13
-	var base: StyleBoxFlat = StyleBoxFlat.new()
-	base.bg_color=Color("f2f2e7")
-	base.border_color=Color("bcc8b5")
-	base.set_border_width_all(1)
-	base.set_content_margin_all(6)
-	var button: StyleBoxFlat = base.duplicate() as StyleBoxFlat
-	button.set_content_margin_all(4)
-	button.bg_color=Color("eef0e5")
-	var hover: StyleBoxFlat = button.duplicate() as StyleBoxFlat
-	hover.bg_color=Color("dde7d7")
-	var pressed: StyleBoxFlat = button.duplicate() as StyleBoxFlat
-	pressed.bg_color=Color("c9dcc1")
-	var focus: StyleBoxFlat = hover.duplicate() as StyleBoxFlat
-	focus.border_color=Color("466c55")
-	focus.set_border_width_all(2)
-	for type: String in ["PanelContainer","PopupMenu","Window","AcceptDialog"]: theme.set_stylebox("panel",type,base)
-	for type: String in ["Button","OptionButton","CheckBox","MenuButton"]:
-		theme.set_stylebox("normal",type,button)
-		theme.set_stylebox("hover",type,hover)
-		theme.set_stylebox("pressed",type,pressed)
-		theme.set_stylebox("focus",type,focus)
-		theme.set_color("font_color",type,Color("304b40"))
-		theme.set_color("font_hover_color",type,Color("203e30"))
-		theme.set_color("font_pressed_color",type,Color("203e30"))
-	for type: String in ["Label","LineEdit","TextEdit","Tree","RichTextLabel"]:
-		theme.set_color("font_color",type,Color("334f43"))
-		theme.set_color("default_color",type,Color("334f43"))
-	for type: String in ["LineEdit","TextEdit"]:
-		theme.set_stylebox("normal",type,button)
-		theme.set_stylebox("focus",type,focus)
-		theme.set_color("caret_color",type,Color("315c4f"))
-	theme.set_color("font_color","PopupMenu",Color("304b40"))
-	theme.set_color("font_hover_color","PopupMenu",Color("203e30"))
-	theme.set_color("font_disabled_color","PopupMenu",Color("8b9787"))
-	theme.set_stylebox("hover","PopupMenu",hover)
-	for input_type: String in ["LineEdit","TextEdit"]:
-		theme.set_color("selection_color",input_type,Color("b8ceb1"))
-		theme.set_color("selected_font_color",input_type,Color("203e30"))
-	theme.set_stylebox("panel","Tree",base)
-	theme.set_stylebox("selected","Tree",pressed)
-	theme.set_stylebox("selected_focus","Tree",pressed)
-	theme.set_stylebox("hovered","Tree",hover)
-	theme.set_stylebox("cursor","Tree",focus)
-	theme.set_stylebox("cursor_unfocused","Tree",hover)
-	theme.set_stylebox("title_button_normal","Tree",button)
-	theme.set_stylebox("title_button_hover","Tree",hover)
-	theme.set_color("title_button_color","Tree",Color("334f43"))
-	theme.set_color("font_selected_color","Tree",Color("203e30"))
-	theme.set_constant("v_separation","Tree",3)
-	theme.set_constant("draw_guides","Tree",1)
-	theme.set_color("guide_color","Tree",Color("cbd4c2"))
-	return theme
+	return UITheme.create()
+
+func _section(parent: Node,title: String) -> VBoxContainer:
+	var panel := PanelContainer.new()
+	panel.theme_type_variation="UiSection"
+	panel.size_flags_horizontal=Control.SIZE_EXPAND_FILL
+	parent.add_child(panel)
+	var layout := VBoxContainer.new()
+	layout.add_theme_constant_override("separation",0)
+	panel.add_child(layout)
+	var heading := PanelContainer.new()
+	heading.theme_type_variation="RegisterHeading"
+	layout.add_child(heading)
+	var label := _label(heading,title)
+	label.theme_type_variation="SectionHeading"
+	label.autowrap_mode=TextServer.AUTOWRAP_WORD_SMART
+	label.size_flags_horizontal=Control.SIZE_EXPAND_FILL
+	var margin := MarginContainer.new()
+	for side: String in ["left","right","top","bottom"]:margin.add_theme_constant_override("margin_"+side,8)
+	layout.add_child(margin)
+	var body := VBoxContainer.new()
+	body.size_flags_horizontal=Control.SIZE_EXPAND_FILL
+	body.add_theme_constant_override("separation",6)
+	margin.add_child(body)
+	return body
+
+func _section_title(parent: Node,title: String) -> void:
+	var heading := PanelContainer.new()
+	heading.theme_type_variation="RegisterHeading"
+	parent.add_child(heading)
+	var label := _label(heading,title)
+	label.theme_type_variation="SectionHeading"
+	label.autowrap_mode=TextServer.AUTOWRAP_WORD_SMART
+	label.size_flags_horizontal=Control.SIZE_EXPAND_FILL
 
 func _window_background(window: Window) -> void:
 	# Window contents otherwise expose the project clear color. A real paper
@@ -252,7 +252,7 @@ func _window_background(window: Window) -> void:
 	paper.z_index=-100
 	paper.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	var style: StyleBoxFlat = StyleBoxFlat.new()
-	style.bg_color=Color("f2f2e7")
+	style.bg_color=UITheme.PAPER
 	style.border_color=Color("b6c4ae")
 	style.set_border_width_all(1)
 	style.set_content_margin_all(0)
@@ -279,7 +279,8 @@ func _note(parent: Node,text: String) -> Label:
 	var label: Label = _label(parent,text)
 	label.autowrap_mode=TextServer.AUTOWRAP_WORD_SMART
 	label.size_flags_horizontal=Control.SIZE_EXPAND_FILL
-	label.add_theme_font_size_override("font_size",12)
+	label.add_theme_font_size_override("font_size",13)
+	label.add_theme_color_override("font_color",UITheme.SECONDARY)
 	return label
 
 func _send(action: String,args: Dictionary = {}) -> void:
@@ -325,8 +326,10 @@ func _position(value: Dictionary) -> String:
 	return "E%.1f, S%.1f"%[float(value.get("x",0)),float(value.get("z",0))]
 
 func _build_yard_controls() -> void:
-	var camera_bar: HBoxContainer = HBoxContainer.new()
-	camera_bar.position=Vector2(10,10)
+	var camera_bar := HFlowContainer.new()
+	yard_camera_bar=camera_bar
+	camera_bar.set_anchors_and_offsets_preset(Control.PRESET_TOP_WIDE)
+	camera_bar.offset_left=8;camera_bar.offset_right=-8;camera_bar.offset_top=8
 	content.add_child(camera_bar)
 	for preset: String in ["Yard","Rail end","Overview"]:
 		_button(camera_bar,preset,func() -> void: preset_requested.emit(preset.to_lower().replace(" ","-")))
@@ -349,6 +352,8 @@ func _build_yard_controls() -> void:
 	camera_bar.add_child(creative_button)
 	_button(camera_bar,"+ Purchase / hire",_open_purchase)
 	var tool_panel: PanelContainer = PanelContainer.new()
+	yard_tool_panel=tool_panel
+	tool_panel.grow_vertical=Control.GROW_DIRECTION_BEGIN
 	tool_panel.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_WIDE)
 	tool_panel.offset_top=-68
 	tool_panel.offset_left=8
@@ -357,14 +362,14 @@ func _build_yard_controls() -> void:
 	content.add_child(tool_panel)
 	var tools: VBoxContainer = VBoxContainer.new()
 	tool_panel.add_child(tools)
-	var row: HBoxContainer = HBoxContainer.new()
+	var row := HFlowContainer.new()
 	tools.add_child(row)
 	var choices: Dictionary = {"select":"Select","slab":"Pave","office":"Office","sanitary":"WC","shed":"Shed","engineShed":"Engine shed","store":"Stores","lamp":"Light","electricalJunction":"Junction","fence":"Fence","power":"Incoming power","water":"Water","zone":"Stockyard"}
 	for key: String in choices:
 		_button(row,str(choices[key]),func() -> void:
 			if key=="power":_inspect_incoming_power()
 			else:_select_tool(key))
-	var rail_row: HBoxContainer = HBoxContainer.new()
+	var rail_row := HFlowContainer.new()
 	tools.add_child(rail_row)
 	var rail_choices: Dictionary = {"railStraight":"Straight rail","railCurve":"90° curve","railTurnout":"Diverging switch","railConverging":"Converging switch"}
 	for key: String in rail_choices:
@@ -419,6 +424,7 @@ func _build_menu() -> void:
 	screen.add_child(menu)
 	confirmation=ConfirmationDialog.new()
 	confirmation.title="Confirm yard replacement"
+	confirmation.get_ok_button().theme_type_variation="PrimaryButton"
 	confirmation.dialog_text="The current yard will be backed up before a new yard replaces it. Continue?"
 	confirmation.confirmed.connect(func() -> void:
 		if pending_confirmation.is_valid(): pending_confirmation.call())
@@ -449,20 +455,19 @@ func _menu_action(id: int) -> void:
 			menu.set_item_checked(index,enabled)
 			command.emit("native_resolution",{"value":enabled})
 		8:
-			var help: AcceptDialog = AcceptDialog.new()
-			help.title="Plant 01 controls"
-			help.dialog_text="Drag empty ground to pan; right drag to orbit; scroll to zoom. WASD moves relative to the view. Space pauses. R rotates a plan.\n\nPurchase workers, machines, and materials. Deliveries need owned equipment and an operator. Designate physical stockyards, pave foundations, and plan construction. IDs in every register open the inspector. Assign machines to whole work orders or rail crews.\n\n1× uses real time. The simulation continues while this window is unfocused. Save files and rolling diagnostic history remain on this device."
-			help.dialog_text += "\n\nAutomatic work chooses reachable nearby qualified workers. Explicit crews and active work keep precedence. Idle automatic blockers can move clear with their real operators. After 20 simulated seconds, a persistent warning links the work and blocker. Use Warnings only in Activity or Inbox, then Inspect / Locate. Return to automatic duty (worker) or Return to automatic work (equipment) releases manual control. Fixed stock or a boxed-in load may need relocation."
-			help.dialog_text += "\n\nElectrical: every new yard includes a 16 kW incoming station. Order cable reels, an excavator, and crew. Plan a specific station-to-light or station-to-pump circuit from the Electrical register. Outside terminal cells are highlighted in Yard; click or drag between them and use R to swap the elbow. Electrical help explains trench/spoil access, crew, testing, and the 16 kW capacity limit."
-			help.dialog_text += "\n\nSave folder: " + str(metadata.get("storage",{}).get("dataDir","Not connected yet"))
-			screen.add_child(help)
-			_window_background(help)
-			help.popup_centered(Vector2i(760,500))
+			var help_text: String="Drag empty ground to pan; right drag to orbit; scroll to zoom. WASD moves relative to the view. Space pauses. R rotates a plan.\n\nPurchase workers, machines, and materials. Deliveries need owned equipment and an operator. Designate physical stockyards, pave foundations, and plan construction. IDs in every register open the inspector. Assign machines to whole work orders or rail crews.\n\n1× uses real time. The simulation continues while this window is unfocused. Save files and rolling diagnostic history remain on this device."
+			help_text += "\n\nAutomatic work chooses reachable nearby qualified workers. Explicit crews and active work keep precedence. Idle automatic blockers can move clear with their real operators. After 20 simulated seconds, a persistent warning links the work and blocker. Use Warnings only in Activity or Inbox, then Inspect / Locate. Return to automatic duty (worker) or Return to automatic work (equipment) releases manual control. Fixed stock or a boxed-in load may need relocation."
+			help_text += "\n\nElectrical: every new yard includes a 16 kW incoming station. Order cable reels, an excavator, and crew. Plan a specific station-to-light or station-to-pump circuit from the Electrical register. Outside terminal cells are highlighted in Yard; click or drag between them and use R to swap the elbow. Electrical help explains trench/spoil access, crew, testing, and the 16 kW capacity limit."
+			help_text += "\n\nSave folder: " + str(metadata.get("storage",{}).get("dataDir","Not connected yet"))
+			var help := _rail_dialog("Plant 01 controls",Vector2i(760,560))
+			for paragraph: String in help_text.split("\n\n"):_note(help.body,paragraph)
+			_button(help.footer,"Close",func()->void:help.window.queue_free())
+			help.window.popup_centered()
 
 func _build_startup() -> void:
 	startup=Window.new()
 	startup.title="Plant 01 · Choose a yard"
-	startup.size=Vector2i(590,340)
+	startup.size=Vector2i(620,430)
 	startup.unresizable=true
 	startup.exclusive=true
 	startup.theme=screen.theme
@@ -479,6 +484,7 @@ func _build_startup() -> void:
 	title.add_theme_font_size_override("font_size",21)
 	_note(body,"Continue your saved yard, import an exported save, or explicitly choose a new yard. Nothing is silently replaced.")
 	continue_button=_button(body,"Continue current save",func() -> void: _start("continue"))
+	continue_button.theme_type_variation="PrimaryButton"
 	continue_button.disabled=true
 	_button(body,"Starter yard · initial orders, build it yourself",func() -> void: _start("starter"))
 	_button(body,"Empty yard · infrastructure only",func() -> void: _start("empty"))
@@ -565,14 +571,14 @@ func show_entity(id: String) -> void:
 
 func show_error(text: String) -> void:
 	error_label.text=text
-	error_label.visible=not text.is_empty()
+	error_panel.visible=not text.is_empty()
 	status_label.text=text
 
 func receive_reply(message: Dictionary) -> void:
 	collection_ui.receive(self,message)
 	storage_move_ui.receive(self,message)
 	if bool(message.get("ok",true)):
-		error_label.visible=false
+		error_panel.visible=false
 		if str(message.get("action",""))=="purchase_batch" and is_instance_valid(purchase_window):
 			_reset_purchase()
 			purchase_total.text="Order placed. Add new quantities for another batch."
@@ -617,11 +623,11 @@ func _clear(parent: Node) -> void:
 		child.queue_free()
 
 func _table(parent: Node,title: String,headers: Array[String],widths: Array[int] = []) -> Control:
-	if not title.is_empty(): _label(parent,title)
 	var table: Control = Table.new()
 	table.theme=screen.theme
 	table.size_flags_vertical=Control.SIZE_EXPAND_FILL
-	table.setup(headers,widths)
+	table.setup(headers,widths,title if not title.is_empty() else active_tab)
+	table.set_meta("section_title",title if not title.is_empty() else active_tab)
 	table.entity_clicked.connect(_user_entity)
 	table.row_clicked.connect(_user_entity)
 	parent.add_child(table)
@@ -632,11 +638,11 @@ func _build_register() -> void:
 	audit_label=null
 	record_status=null
 	severity_filter=null
-	_clear(register_body)
+	_clear(register_layout)
 	tables.clear()
 	var heading: HBoxContainer = HBoxContainer.new()
-	register_body.add_child(heading)
-	var title: Label = _label(heading,active_tab.to_upper()+" / SITE REGISTER")
+	register_layout.add_child(heading)
+	var title: Label = _label(heading,active_tab+" / Site register")
 	title.add_theme_font_size_override("font_size",18)
 	title.size_flags_horizontal=Control.SIZE_EXPAND_FILL
 	_button(heading,"Purchase / hire",_open_purchase)
@@ -644,14 +650,14 @@ func _build_register() -> void:
 	if active_tab=="Activity": _button(heading,"Export diagnostics",func() -> void: file_requested.emit("diagnostics"))
 	if active_tab=="Costs": _button(heading,"Export CSV",func() -> void: file_requested.emit("costs"))
 	if active_tab=="Inbox": _button(heading,"Mark all seen",func() -> void: _send("mark_all_seen",{}))
-	if active_tab=="SQL": _build_sql(); return
-	if active_tab=="Help": _build_rail_help(); return
-	if active_tab in ["Activity","Costs"]: audit_label=_note(register_body,"")
-	var filters: HBoxContainer = HBoxContainer.new()
-	register_body.add_child(filters)
-	_label(filters,"Filter")
+	if active_tab in ["Activity","Costs"]: audit_label=_note(register_layout,"")
+	var filters := HFlowContainer.new()
+	register_layout.add_child(filters)
+	filters.visible=active_tab not in ["SQL","Help"]
+	_label(filters,"Search")
 	search_field=LineEdit.new()
 	search_field.placeholder_text="Search every column…"
+	search_field.custom_minimum_size.x=240
 	search_field.size_flags_horizontal=Control.SIZE_EXPAND_FILL
 	search_field.text_changed.connect(func(value: String) -> void:
 		for table: Control in tables: table.set_search(value)
@@ -668,17 +674,29 @@ func _build_register() -> void:
 	if active_tab in ["Activity","Inbox"]:
 		severity_filter=_option(filters,["All events" if active_tab=="Activity" else "All notices","Warnings only","Info only"])
 		severity_filter.item_selected.connect(func(_index: int) -> void: _refresh_register())
+	_note(register_layout,"Click a column heading to sort or an ID to inspect. Section headings collapse; column filters narrow individual fields." if active_tab not in ["SQL","Help"] else "Read-only reporting" if active_tab=="SQL" else "Step-by-step railway operations")
+	register_scroll=ScrollContainer.new()
+	register_scroll.size_flags_vertical=Control.SIZE_EXPAND_FILL
+	register_scroll.horizontal_scroll_mode=ScrollContainer.SCROLL_MODE_DISABLED
+	register_layout.add_child(register_scroll)
+	register_body=VBoxContainer.new()
+	register_body.size_flags_horizontal=Control.SIZE_EXPAND_FILL
+	register_body.size_flags_vertical=Control.SIZE_EXPAND_FILL
+	register_body.add_theme_constant_override("separation",10)
+	register_scroll.add_child(register_body)
+	if active_tab=="SQL": _build_sql(); return
+	if active_tab=="Help": _build_rail_help(); return
 	match active_tab:
 		"Process": ProcessUI.build_register(self)
 		"Electrical": electrical_ui.build_register(self)
 		"Railway":
 			_note(register_body,"Receive a train, release its supplier engine through the siding exit, and use an owned shunter to move selected cars to named tracks. Rail management help walks through unloading and empty returns.")
-			var rail_actions: HBoxContainer = HBoxContainer.new()
+			var rail_actions := HFlowContainer.new()
 			register_body.add_child(rail_actions)
 			_button(rail_actions,"Rail management help",func() -> void: _switch_tab("Help"))
 			_button(rail_actions,"+ Receiving point",func() -> void: _rail_location_form({"id":"BOOTSTRAP-SIDING","name":"Receiving siding","kind":"unloading","offset":30,"length":40}))
 			_button(rail_actions,"+ Named location",_new_rail_location)
-			var rail_operations: HBoxContainer = HBoxContainer.new()
+			var rail_operations := HFlowContainer.new()
 			register_body.add_child(rail_operations)
 			_button(rail_operations,"+ Yard access switch",_yard_access_form)
 			_button(rail_operations,"Mainline connection",_mainline_exit_form)
@@ -697,7 +715,6 @@ func _build_register() -> void:
 			_table(register_body,"Buffer stop stock and incoming orders · select an ID to inspect",["ID","State","Quantity","Destination / position","Source"])
 			_table(register_body,"Buffer-stop work · select for assignment and waiting reasons",["ID","Operation","Status","Destination","Worker","Equipment","Waiting / step"])
 			_table(register_body,"Active rail route reservations · select the owning train or locomotive",["Owner","Operation","Track sections","Progress m","Cars","Waiting for"])
-			for table: Control in tables:table.tree.custom_minimum_size.y=34
 		"Materials":
 			_button(register_body,"Collect unwanted material…",func() -> void:collection_ui.open(self))
 			_table(register_body,"Inventory",["Material","Delivered","Incoming","Stored","Reserved","In transit","On collection truck","Installed","Construction","Collected","Mass stored"])
@@ -722,6 +739,12 @@ func _build_register() -> void:
 			_table(register_body,"Material movements",["Time","Material","Qty","From","To","Reason"])
 		"Costs": _table(register_body,"No spending limit · purchases invoiced on arrival; labor accrues every 15 game minutes",["Time","Category","Entity","Description","Amount"],[120,110,90,300,80])
 		"Inbox": _table(register_body,"Operational notices remain in To do / Doing / Done independently of popup dismissal",["ID","Time","State","Title","Detail","Entity","Seen"],[80,110,70,160,290,90,40])
+	if tables.size()>1:
+		var jump := _option(filters,["Jump to section…"])
+		jump.tooltip_text="Scroll directly to a register section. Its header can expand or collapse the records."
+		for table: Control in tables:jump.add_item(str(table.get_meta("section_title","Records")))
+		jump.item_selected.connect(func(index:int)->void:
+			if index>0 and index<=tables.size():register_scroll.ensure_control_visible(tables[index-1].get_child(0)))
 	_refresh_register()
 
 func _status_matches(value: String) -> bool:
@@ -937,7 +960,9 @@ func _detail(label_text: String,value: Variant) -> void:
 	inspector_body.add_child(row)
 	var key: Label = _label(row,label_text)
 	key.custom_minimum_size.x=116
-	key.add_theme_font_size_override("font_size",12)
+	key.add_theme_font_size_override("font_size",13)
+	key.add_theme_color_override("font_color",UITheme.SECONDARY)
+	key.autowrap_mode=TextServer.AUTOWRAP_WORD_SMART
 	var rich: RichTextLabel = RichTextLabel.new()
 	rich.bbcode_enabled=true
 	rich.fit_content=true
@@ -958,6 +983,7 @@ func _detail(label_text: String,value: Variant) -> void:
 func _option(parent: Node,choices: Array,selected: int = 0) -> OptionButton:
 	var option: OptionButton = OptionButton.new()
 	option.size_flags_horizontal=Control.SIZE_EXPAND_FILL
+	option.clip_text=true
 	for value: String in choices: option.add_item(value)
 	option.selected=maxi(0,selected)
 	option.get_popup().theme=screen.theme
@@ -967,6 +993,7 @@ func _option(parent: Node,choices: Array,selected: int = 0) -> OptionButton:
 func _entity_option(parent: Node,key: String,empty_text: String,current: String = "",operators_only: bool = false,rail_only: bool = false) -> OptionButton:
 	var option: OptionButton = OptionButton.new()
 	option.size_flags_horizontal=Control.SIZE_EXPAND_FILL
+	option.clip_text=true
 	option.add_item(empty_text)
 	option.set_item_metadata(0,"")
 	for entry: Dictionary in _records(key):
@@ -1002,11 +1029,15 @@ func _render_inspector() -> void:
 	if active_tab=="Help":
 		inspector.hide(); register_panel.offset_right=0
 		return
-	var previous_scroll: int = inspector_scroll.scroll_vertical
+	var previous_scroll: int = inspector_scroll.scroll_vertical if rendered_inspector_id==selected_id else 0
+	rendered_inspector_id=selected_id
+	inspector_scroll.set_deferred("scroll_vertical",previous_scroll)
 	_clear(inspector_body)
 	var found: Dictionary = _entity(selected_id)
 	inspector.visible=not found.is_empty()
 	register_panel.offset_right=-354 if inspector.visible else 0
+	yard_tool_panel.offset_right=-360 if inspector.visible else -8
+	yard_camera_bar.offset_right=-360 if inspector.visible else -8
 	if found.is_empty(): return
 	var kind: String = str(found.type)
 	var entity: Dictionary = found.entity
@@ -1021,6 +1052,7 @@ func _render_inspector() -> void:
 	var display_name: String = str(entity.get("name",entity.get("label",_name(str(entity.get("kind",entity.get("item",kind)))))))
 	if kind=="buildings" and str(entity.get("kind","")) in ProcessUI.KINDS:display_name=display_name.trim_suffix(" kit")
 	_note(inspector_body,display_name)
+	_section_title(inspector_body,"Current status")
 	if entity.has("x"): _detail("Last site position" if kind in ["retiredEquipment","collectedStock"] else "Position",_position(entity))
 	_clearance_controls(str(entity.get("id","")))
 	match kind:
@@ -1404,7 +1436,7 @@ func _equipment_inspector(equipment: Dictionary) -> void:
 	for fuel_job: Dictionary in _records("jobs"):
 		if str(fuel_job.get("id",""))==str(equipment.get("refueling","")):
 			_fuel_details(fuel_job)
-	_label(inspector_body,"Automatic work")
+	_section_title(inspector_body,"Automatic work")
 	var roles: MenuButton = MenuButton.new()
 	roles.text="▾ Select allowed job kinds"
 	var popup: PopupMenu = roles.get_popup()
@@ -1428,7 +1460,7 @@ func _equipment_inspector(equipment: Dictionary) -> void:
 			if popup.is_item_checked(i): checked.append(ACTIVITIES[i])
 		_send("equipment_activities",{"id":id,"activities":checked}))
 	inspector_body.add_child(roles)
-	_label(inspector_body,"Dedicated support worker")
+	_section_title(inspector_body,"Dedicated support worker")
 	var current_support: String = ""
 	for worker: Dictionary in _records("workers"):
 		if worker.get("assistingEquipment")==id: current_support=str(worker.id)
@@ -1460,7 +1492,7 @@ func _equipment_inspector(equipment: Dictionary) -> void:
 		pause_delivery_button.disabled=unloading_paused or operator_worker.is_empty()
 		var resume_delivery_button: Button = _button(inspector_body,"Resume automatic unloading",func() -> void: _return_to_automatic(str(operator_worker.get("id",""))))
 		resume_delivery_button.disabled=not unloading_paused or operator_worker.is_empty()
-	_label(inspector_body,"Parking bay")
+	_section_title(inspector_body,"Parking bay")
 	var parking: Dictionary = equipment.get("parking",{})
 	var x: SpinBox = _number(inspector_body,"East (m)",float(parking.get("x",equipment.get("x",0))),-10000,10000,0.5)
 	var z: SpinBox = _number(inspector_body,"South (m)",float(parking.get("z",equipment.get("z",0))),-10000,10000,0.5)
@@ -1473,7 +1505,7 @@ func _equipment_inspector(equipment: Dictionary) -> void:
 func _fuel_details(work: Dictionary) -> void:
 	var service: Dictionary=work.get("fuelWork",{})
 	if service.is_empty(): return
-	_label(inspector_body,"Fuel service")
+	_section_title(inspector_body,"Fuel service")
 	_detail("Service mode","Emergency can delivery" if service.get("mode")=="emergency" else "Drive to diesel drum")
 	_detail("Diesel drum",service.get("barrelId",work.get("stack","—")))
 	if service.has("station"):_detail("Service position",_position(service.station))
@@ -1520,7 +1552,7 @@ func _work_inspector(work: Dictionary,group: bool) -> void:
 			_detail("Recovered material",_name(str(recovery.get("recoveredItem","rail"))))
 			_detail("Attached buffers"," · ".join(recovery.get("buffers",[])))
 			_note(inspector_body,"The crew unfastens this installed panel and equipment carries it to stockyard storage. Its rail remains in place until it is lifted.")
-	_label(inspector_body,"Manually assign equipment")
+	_section_title(inspector_body,"Manually assign equipment")
 	var preferred: OptionButton = _entity_option(inspector_body,"equipment","Automatic assignment",str(work.get("preferredEquipment","")))
 	_button(inspector_body,"Apply equipment to this whole work",func() -> void:
 		var args: Dictionary = {"id":id}
@@ -1531,7 +1563,7 @@ func _work_inspector(work: Dictionary,group: bool) -> void:
 		for task: Dictionary in _work_tasks(id):
 			if task.has("track") or task.get("kind")=="rail": rail_work=true
 	if rail_work:
-		_label(inspector_body,"Two-machine rail work group")
+		_section_title(inspector_body,"Two-machine rail work group")
 		var crew: Dictionary = work.get("railCrew",{})
 		_label(inspector_body,"Staging / transport equipment")
 		var staging: OptionButton = _entity_option(inspector_body,"equipment","Single-machine operation",str(crew.get("stagingEquipment","")))
@@ -1552,7 +1584,7 @@ func _work_inspector(work: Dictionary,group: bool) -> void:
 	if work.has("track") and (group or work.get("status")=="canceled"):
 		_button(inspector_body,"Resume canceled rail work",func() -> void: _send("resume_track",{"id":id}))
 	if group:
-		_label(inspector_body,"Individual tasks")
+		_section_title(inspector_body,"Individual tasks")
 		var tasks: Array[Dictionary] = _work_tasks(id)
 		for task: Dictionary in tasks.slice(0,60):
 			_button(inspector_body,"%s · %s · %s"%[task.id,_name(str(task.get("kind",""))),task.get("status","")],func() -> void: _user_entity(str(task.id)))
@@ -1795,6 +1827,7 @@ func _rail_dialog(title: String,size: Vector2i) -> Dictionary:
 	for side: String in ["left","right","top","bottom"]:margin.add_theme_constant_override("margin_"+side,12)
 	window.add_child(margin)
 	var layout: VBoxContainer = VBoxContainer.new()
+	layout.add_theme_constant_override("separation",10)
 	margin.add_child(layout)
 	var scroll: ScrollContainer = ScrollContainer.new()
 	scroll.size_flags_vertical=Control.SIZE_EXPAND_FILL
@@ -1803,7 +1836,8 @@ func _rail_dialog(title: String,size: Vector2i) -> Dictionary:
 	var body: VBoxContainer = VBoxContainer.new()
 	body.size_flags_horizontal=Control.SIZE_EXPAND_FILL
 	scroll.add_child(body)
-	var footer: HBoxContainer = HBoxContainer.new()
+	layout.add_child(HSeparator.new())
+	var footer := HFlowContainer.new()
 	layout.add_child(footer)
 	window.close_requested.connect(window.queue_free)
 	return {"window":window,"body":body,"footer":footer}
@@ -1916,21 +1950,20 @@ func _return_train_form(preselected: String = "") -> void:
 	dialog.window.popup_centered()
 
 func _build_rail_help() -> void:
-	_label(register_body,"RAILWAY MANAGEMENT")
 	_button(register_body,"Back to Railway",func() -> void: _switch_tab("Railway"))
-	var scroll: ScrollContainer = ScrollContainer.new()
-	scroll.size_flags_vertical=Control.SIZE_EXPAND_FILL
-	scroll.horizontal_scroll_mode=ScrollContainer.SCROLL_MODE_DISABLED
-	register_body.add_child(scroll)
 	var body: VBoxContainer = VBoxContainer.new()
 	body.size_flags_horizontal=Control.SIZE_EXPAND_FILL
-	body.add_theme_constant_override("separation",16)
-	scroll.add_child(body)
+	body.add_theme_constant_override("separation",10)
+	register_body.add_child(body)
+	var step: int=0
 	for paragraph: String in _rail_help_paragraphs():
-		var label: Label = _note(body,paragraph)
+		step+=1
+		var sentence_end: int=paragraph.find(".")
+		var heading: String=paragraph.left(sentence_end) if sentence_end>=0 else "Rail operation"
+		var details: String=paragraph.substr(sentence_end+1).strip_edges() if sentence_end>=0 else paragraph
+		var label: Label = _note(_section(body,"%d · %s"%[step,heading]),details)
 		label.add_theme_font_size_override("font_size",14)
-		label.custom_minimum_size.x=500
-	_label(body,"Railway work is physical: qualified drivers, ground crew, fuel, car brakes, actual routes and shared-section reservations. Independent routes can operate concurrently.")
+	_note(body,"Railway work is physical: qualified drivers, ground crew, fuel, car brakes, actual routes and shared-section reservations. Independent routes can operate concurrently.")
 
 func _rail_help_paragraphs() -> Array[String]:
 	return [
@@ -2134,17 +2167,19 @@ func _rail_location_form(entity: Dictionary) -> void:
 
 func _build_sql() -> void:
 	_note(register_body,"Read-only SQLite snapshot · SELECT, WITH, EXPLAIN. Tables: inventory, workers, equipment, jobs, job_groups, work_orders, orders, freight_cars, freight_car_lines, stacks, buildings, rails, rail_locations, zones, movements, costs, events.")
-	var examples: HBoxContainer = HBoxContainer.new()
+	var examples := HFlowContainer.new()
 	register_body.add_child(examples)
 	for value: Dictionary in [{"name":"Active jobs","sql":"SELECT id, kind, status, phase, reason FROM jobs WHERE status IN ('todo','doing') LIMIT 100"},{"name":"Fuel usage","sql":"SELECT id, kind, fuel, used FROM equipment"},{"name":"Costs","sql":"SELECT category, SUM(amount) AS total FROM costs GROUP BY category ORDER BY total DESC"},{"name":"Stock","sql":"SELECT * FROM inventory"}]:
 		_button(examples,str(value.name),func() -> void: query_text.text=str(value.sql))
+	_section_title(register_body,"Query")
 	query_text=TextEdit.new()
 	query_text.custom_minimum_size.y=120
 	query_text.text="SELECT id, kind, status, phase, reason FROM jobs WHERE status IN ('todo','doing') LIMIT 100"
 	register_body.add_child(query_text)
 	var run: HBoxContainer = HBoxContainer.new()
 	register_body.add_child(run)
-	_button(run,"Run query",func() -> void: _send("sql",{"sql":query_text.text}))
+	var execute := _button(run,"Run query",func() -> void: _send("sql",{"sql":query_text.text}))
+	execute.theme_type_variation="PrimaryButton"
 	sql_status=_label(run,"Ready · snapshot created when you run")
 	sql_table=_table(register_body,"Results",["Result"])
 
@@ -2155,8 +2190,10 @@ func _display_sql(message: Dictionary) -> void:
 	elif raw_result is Dictionary: result=raw_result
 	var columns: Array[String] = []
 	for column: Variant in result.get("columns",[]): columns.append(str(column))
-	if columns.is_empty():
-		sql_status.text="No rows returned"
+	if columns.is_empty() or not bool(message.get("ok",true)):
+		var no_rows: Array[Dictionary]=[]
+		sql_table.set_rows(no_rows)
+		sql_status.text="No rows returned · previous results cleared" if bool(message.get("ok",true)) else str(message.get("error","Query failed"))+" · previous results cleared"
 		return
 	var rows: Array[Dictionary] = []
 	var index: int = 0
@@ -2181,6 +2218,7 @@ func _build_toast() -> void:
 	toast.offset_top=-210
 	toast.offset_bottom=-82
 	toast.visible=false
+	toast.grow_vertical=Control.GROW_DIRECTION_BEGIN
 	content.add_child(toast)
 	toast_body=VBoxContainer.new()
 	toast.add_child(toast_body)
@@ -2208,7 +2246,8 @@ func _check_notices() -> void:
 	toast_body.add_child(top)
 	var title: Label = _label(top,str(newest.get("title","Operational notice")))
 	title.size_flags_horizontal=Control.SIZE_EXPAND_FILL
-	if _notice_severity(newest)=="warning":title.add_theme_color_override("font_color",Color("986324"))
+	title.autowrap_mode=TextServer.AUTOWRAP_WORD_SMART
+	if _notice_severity(newest)=="warning":title.add_theme_color_override("font_color",UITheme.WARNING)
 	_button(top,"×",func() -> void: toast.hide())
 	_note(toast_body,str(newest.get("detail","")))
 	var actions: HBoxContainer = HBoxContainer.new()
@@ -2358,10 +2397,10 @@ func _open_purchase() -> void:
 	purchase_stockyard=_entity_option(purchase_rail_controls,"zones","Select later · train waits until unloading is requested")
 	purchase_stockyard.item_selected.connect(func(_index: int) -> void: _purchase_changed())
 	purchase_catalog_scroll=ScrollContainer.new()
+	purchase_catalog_scroll.theme=screen.theme
 	purchase_catalog_scroll.vertical_scroll_mode=ScrollContainer.SCROLL_MODE_SHOW_ALWAYS
 	var heading_margin: MarginContainer = MarginContainer.new()
 	heading_margin.add_theme_constant_override("margin_left",5)
-	heading_margin.add_theme_constant_override("margin_right",5+int(purchase_catalog_scroll.get_v_scroll_bar().get_combined_minimum_size().x))
 	body.add_child(heading_margin)
 	var headings: HBoxContainer = HBoxContainer.new()
 	headings.name="PurchaseColumnHeadings"
@@ -2377,6 +2416,8 @@ func _open_purchase() -> void:
 	purchase_catalog_scroll.horizontal_scroll_mode=ScrollContainer.SCROLL_MODE_DISABLED
 	purchase_catalog_scroll.follow_focus=true
 	body.add_child(purchase_catalog_scroll)
+	# Resolve the scrollbar after it enters the tree and inherits our theme.
+	heading_margin.add_theme_constant_override("margin_right",5+int(purchase_catalog_scroll.get_v_scroll_bar().get_combined_minimum_size().x))
 	var catalog_body: VBoxContainer = VBoxContainer.new()
 	catalog_body.size_flags_horizontal=Control.SIZE_EXPAND_FILL
 	catalog_body.add_theme_constant_override("separation",0)
@@ -2405,6 +2446,7 @@ func _open_purchase() -> void:
 	_button(footer,"Clear quantities",func() -> void:
 		_reset_purchase())
 	purchase_batch=_button(footer,"Place batch order",_place_purchase)
+	purchase_batch.theme_type_variation="PrimaryButton"
 	_button(footer,"Close",purchase_window.hide)
 	purchase_window.close_requested.connect(purchase_window.hide)
 	purchase_window.popup_centered()

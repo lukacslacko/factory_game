@@ -271,3 +271,14 @@ Release v0.29.0 build 224 includes the creator's simplified #41 scope: one conne
 Install **Plant 01 v0.29.0.app** beside the repository, retain the earlier app, and leave the update closed. The user's running game and save are untouched. The self-contained Apple Silicon macOS 14+ bundle passes its packaged purchasing and general integration checks, source/installed-file comparison and ad-hoc signature verification. Its public ZIP contains only the app, runtime notices, and player guides, with no saves, private logs, test fixtures, or repository metadata. The browser Site remains v0.18.0; this request publishes a native update. Verification details are in `native/tests/opening-purchase-verified-results.json`.
 
 Release: [v0.29.0](https://github.com/lukacslacko/factory_game/releases/tag/v0.29.0). `Plant-01-macOS-arm64-v0.29.0.zip` is **152,170,800 bytes**, SHA-256 **`e5f221896281b24f01ad09f6d6e6d12d5e234b88378e4f2251d1a2e745137d52`**. The complete suite passes **810/810** sequential tests in **626.88 seconds**, with all **243** frozen inputs unchanged. Both builds and the final packaged purchasing (19 assertions) and general integration (30 assertions) pass; all **95** packaged repository files and **163** installed files match.
+
+
+## Native v0.30.0 — readable records and dialogs (#43)
+
+Release v0.30.0 build 225 applies one complete paper theme throughout the native interface, with readable normal/hover/press/focus/disabled labels, input and menu selections, quantity arrows, and warning surfaces. Full-screen registers use separated collapsible headings/counts, alternating rows, compact numeric columns, usable vertical space, section navigation, and visible horizontal scrollbars. Inspectors group related controls; dialogs retain accessible action footers; railway help uses numbered sections and a single scroll area.
+
+The exact package passes its 67-view Mac GPU audit (12,092 checks), normal project-scaling purchasing integration (19 assertions), and general integration (30 assertions). All 16 focused native workflow scripts pass (534 counted assertions), all 20 native-host tests pass, and both builds pass. Source and measured results are in `native/tests/ui-readability-verified-results.json`; synthetic public screenshots are in `native/screenshots/readable-*.png`. No simulation/world behavior is changed, and the browser Site remains v0.18.0.
+
+Install **Plant 01 v0.30.0.app** beside the earlier apps and leave it closed. The running game and private saves are untouched. All **96** packaged repository files and **164** installed files match; the installed ad-hoc signature verifies. The archive contains no saves, logs, tests, captures, or repository metadata.
+
+Release: [v0.30.0](https://github.com/lukacslacko/factory_game/releases/tag/v0.30.0). `Plant-01-macOS-arm64-v0.30.0.zip` is **152,177,375 bytes**, SHA-256 **`495addf04948e5a375391adc35f7cd8dad0b8f4f9c0228eeb763fa00b085eff0`**.

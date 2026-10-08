@@ -335,10 +335,13 @@ func get_status()->Dictionary:
 		else:oneshots+=1
 	return {"voices":_players.size(),"loops":loops,"oneshots":oneshots,"queued":_shots.size(),"sounds":_bank.size(),"missing":_missing.duplicate(),"played":_played.duplicate(true),"paused":_paused,"backgrounded":_backgrounded,"dropped":_dropped,"metadata":{"events":_seen_events.size(),"notices":_seen_notices.size(),"movements":_seen_movements.size(),"clearances":_clearance_signatures.size(),"motion":_motion.size(),"steps":_steps.size(),"work":_work_times.size(),"honks":_honk_times.size()}}
 
-func show_settings()->void:
+func show_settings(shared_theme:Theme=null)->void:
 	if _dialog:
+		if shared_theme:_dialog.theme=shared_theme
 		_dialog.popup_centered();return
-	_dialog=AcceptDialog.new();_dialog.title="Sound";_dialog.min_size=Vector2i(450,330);add_child(_dialog)
+	_dialog=AcceptDialog.new();_dialog.title="Sound";_dialog.min_size=Vector2i(490,370)
+	_dialog.theme=shared_theme if shared_theme else preload("res://scripts/ui_theme.gd").create()
+	add_child(_dialog)
 	var body:=VBoxContainer.new();body.add_theme_constant_override("separation",10);_dialog.add_child(body)
 	for key:String in ["master","vehicles","work","notifications"]:
 		var row:=HBoxContainer.new();body.add_child(row)

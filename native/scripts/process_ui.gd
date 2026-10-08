@@ -93,7 +93,7 @@ static func inspector(ui, building: Dictionary) -> void:
 		"processTank":
 			ui._detail("Product",e.get("product","Empty"))
 			ui._detail("Contents","%.2f / %.0f L"%[float(e.get("liters",0)),float(e.get("capacity",30000))])
-			ui._note(ui.inspector_body,"Connect a pipe to a port on any side. Tanks stop accepting liquid at capacity. Empty and isolate the tank before recovering it.")
+			ui._note(ui._section(ui.inspector_body,"Tank handling"),"Connect a pipe to a port on any side. Tanks stop accepting liquid at capacity. Empty and isolate the tank before recovering it.")
 		"transferPump":
 			ui._detail("Source tanker",e.get("carId",""))
 			ui._detail("Destination tank",e.get("tankId",""))
@@ -103,47 +103,46 @@ static func inspector(ui, building: Dictionary) -> void:
 			ui._detail("Actual flow","%.2f L/s"%float(e.get("flow",0)))
 			ui._detail("Transferred","%.2f L"%float(e.get("transferred",0)))
 			ui._detail("Electrical load","2 kW · commissioned underground circuit required")
-			var tank: OptionButton = OptionButton.new()
-			tank.size_flags_horizontal=Control.SIZE_EXPAND_FILL
-			tank.add_item("Choose destination tank…");tank.set_item_metadata(0,"")
+			var destination_controls: VBoxContainer=ui._section(ui.inspector_body,"Destination and transfer rate")
+			var tank: OptionButton=ui._option(destination_controls,["Choose destination tank…"])
+			tank.fit_to_longest_item=false;tank.clip_text=true;tank.set_item_metadata(0,"")
 			for value: Dictionary in records(ui,"tanks"):
 				tank.add_item("%s · %.0f / %.0f L"%[value.id,float(value.get("liters",0)),float(value.get("capacity",30000))])
 				tank.set_item_metadata(tank.item_count-1,str(value.id))
 				if str(value.id)==str(e.get("tankId","")):tank.select(tank.item_count-1)
-			ui.inspector_body.add_child(tank)
-			var rate: SpinBox = ui._number(ui.inspector_body,"Requested L/s",float(e.get("rate",5)),0.1,5,0.1)
-			ui._button(ui.inspector_body,"Apply destination and rate",func() -> void:ui._send("process_configure",{"id":id,"tankId":str(tank.get_selected_metadata()),"rate":rate.value}))
-			var car: OptionButton = OptionButton.new()
-			car.size_flags_horizontal=Control.SIZE_EXPAND_FILL
-			car.add_item("Choose stopped tanker…");car.set_item_metadata(0,"")
+			var rate: SpinBox = ui._number(destination_controls,"Requested L/s",float(e.get("rate",5)),0.1,5,0.1)
+			ui._button(destination_controls,"Apply destination and rate",func() -> void:ui._send("process_configure",{"id":id,"tankId":str(tank.get_selected_metadata()),"rate":rate.value}))
+			var transfer_controls: VBoxContainer=ui._section(ui.inspector_body,"Tanker hose and pump")
+			var car: OptionButton=ui._option(transfer_controls,["Choose stopped tanker…"])
+			car.fit_to_longest_item=false;car.clip_text=true;car.set_item_metadata(0,"")
 			for value: Dictionary in ui._freight_cars():
 				if str(value.get("kind",""))!="tanker" or value.get("returned",false) or str(value.get("status",""))!="unloading":continue
 				car.add_item("%s · %s · %.0f L"%[value.id,value.get("tank",{}).get("product",""),float(value.get("tank",{}).get("liters",0))])
 				car.set_item_metadata(car.item_count-1,str(value.id))
 				if str(value.id)==str(e.get("carId","")):car.select(car.item_count-1)
-			ui.inspector_body.add_child(car)
-			ui._button(ui.inspector_body,"Request worker to connect hose",func() -> void:ui._send("process_connect",{"id":id,"carId":str(car.get_selected_metadata())}))
-			ui._button(ui.inspector_body,"Stop pump" if e.get("enabled",false) else "Start pump",func() -> void:ui._send("process_run",{"id":id,"running":not e.get("enabled",false)}))
-			ui._button(ui.inspector_body,"Request worker to disconnect hose",func() -> void:ui._send("process_disconnect",{"id":id}))
-			ui._note(ui.inspector_body,"The 8 m hose locks the connected car against movement. Complete the outlet pipe route to the selected tank, open its valves, and connect this pump through Electrical. The status above explains any interlock.")
+			ui._button(transfer_controls,"Request worker to connect hose",func() -> void:ui._send("process_connect",{"id":id,"carId":str(car.get_selected_metadata())}))
+			ui._button(transfer_controls,"Stop pump" if e.get("enabled",false) else "Start pump",func() -> void:ui._send("process_run",{"id":id,"running":not e.get("enabled",false)}))
+			ui._button(transfer_controls,"Request worker to disconnect hose",func() -> void:ui._send("process_disconnect",{"id":id}))
+			ui._note(transfer_controls,"The 8 m hose locks the connected car against movement. Complete the outlet pipe route to the selected tank, open its valves, and connect this pump through Electrical. The status above explains any interlock.")
 		"processValve":
 			ui._detail("Position","Open" if e.get("open",false) else "Closed")
 			ui._detail("Operation",operation(ui,e.get("operation","")).get("id",""))
-			ui._button(ui.inspector_body,"Request worker to close" if e.get("open",false) else "Request worker to open",func() -> void:ui._send("process_valve",{"id":id,"open":not e.get("open",false)}))
-			ui._note(ui.inspector_body,"The valve changes position only after a worker reaches and turns it. Closing isolates the route and retains fluid already in the pipe.")
+			var valve_controls: VBoxContainer=ui._section(ui.inspector_body,"Valve operation")
+			ui._button(valve_controls,"Request worker to close" if e.get("open",false) else "Request worker to open",func() -> void:ui._send("process_valve",{"id":id,"open":not e.get("open",false)}))
+			ui._note(valve_controls,"The valve changes position only after a worker reaches and turns it. Closing isolates the route and retains fluid already in the pipe.")
 		"processGauge":
 			for pair: Array in [["Product","product"],["Connected tank","tankId"],["Tank contents L","level"],["Tank capacity L","capacity"],["Flow L/s","reading"]]:ui._detail(pair[0],e.get(pair[1],"Unavailable"))
 			ui._detail("Direction",direction(e.get("direction",null)))
 			ui._detail("Calibration","Factory calibrated" if e.get("calibrated",false) else "Unavailable")
-			ui._note(ui.inspector_body,"This instrument reports the connected tank level and actual transfer flow. Isolated or incomplete networks have unavailable readings. Pressure is not modeled in this first fluid system.")
+			ui._note(ui._section(ui.inspector_body,"Gauge readings"),"This instrument reports the connected tank level and actual transfer flow. Isolated or incomplete networks have unavailable readings. Pressure is not modeled in this first fluid system.")
 		_:
 			ui._detail("Product",e.get("product","Empty"))
 			ui._detail("Hold-up","%.3f / %.3f L"%[float(e.get("liters",0)),float(e.get("capacity",0))])
-	ui._button(ui.inspector_body,"Fluid system help",func() -> void:help_dialog(ui))
+	ui._button(ui._section(ui.inspector_body,"Process help"),"Fluid system help",func() -> void:help_dialog(ui))
 
 static func help_dialog(ui) -> void:
 	var dialog: Dictionary = ui._rail_dialog("Tanks, pumps, pipes, valves, and gauges",Vector2i(760,620))
-	for text: String in [
+	var paragraphs: Array[String]=[
 		"Build a storage tank and a rail transfer pump from the Process register. These require their own delivered kits, foundations, equipment, and workers. The crew unpacks and assembles real components. Creative mode completes the same assets immediately.",
 		"Place the pump close to a stopped tanker: its flexible hose reaches 8 meters. The pump outlet is on its east side at default rotation; R rotates a placement. Tank ports sit on all four sides. Pipe centerlines are 0.85 meters above ground. Drag the pipe tool to plan a straight, connected meter-grid run. Use elbows and tees to change direction or branch; their orientation also follows R.",
 		"A closed manual valve blocks flow. Select it and request a worker to open it. Workers must be on duty and able to walk to the fitting. Gauges are inline components and show the connected tank quantity and actual flow; they do not invent pressure readings.",
@@ -151,5 +150,8 @@ static func help_dialog(ui) -> void:
 		"Start the pump after the hose is connected and the pipe route is complete. Its 2 kW motor needs a commissioned underground circuit from an energized incoming station or connected light junction. Build that route in Electrical; a site connection alone is insufficient. The pump status explains missing power, closed valves, incomplete routes, incompatible products, a full tank, or an empty car. Liquid fills the pipe first; the pipe, tank, and car quantities balance exactly.",
 		"Stop the pump and request a worker to disconnect before shunting or returning the car. A connected hose physically locks the car against movement. Pipe contents remain when pumping stops or a valve closes. Empty and isolate equipment before removing it. Save/load preserves contents, valve settings, hose operations, and transfer totals.",
 		"Process tables are sortable and filterable. Click asset, car, and worker IDs to inspect them. SQL exposes process tanks, pumps, lines, valves, gauges, ground operations, and the fluid movement ledger. This first system transfers water and diesel from rail tankers; reactions and pressurized hydraulics are later work."
-	]:ui._note(dialog.body,text)
-	ui._button(dialog.body,"Close",func() -> void:dialog.window.queue_free())
+	]
+	var titles: Array[String]=["Build the equipment","Place pipes and fittings","Operate valves and gauges","Connect the stopped tanker","Start liquid transfer","Stop and disconnect safely","Registers and saved state"]
+	for i: int in paragraphs.size():ui._note(ui._section(dialog.body,titles[i]),paragraphs[i])
+	ui._button(dialog.footer,"Close",func() -> void:dialog.window.queue_free())
+	dialog.window.popup_centered()
