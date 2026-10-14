@@ -2,7 +2,11 @@
 
 ## Native game
 
-The playable Godot migration uses the approved Concept C art and a separate local simulation process. Open **Plant 01 v0.33.0.app** in the surrounding `outputs/` folder, or double-click **Open Plant 01.command** for development. No browser is required. [Download the Mac app](https://github.com/lukacslacko/factory_game/releases/tag/v0.33.0). See [native game instructions](native/README.md) and [migration notes](docs/native-migration.md). The browser game and static visual proof remain available below.
+The playable Godot migration uses the approved Concept C art and a separate local simulation process. Open **Plant 01 v0.34.0.app** in the surrounding `outputs/` folder, or double-click **Open Plant 01.command** for development. No browser is required. [Download the Mac app](https://github.com/lukacslacko/factory_game/releases/tag/v0.34.0). See [native game instructions](native/README.md) and [migration notes](docs/native-migration.md). The browser game and static visual proof remain available below.
+
+## Stockyard access and physical rail recovery — v0.34.0
+
+Stockyard placement protects a clear aisle from rail piles to the yard edge, including across several placements in one move. A blocked rail pickup can use a second available crew to move an exposed obstructing panel into storage as a real prerequisite job, then resume the original installation. It never creates an unverified move when a crew or safe route is unavailable. The Work register now groups unresolved warnings under **Blocked work**, with linked assets, affected tasks, wait time, and suggested next steps. These are bounded slices of [stockyard access #50](https://github.com/lukacslacko/factory_game/issues/50), [physical recovery #51](https://github.com/lukacslacko/factory_game/issues/51), and [blocked-work diagnosis #52](https://github.com/lukacslacko/factory_game/issues/52); shared maneuver reservations, general recovery cycles, and an optional logistics officer remain open.
 
 
 A playable first version of the fantasy chemistry plant game. Build and operate the construction yard before chemical production arrives: hire a crew, receive physical materials, move equipment, pave ground, extend track, and assemble a small base.

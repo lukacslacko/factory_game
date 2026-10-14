@@ -468,6 +468,14 @@ export interface Job extends Rect {
   logisticsNoticeId?: string;
   logisticsWaitSince?: number;
   logisticsWaitReason?: string;
+  /** A bounded, one-level physical move of stock obstructing an unlifted rail pickup. */
+  railPickupRecovery?: {
+    attemptedIds: string[];
+    activeJobId?: string;
+    activeBlockerId?: string;
+    lastError?: string;
+    nextProbeAt?: number;
+  };
   fuelLiters?: number;
   fuelWork?: EquipmentFuelWork;
   railWork?: RailWork;

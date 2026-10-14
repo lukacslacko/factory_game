@@ -573,6 +573,30 @@ export function validateState(value: any): asserts value is State {
   for (const j of s.jobs) {
     const fuelProblem=equipmentRefuelingProblem(s,j);
     if (fuelProblem) fail(fuelProblem);
+    if (j.railPickupRecovery !== undefined) {
+      const r = j.railPickupRecovery;
+      const attempts = r?.attemptedIds;
+      const active = r?.activeJobId && s.jobs.find((q: any) => q.id === r.activeJobId);
+      if (
+        j.kind !== 'rail' || !r || !Array.isArray(attempts) ||
+        attempts.length > 2 ||
+        attempts.some((id: any) => typeof id !== 'string' || !id || id.length > 128) ||
+        new Set(attempts).size !== attempts.length ||
+        (r.activeJobId === undefined) !== (r.activeBlockerId === undefined) ||
+        (r.lastError !== undefined && (typeof r.lastError !== 'string' || r.lastError.length > 500)) ||
+        (r.nextProbeAt !== undefined &&
+          (!finite(r.nextProbeAt) || r.nextProbeAt < 0 || r.nextProbeAt > s.elapsed + 10.001)) ||
+        (r.activeJobId !== undefined &&
+          (typeof r.activeJobId !== 'string' || !active ||
+            typeof r.activeBlockerId !== 'string' ||
+            !attempts.includes(r.activeBlockerId) ||
+            active.id === j.id || active.kind !== 'moveStock' ||
+            !active.stockMove?.toStorage ||
+            active.stockMove.sourceId !== r.activeBlockerId ||
+            active.railPickupRecovery !== undefined ||
+            active.created < j.created))
+      ) fail('invalid rail pickup recovery prerequisite or cycle');
+    }
     if (j.railRecovery !== undefined) {
       const h = j.railRecovery;
       const active = !['done', 'canceled'].includes(j.status);

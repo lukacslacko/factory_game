@@ -200,3 +200,57 @@ test('incoming parcels and allocator cannot occupy a queued relocation footprint
   S.cancelJob(s, job!.id);
   assert.equal(railStoragePlacementPreservesAccess(s, 'slab', { x: 42, z: 31, w: 1, d: 1 }), true);
 });
+
+test('a distant placement cannot seal the only aisle to otherwise exposed rail stock', () => {
+  const s = S.createState();
+  s.zones = [{ id: 'AISLE-YARD', name: 'Rail storage with one mouth', x: 40, z: 40, w: 40, d: 20 }];
+  const stack: Stack = {
+    id: 'AISLE-RAIL', item: 'railClosure', x: 44, z: 48,
+    w: 5, d: 3, qty: 2, reserved: 0, source: 'opening',
+  };
+  s.stacks.push(stack);
+  for (const [id, x, z, w, d] of [
+    ['NORTH', 38, 38, 44, 3],
+    ['WEST', 38, 41, 3, 18],
+    ['SOUTH', 38, 59, 44, 3],
+    ['NORTH-BAY', 52, 41, 26, 8],
+    ['SOUTH-BAY', 52, 52, 26, 7],
+    ['EAST-NORTH', 80, 38, 3, 11],
+    ['EAST-SOUTH', 80, 52, 3, 10],
+  ] as const)
+    s.buildings.push({ id, kind: 'office', x, z, w, d,
+      rotation: 0, connected: false, name: id });
+  const blockedMouth = { x: 64, z: 50, w: 1, d: 1 };
+  assert.ok(blockedMouth.x > stack.x + stack.w + 10,
+    'The new load is beyond the previous ten-meter face screen');
+  assert.equal(railStoragePlacementPreservesAccess(s, 'slab', blockedMouth), false);
+  s.zones.unshift({ id: 'MOUTH', name: 'Tempting first cell', ...blockedMouth });
+  assert.notDeepEqual(S.allocate(s, 'slab'), blockedMouth,
+    'The ordinary storage allocator must skip the inaccessible first bay');
+  assert.equal(railStoragePlacementPreservesAccess(s, 'slab',
+    { x: 45, z: 55, w: 1, d: 1 }), true,
+  'Unrelated stock can still occupy an accessible bay');
+});
+
+test('consecutive planned parcels are checked together before filling the aisle', () => {
+  const s = S.createState();
+  s.zones = [{ id: 'AISLE-YARD', name: 'Four-meter aisle', x: 40, z: 40, w: 40, d: 20 }];
+  s.stacks.push({ id: 'AISLE-RAIL', item: 'railClosure', x: 44, z: 48,
+    w: 5, d: 3, qty: 2, reserved: 0, source: 'opening' });
+  for (const [id, x, z, w, d] of [
+    ['NORTH', 38, 38, 44, 3], ['WEST', 38, 41, 3, 18],
+    ['SOUTH', 38, 59, 44, 3], ['NORTH-BAY', 52, 41, 26, 8],
+    ['SOUTH-BAY', 52, 53, 26, 6], ['EAST-NORTH', 80, 38, 3, 11],
+    ['EAST-SOUTH', 80, 53, 3, 9],
+  ] as const)
+    s.buildings.push({ id, kind: 'office', x, z, w, d,
+      rotation: 0, connected: false, name: id });
+  const northEdge = { x: 64, z: 49, w: 1, d: 1 },
+    southEdge = { x: 64, z: 52, w: 1, d: 1 };
+  assert.equal(railStoragePlacementPreservesAccess(s, 'slab', northEdge), true);
+  assert.equal(railStoragePlacementPreservesAccess(s, 'slab', southEdge), true);
+  const reserved: Stack = { ...northEdge, id: 'PLANNED-SLAB', item: 'slab',
+    qty: 1, reserved: 0, source: 'preview' };
+  assert.equal(createRailStorageAccessCheck(s, [reserved])('slab', southEdge), false,
+    'A second placement must account for the first reserved footprint');
+});

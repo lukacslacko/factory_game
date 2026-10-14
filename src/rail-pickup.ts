@@ -33,6 +33,79 @@ export interface RailPickupFace {
   workerPoints: Point[];
 }
 
+/** A coarse, bounded aisle witness from a clear pickup approach to a stockyard
+ * edge. It screens permanent stock placement, not a live steering maneuver:
+ * actual pickup still checks the machine, worker, load and swept route. */
+export function staticRailAisle(
+  zone: Rect,
+  approach: Point,
+  obstacles: Rect[],
+  clearance = 1.35,
+): Point[] | null {
+  // A rail-panel approach can lie over six meters beyond a tiny bay.
+  const minX = Math.max(-48, Math.floor(zone.x - 8)),
+    minZ = Math.max(-30, Math.floor(zone.z - 8)),
+    maxX = Math.min(230, Math.ceil(zone.x + zone.w + 8)),
+    maxZ = Math.min(115, Math.ceil(zone.z + zone.d + 8));
+  const width = maxX - minX,
+    depth = maxZ - minZ;
+  if (width < 1 || depth < 1 || width * depth > 30000) return null;
+  const index = (x: number, z: number) => (z - minZ) * width + x - minX;
+  const open = new Uint8Array(width * depth);
+  open.fill(1);
+  for (const r of obstacles) {
+    const left = Math.max(minX, Math.floor(r.x - clearance - 0.5)),
+      right = Math.min(maxX - 1, Math.ceil(r.x + r.w + clearance - 0.5)),
+      top = Math.max(minZ, Math.floor(r.z - clearance - 0.5)),
+      bottom = Math.min(maxZ - 1, Math.ceil(r.z + r.d + clearance - 0.5));
+    for (let z = top; z <= bottom; z++)
+      for (let x = left; x <= right; x++)
+        if (x + 0.5 > r.x - clearance && x + 0.5 < r.x + r.w + clearance &&
+            z + 0.5 > r.z - clearance && z + 0.5 < r.z + r.d + clearance)
+          open[index(x, z)] = 0;
+  }
+  const parent = new Int32Array(open.length);
+  parent.fill(-2);
+  const queue = new Int32Array(open.length);
+  let head = 0,
+    tail = 0;
+  for (let z = Math.floor(approach.z) - 1; z <= Math.floor(approach.z) + 1; z++)
+    for (let x = Math.floor(approach.x) - 1; x <= Math.floor(approach.x) + 1; x++) {
+      if (x < minX || x >= maxX || z < minZ || z >= maxZ) continue;
+      const k = index(x, z),
+        point = { x: x + 0.5, z: z + 0.5 };
+      if (!open[k] || parent[k] !== -2 ||
+          !segmentClear(approach, point, obstacles, clearance)) continue;
+      parent[k] = -1;
+      queue[tail++] = k;
+    }
+  while (head < tail) {
+    const k = queue[head++],
+      x = minX + (k % width),
+      z = minZ + Math.floor(k / width),
+      point = { x: x + 0.5, z: z + 0.5 };
+    if (point.x < zone.x - 1 || point.x > zone.x + zone.w + 1 ||
+        point.z < zone.z - 1 || point.z > zone.z + zone.d + 1) {
+      const path = [point];
+      for (let at = parent[k]; at >= 0; at = parent[at])
+        path.push({ x: minX + (at % width) + 0.5,
+          z: minZ + Math.floor(at / width) + 0.5 });
+      return [approach, ...path.reverse()];
+    }
+    for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+      const nx = x + dx,
+        nz = z + dz;
+      if (nx < minX || nx >= maxX || nz < minZ || nz >= maxZ) continue;
+      const next = index(nx, nz);
+      if (!open[next] || parent[next] !== -2 ||
+          !segmentClear(point, { x: nx + 0.5, z: nz + 0.5 }, obstacles, clearance)) continue;
+      parent[next] = k;
+      queue[tail++] = next;
+    }
+  }
+  return null;
+}
+
 /** Corners and intermediate exposed edge positions, never points inside the load. */
 export function railCrewStandingPoints(
   stack: Pick<Stack, 'x' | 'z' | 'w' | 'd' | 'item' | 'yaw'>,

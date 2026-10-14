@@ -1,0 +1,26 @@
+{
+  "version": "0.34.0",
+  "build": 231,
+  "scope": "Second site-logistics batch: protected rail-stock aisles, bounded physical rail-pickup recovery, and a blocked-work register",
+  "fullSuite": { "passed": 823, "failed": 0, "durationSeconds": 657.19 },
+  "nativeChecks": {
+    "blockedWorkUiAssertions": 9,
+    "actionClearanceUiAssertions": 24,
+    "packageConnectedWithIsolatedData": true,
+    "packageSignatureVerified": true
+  },
+  "stockyardBenchmark": {
+    "railStacks": 98,
+    "areaMeters": [180, 78],
+    "checkerBuildMilliseconds": 62.1,
+    "oneHundredCandidatesMilliseconds": 88.6,
+    "nodeHeapCapMegabytes": 384
+  },
+  "releaseArchive": {
+    "name": "Plant-01-macOS-arm64-v0.34.0.zip",
+    "bytes": 152190585,
+    "sha256": "13edbfba0d7b21c7e6fb13df4a6974f74e1e7a54e1a1d9b3b91060e50a816507"
+  },
+  "issues": { "partial": [49, 50, 51, 52, 53], "completedThisBatch": [] },
+  "limits": "Shared owned maneuver reservations, non-rail physical recovery, general wait-for cycles, delivery-preview parity, and optional logistics-officer policies remain open."
+}

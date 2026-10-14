@@ -62,6 +62,10 @@ export interface RailWorkAPI {
   event(s: State, type: string, entity: string, text: string): void;
   complete(s: State, j: Job): void;
   release(s: State, j: Job): void;
+  /** Only an unlifted rail job may request a separate checked stock move. */
+  recoverPickup?(s: State, j: Job, blockers: string[]): {
+    jobId?: string; blockerId?: string; reason: string;
+  };
 }
 
 export const RAIL_PANEL_PITCH = 0.36;
@@ -638,7 +642,24 @@ function initialize(s: State, j: Job, e: Equipment, api: RailWorkAPI) {
     }
     source = pickup.source;
     if (!source) {
-      j.reason = `${sourceStack.id}: ${pickup.reason}${pickup.blockers.length ? '; blocked by ' + pickup.blockers.join(', ') : ''}. Clear access or relocate obstructing stock.`;
+      const recovery = j.kind === 'rail' && !j.cancel && !e.cargo &&
+        !j.railWork?.panel.state.startsWith('carried')
+        ? api.recoverPickup?.(s, j, pickup.blockers)
+        : undefined;
+      if (recovery?.jobId && recovery.blockerId) {
+        const link = j.railPickupRecovery ||= { attemptedIds: [] };
+        link.attemptedIds.push(recovery.blockerId);
+        link.activeJobId = recovery.jobId;
+        link.activeBlockerId = recovery.blockerId;
+        link.lastError = undefined;
+        j.reason = `Waiting for ${recovery.jobId} to physically clear ${recovery.blockerId} from the rail pickup`;
+        j.retryAt = undefined;
+        j.retryRevision = undefined;
+        api.event(s, 'Work', j.id, j.reason);
+        return false;
+      }
+      j.railPickupRecovery && (j.railPickupRecovery.lastError = recovery?.reason);
+      j.reason = `${sourceStack.id}: ${pickup.reason}${pickup.blockers.length ? '; blocked by ' + pickup.blockers.join(', ') : ''}. ${recovery?.reason || 'Clear access or relocate obstructing stock.'}`;
       j.retryAt = s.elapsed + 5;
       j.retryRevision = s.revision;
       if (
@@ -668,6 +689,7 @@ function initialize(s: State, j: Job, e: Equipment, api: RailWorkAPI) {
     }
     j.retryAt = undefined;
     j.retryRevision = undefined;
+    j.railPickupRecovery = undefined;
     for (const notice of s.notices)
       if (
         notice.entity === j.id &&
@@ -1681,6 +1703,21 @@ function afterPanelStaged(s: State, j: Job, api: RailWorkAPI) {
 export function tickRailWork(s: State, j: Job, dt: number, api: RailWorkAPI): boolean {
   if ((!j.railRecovery && !['rail', 'moveStock'].includes(j.kind)) || j.status !== 'doing')
     return false;
+  const recovery = j.railPickupRecovery;
+  if (recovery?.activeJobId) {
+    const child = s.jobs.find((q) => q.id === recovery.activeJobId);
+    if (!child || !['done', 'canceled'].includes(child.status)) {
+      j.reason = `Waiting for ${recovery.activeJobId} to physically clear ${recovery.activeBlockerId} from the rail pickup`;
+      return true;
+    }
+    if (child.status === 'canceled')
+      recovery.lastError = `${child.id} was canceled; move ${recovery.activeBlockerId} manually or clear another lifting face.`;
+    recovery.activeJobId = undefined;
+    recovery.activeBlockerId = undefined;
+    recovery.nextProbeAt = undefined;
+    j.retryAt = undefined;
+    j.retryRevision = undefined;
+  }
   const e = s.equipment.find((e) => e.id === j.equipment),
     w = s.workers.find((w) => w.id === j.worker),
     op = s.workers.find((w) => w.id === j.operator);

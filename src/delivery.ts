@@ -21,7 +21,7 @@ import { RAIL_PANEL_PITCH, railStagingStackOwned } from './railwork';
 import { equipmentAllows } from './equipment-roles';
 import { FORK_LOAD_CENTER } from './fork-geometry';
 import { deliveryBlockageNotice, resetDeliveryBlockage } from './delivery-control';
-import { staticRailPickupFaces } from './rail-pickup';
+import { staticRailAisle, staticRailPickupFaces } from './rail-pickup';
 import type {
   State,
   Order,
@@ -408,8 +408,9 @@ const isRailStock = (item: string) => item === 'rail' || item.startsWith('rail')
  * cell. Keep at least one physical lifting face and a place for the rigger. */
 export function createRailStorageAccessCheck(
   s: State,
+  projected: readonly Stack[] = [],
 ): (item: Item, r: Rect, yaw?: number) => boolean {
-  const pending: Stack[] = [];
+  const pending: Stack[] = [...projected];
   for (const o of s.orders) {
     const r = o.allocated || o.unload?.destination;
     const item = o.unload?.item || pendingOrderLine(o)?.item;
@@ -447,22 +448,38 @@ export function createRailStorageAccessCheck(
     (['excavator', 'forklift'] as const).filter(
       (kind) => EQUIPMENT[kind].capacity >= MATERIALS[stack.item].mass,
     );
-  const accessible = (stack: Stack, obstacles: Rect[]) =>
-    kinds(stack).some((kind) => staticRailPickupFaces(s, stack, kind, obstacles).length > 0);
-  const exposed = railStacks.filter((stack) => accessible(stack, solids));
-  // Every preview face is within ten meters of its footprint, including the
-  // straight withdrawal and chassis. Unrelated yard stock needs no recheck.
+  const zoneFor = (stack: Rect) => s.zones.find((z) =>
+    stack.x >= z.x && stack.z >= z.z &&
+    stack.x + stack.w <= z.x + z.w && stack.z + stack.d <= z.z + z.d);
+  const witness = (stack: Stack, obstacles: Rect[]) => {
+    const zone = zoneFor(stack);
+    for (const kind of kinds(stack))
+      for (const face of staticRailPickupFaces(s, stack, kind, obstacles)) {
+        const aisle = zone ? staticRailAisle(zone, face.approach, obstacles) : [face.approach];
+        if (aisle) return aisle;
+      }
+    return null;
+  };
+  const exposed = railStacks.flatMap((stack) => {
+    const aisle = witness(stack, solids);
+    return aisle ? [{ stack, aisle }] : [];
+  });
+  // Nearby placements can obstruct the lifting face; distant placements can
+  // obstruct its witnessed aisle. Only those stacks need a fresh bounded survey.
   const nearby = (a: Rect, b: Rect) =>
     a.x < b.x + b.w + 10 && a.x + a.w + 10 > b.x && a.z < b.z + b.d + 10 && a.z + a.d + 10 > b.z;
   return (item, r, yaw) => {
     // A queued relocation owns its footprint as well as its loading face.
     // A small parcel must not be dropped inside it before the rail arrives.
     if (pending.some((p) => overlap(p, r))) return false;
-    if (!isRailStock(item) && !exposed.some((stack) => nearby(stack, r))) return true;
+    const affected = exposed.filter(({ stack, aisle }) =>
+      nearby(stack, r) || aisle.some((p) => overlap(r,
+        { x: p.x - 1.4, z: p.z - 1.4, w: 2.8, d: 2.8 })));
+    if (!isRailStock(item) && !affected.length) return true;
     const obstacles = [...solids, r];
     if (
       isRailStock(item) &&
-      !accessible(
+      !witness(
         {
           ...r,
           id: 'storage-preview',
@@ -480,7 +497,7 @@ export function createRailStorageAccessCheck(
       )
     )
       return false;
-    return exposed.every((stack) => !nearby(stack, r) || accessible(stack, obstacles));
+    return affected.every(({ stack }) => !!witness(stack, obstacles));
   };
 }
 export function railStoragePlacementPreservesAccess(

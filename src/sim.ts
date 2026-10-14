@@ -75,6 +75,7 @@ import {
   createJobGroup,
   jobEquipmentAssignment,
   equipmentReservedForJob,
+  equipmentHasAssignedWork,
   equipmentCanDoJob,
   automaticEquipmentAllowsJob,
   automaticEquipmentForWork,
@@ -716,6 +717,64 @@ export function previewStorageMove(s: State, request: StorageMoveRequest) {
 }
 export function moveToStorage(s: State, request: StorageMoveRequest) {
   return requestStorageMove(s, request, { id, createGroup: createJobGroup, createJob: newJob, event });
+}
+
+/** One checked, physical blocker move at a time. The rail crew keeps its
+ * assignment and never relinquishes a suspended load for recovery. */
+function requestRailPickupRecovery(s: State, parent: Job, blockers: string[]) {
+  const recovery = parent.railPickupRecovery ||= { attemptedIds: [] };
+  const attempts = recovery.attemptedIds;
+  if (s.elapsed < (recovery.nextProbeAt || 0))
+    return { reason: recovery.lastError || 'Waiting before another bounded recovery survey.' };
+  recovery.nextProbeAt = s.elapsed + 10;
+  if (attempts.length >= 2)
+    return { reason: 'Two automatic stock moves were tried. Clear the remaining lifting face manually.' };
+  const candidates = [...new Set(blockers)]
+    .filter((blockerId) => blockerId !== parent.stack && !attempts.includes(blockerId))
+    .slice(0, 4);
+  if (!candidates.length)
+    return { reason: recovery.lastError ||
+      'No untried movable stock was identified; clear the fixed obstruction or choose another rail source.' };
+  // A manually assigned machine is never borrowed for an automatic prerequisite.
+  // Role and availability are checked on the actual site crew, without moving them.
+  const eligible = s.equipment.filter((e) =>
+    equipmentAllows(e, 'recovery') && !equipmentHasAssignedWork(s, e));
+  if (!eligible.length)
+    return { reason: 'No unassigned machine permits recovery work; assign a separate crew or move the blocker manually.' };
+  const survey = { ...s, equipment: eligible };
+  let firstFailure = '';
+  for (const blockerId of candidates) {
+    const stack = s.stacks.find((t) => t.id === blockerId);
+    if (!stack || !stack.item.startsWith('rail') || stack.qty - stack.reserved < 1) continue;
+    const request = { id: blockerId, quantity: 1 };
+    const checked = planStorageMove(survey, request);
+    if (checked.error) {
+      firstFailure ||= `${blockerId}: ${checked.error}`;
+      continue;
+    }
+    if (!checked.readiness?.includes('checked with site crew')) {
+      firstFailure ||= `${blockerId}: no separate operator, support worker, and machine have a verified handling route.`;
+      continue;
+    }
+    // Submission recomputes atomically. Do not accept a placement reached only
+    // by a manually reserved or role-incompatible machine in the full state.
+    const current = planStorageMove(s, request);
+    if (current.error || !current.readiness?.includes('checked with site crew') ||
+        JSON.stringify(current.placements) !== JSON.stringify(checked.placements)) {
+      firstFailure ||= `${blockerId}: storage placement changes when reserved machines are excluded.`;
+      continue;
+    }
+    const result = requestStorageMove(s, request, {
+      id, createGroup: createJobGroup, createJob: newJob, event,
+    });
+    if (result.error || result.jobIds?.length !== 1) {
+      firstFailure ||= `${blockerId}: ${result.error || 'No single physical recovery job was created.'}`;
+      continue;
+    }
+    return { jobId: result.jobIds[0], blockerId, reason: '' };
+  }
+  return { reason: firstFailure ||
+    'Blocking stock is reserved or cannot be lifted safely. Free an exposed panel or clear a lifting face.' };
 }
 
 /** Creative placement completes only newly created records; existing real work is untouched. */
@@ -3294,6 +3353,7 @@ function tickJob(s: State, j: Job, dt: number) {
       event,
       complete,
       release: finishRelease,
+      recoverPickup: requestRailPickupRecovery,
     })
   )
     return;

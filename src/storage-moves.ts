@@ -215,10 +215,14 @@ function reachableStorage(
   sources: HandlingSource[],
   qty: number,
   excludeId?: string,
+  projected: readonly Stack[] = [],
 ) {
   const survey = {
     ...s,
-    stacks: s.stacks.map((q) => q.id === t.id ? { ...q, qty: q.qty - qty } : q),
+    stacks: [
+      ...s.stacks.map((q) => q.id === t.id ? { ...q, qty: q.qty - qty } : q),
+      ...projected,
+    ],
   };
   const obstacles = staticObstacleRects(survey);
   for (const source of sources) {
@@ -355,9 +359,10 @@ export function planStorageMove(s: State, request: StorageMoveRequest): StorageM
       o.unload ? [o.unload.destination] : o.allocated ? [o.allocated] : [],
     ),
   ];
-  const access = createRailStorageAccessCheck(s);
   for (const zone of zones) {
     const placements: NonNullable<StorageMovePlan['placements']> = [];
+    const projected: Stack[] = [];
+    let access = createRailStorageAccessCheck(s);
     let remaining = quantity;
     // Merge only ordinary, unreserved like stock. Reels and drums keep their own contents and identity.
     const merges = s.stacks.filter(
@@ -378,7 +383,8 @@ export function planStorageMove(s: State, request: StorageMoveRequest): StorageM
         q.z + q.d <= zone.z + zone.d,
     );
     for (const q of merges) {
-      if (!reachableStorage(s, t, q, sources, Math.min(batch, remaining, m.max - q.qty), q.id))
+      if (!reachableStorage(s, t, q, sources, Math.min(batch, remaining, m.max - q.qty), q.id,
+        projected))
         continue;
       let space = m.max - q.qty;
       while (remaining && space) {
@@ -410,7 +416,8 @@ export function planStorageMove(s: State, request: StorageMoveRequest): StorageM
       if (
         placements.some((q) => overlap(q.destination, r, 0.12)) ||
         !access(t.item, r, t.yaw) ||
-        !reachableStorage(s, t, r, sources, Math.min(batch, remaining, m.max))
+        !reachableStorage(s, t, r, sources, Math.min(batch, remaining, m.max), undefined,
+          projected)
       )
         continue;
       let space = m.max;
@@ -420,6 +427,9 @@ export function planStorageMove(s: State, request: StorageMoveRequest): StorageM
         remaining -= qty;
         space -= qty;
       }
+      projected.push({ ...r, id: `storage-preview-${projected.length}`, item: t.item,
+        yaw: t.yaw, qty: m.max - space, reserved: 0, source: 'preview' });
+      access = createRailStorageAccessCheck(s, projected);
     }
     if (!remaining)
       return {

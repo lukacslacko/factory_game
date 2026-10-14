@@ -12,6 +12,8 @@ Native v0.28.0 lets your own equipment return physical stock to a stockyard. Use
 
 The preview makes no changes. Creation checks space and reservations again, then reserves the selected material and its destination. Stock already committed to construction, electrical work, collection, or another move must first be released by finishing or safely canceling that work.
 
+Rail storage also protects an exposed lifting face and a clear, static aisle from that face to a stockyard edge. The planner checks nearby and distant proposed stacks against existing rails. When one storage request needs several new footprints, each selected footprint is included before choosing the next. Compatible top-ups still use the existing finite stack height without occupying another bay. This aisle check screens permanent placement; a real pickup later rechecks the specific machine, support worker, moving traffic, and carried load.
+
 The source, path, and destination are rechecked as the yard changes. An occupied landing position or a new blocker can still stop an active load. The remaining access and automatic-recovery work is tracked in [site logistics and deadlock prevention #53](https://github.com/lukacslacko/factory_game/issues/53).
 
 ## Provide a machine and crew

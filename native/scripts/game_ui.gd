@@ -629,6 +629,10 @@ func _open_warnings() -> void:
 		severity_filter.select(1)
 		_refresh_register()
 
+func _jump_blocked_work() -> void:
+	if active_tab=="Work" and tables.size()>1:
+		register_scroll.ensure_control_visible(tables[1].get_child(0))
+
 func _clear(parent: Node) -> void:
 	for child: Node in parent.get_children():
 		parent.remove_child(child)
@@ -659,6 +663,7 @@ func _build_register() -> void:
 	title.size_flags_horizontal=Control.SIZE_EXPAND_FILL
 	_button(heading,"Purchase / hire",_open_purchase)
 	if active_tab=="Work": _button(heading,"Buy missing materials",func() -> void: _send("buy_missing",{}))
+	if active_tab=="Work": _button(heading,"Review blocked work",_jump_blocked_work)
 	if active_tab=="Activity": _button(heading,"Export diagnostics",func() -> void: file_requested.emit("diagnostics"))
 	if active_tab=="Costs": _button(heading,"Export CSV",func() -> void: file_requested.emit("costs"))
 	if active_tab=="Inbox": _button(heading,"Mark all seen",func() -> void: _send("mark_all_seen",{}))
@@ -746,6 +751,8 @@ func _build_register() -> void:
 				_refresh_register())
 			_button(filters,"Collapse all",func() -> void: group_expansion.clear(); _refresh_register())
 			_table(register_body,"Whole orders and individual tasks · select a parent to assign its complete crew",["ID","Work / task","State","Progress","Worker","Operator","Equipment","Preferred","Blocking / next step"])
+			_note(register_body,"Unresolved warnings below show the reported obstruction and related work. Select a notice to inspect its linked people, equipment, stock, and work; recovery remains a physical job.")
+			_table(register_body,"Blocked work · reported causes",["Notice","Reported cause","Work / owner","Linked IDs","Active tasks","Waiting","Suggested step"],[92,260,96,160,106,92,250])
 		"Activity":
 			_table(register_body,"Events",["Time","Severity","Type","Entity","Event"],[115,65,80,90,300])
 			_table(register_body,"Material movements",["Time","Material","Qty","From","To","Reason"])
@@ -878,6 +885,7 @@ func _refresh_register() -> void:
 				var label_text: String = "  ".repeat(int(work.get("depth",0)))+(marker if work.get("group",false) else "· ")+str(work.get("label",work.get("kind","Work")))
 				rows.append(_row(str(work.id),[work.id,label_text,work.get("status",""),"%d%%"%roundi(float(work.get("progress",0))*100),work.get("worker",""),work.get("operator",""),work.get("equipment",""),work.get("preferredEquipment",""),work.get("reason","")]))
 			_set_table(0,rows)
+			_set_table(1,_blocked_work_rows())
 		"Activity":
 			for e: Dictionary in _records("events"):
 				var severity: String = str(e.get("severity","info"))
@@ -1418,6 +1426,57 @@ func _notice_references(value: Dictionary) -> Array:
 		ids.append(hit.get_string())
 		if ids.size()>=16:break
 	return ids
+
+func _blocked_work_rows() -> Array[Dictionary]:
+	var rows: Array[Dictionary]=[]
+	for notice: Dictionary in _records("notices"):
+		if _notice_severity(notice)!="warning" or str(notice.get("state","todo"))=="done":continue
+		var owner_id: String=str(notice.get("entity",""))
+		var related: Array[String]=[]
+		var blockers: Array[String]=[]
+		for reference: Variant in _notice_references(notice):
+			var id: String=str(reference)
+			if id.is_empty() or id==owner_id or id in blockers:continue
+			if not _entity(id).is_empty():blockers.append(id)
+		var root_id: String=owner_id
+		var owner: Dictionary=_entity(owner_id)
+		if str(owner.get("type",""))=="jobs":
+			root_id=str(owner.entity.get("parentId",owner_id))
+		if str(owner.get("type",""))=="jobGroups":
+			for task: Dictionary in _work_tasks(owner_id):
+				if str(task.get("status","")) in ["todo","doing"]:related.append(str(task.id))
+		for task: Dictionary in _records("jobs"):
+			if str(task.get("status","")) not in ["todo","doing"]:continue
+			if str(task.get("id",""))==owner_id or (root_id!=owner_id and str(task.get("parentId",""))==root_id):
+				if str(task.id) not in related:related.append(str(task.id))
+		var since: float=float(notice.get("time",state.get("time",0)))
+		for clearance: Dictionary in state.get("actionClearances",[]):
+			if str(clearance.get("noticeId",""))==str(notice.get("id","")):
+				since=float(state.get("time",0))-maxf(0,float(state.get("elapsed",0))-float(clearance.get("since",0)))
+				break
+		var waited: int=maxi(0,int(float(state.get("time",0))-since))
+		var wait_text: String="%d:%02d"%[int(waited/60),waited%60]
+		var reason: String=str(notice.get("detail",notice.get("title","Warning")))
+		if reason.begins_with(owner_id+": "):reason=reason.substr(owner_id.length()+2)
+		var next_action: String=_blocked_work_action(notice,blockers)
+		rows.append(_row(str(notice.id),[notice.id,reason,owner_id," · ".join(blockers.slice(0,4)),related.size(),wait_text,next_action],[notice.id,reason,owner_id," · ".join(blockers.slice(0,4)),related.size(),waited,next_action],{"0":str(notice.id),"2":owner_id}))
+	return rows
+
+func _blocked_work_action(notice: Dictionary,blockers: Array[String]) -> String:
+	for blocker_id: String in blockers:
+		var blocker: Dictionary=_entity(blocker_id)
+		if str(blocker.get("type",""))=="workers" and str(blocker.entity.get("duty","auto"))!="auto":
+			return "Move %s clear or release manual control"%blocker_id
+		if str(blocker.get("type",""))=="equipment" and _equipment_control(blocker.entity)!="Automatic":
+			return "Inspect %s; assign an operator or release manual control"%blocker_id
+		if str(blocker.get("type",""))=="stacks":
+			return "Inspect %s; relocate stock if a physical route exists"%blocker_id
+	var detail: String=str(notice.get("detail","")).to_lower()
+	if detail.contains("material") or detail.contains("slab") or detail.contains("stock"):
+		return "Inspect the work and order or relocate required material"
+	if detail.contains("worker") or detail.contains("crew"):
+		return "Inspect the work and assign an available qualified crew"
+	return "Inspect the notice and linked assets for a safe recovery"
 
 func _notice_reference_controls(value: Dictionary) -> void:
 	_reference_controls(inspector_body,_notice_references(value))
