@@ -2,7 +2,7 @@
 
 The existing factory simulation now runs in a local Node.js service, with Godot rendering the approved Concept C yard and providing native controls. The service owns simulation time and file persistence, so gameplay can continue while the window is unfocused. No web page, Chrome process, web server, or Internet connection is needed to play.
 
-Native v0.32.0 replaces pale, mottled soil shading with uniform damp earth beneath a much denser geometric meadow. Short grass, taller weeds, and bushes retain stable positions; equipment clears tall growth, repeated travel wears paths, and unused cells gradually regrow. Spatial updates keep the denser vegetation responsive. Movement and recovery are saved with the yard. See the [ground-cover behavior](../docs/design/vegetation-and-tracks.md).
+Native v0.32.1 spreads distant, blocked rail approach searches across simulation updates. The previous v0.32.0 ground-cover release replaces pale, mottled soil shading with uniform damp earth beneath a much denser geometric meadow. Short grass, taller weeds, and bushes retain stable positions; equipment clears tall growth, repeated travel wears paths, and unused cells gradually regrow. See the [ground-cover behavior](../docs/design/vegetation-and-tracks.md).
 
 Native v0.30.0 improves readability throughout the game. Shared paper surfaces, dark text, distinct hover/press/focus states, and visible disabled labels cover buttons, menus, inputs, tables, and sound settings. Tab navigation and construction controls wrap to fit the window. Full-screen records have separated sections with matching/total counts, alternating rows, and horizontal scrolling when many columns need more space. Click a section heading to collapse it, or use **Jump to section…** to reach another register. Search, column filters, clickable IDs, and sorting still work together. Dialog actions stay below their scrolling contents. Inspectors have labeled status and assignment blocks; selecting a different asset starts at its heading.
 
@@ -22,9 +22,9 @@ It retains walking-distance worker selection, safe action clearance, linked pers
 
 ## Download or open on this Mac
 
-[Download the Apple Silicon Mac app](https://github.com/lukacslacko/factory_game/releases/tag/v0.32.0), unzip it, and open **Plant 01.app**. This checkpoint targets macOS 14 or newer.
+[Download the Apple Silicon Mac app](https://github.com/lukacslacko/factory_game/releases/tag/v0.32.1), unzip it, and open **Plant 01.app**. This checkpoint targets macOS 14 or newer.
 
-On the creator’s Mac, the new build is **Plant 01 v0.32.0.app** beside the repository in `outputs/`. Save and quit the older game before opening it; the previous app is retained. Downloaded releases use the usual **Plant 01.app** name. It includes the Godot runner, Node runtime, simulation, terrain maps, and license notices. It is a local app for this Mac, not a notarized public release.
+On the creator’s Mac, the new build is **Plant 01 v0.32.1.app** beside the repository in `outputs/`. Save and quit the older game before opening it; the previous app is retained. Downloaded releases use the usual **Plant 01.app** name. It includes the Godot runner, Node runtime, simulation, terrain maps, and license notices. It is a local app for this Mac, not a notarized public release.
 
 For development, double-click **Open Plant 01.command** in the repository root. It uses Godot in `/Applications` and the installed Node runtime, building the simulation bundle when needed. Or run `npm run native:build` and open `native/project.godot` in Godot.
 

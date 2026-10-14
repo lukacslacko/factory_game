@@ -993,6 +993,11 @@ export function machineRoute(
     const tail = connect(next) || corridor(next);
     if (tail) return simplify([point, ...tail]);
   }
+  // A distant destination is reached by the corridor search above. The pose
+  // search below is only for escaping a tight local pocket before joining it;
+  // exploring hundreds of local poses on every failed 100 m route freezes the
+  // single-threaded simulation without adding a useful distant alternative.
+  const poseSearchLimit = dist(e, goal) > 40 ? Math.min(searchLimit, 8) : searchLimit;
   const step = 1.25,
     dirs = [
       [1, 0],
@@ -1016,7 +1021,7 @@ export function machineRoute(
   poses.set(start, { ...e });
   for (
     let loops = 0;
-    heap.a.length && loops < searchLimit && steeringSteps <= steeringBudget;
+    heap.a.length && loops < poseSearchLimit && steeringSteps <= steeringBudget;
     loops++
   ) {
     const node = heap.pop(),

@@ -249,6 +249,8 @@ export interface RailWork {
   approach?: { preferred: Point; target: Point; point: Point };
   /** Deduplicated static route warnings and bounded route retry cadence. */
   routeBlockage?: { blocker: string; since: number; retryAt: number; warned?: boolean };
+  /** One distant lifting-face probe per update keeps failed route searches off the frame budget. */
+  routeProbe?: { signature: string; attempt: number; retryAt: number };
   /** Temporary handling-site occupants addressed by this crew; saved for deduplicated warnings. */
   siteClearance?: {
     area?: string;

@@ -163,6 +163,50 @@ test('a staged panel blocking the buffer approach triggers a stable alternate li
   assert.equal(s.events.filter((e) => e.text.includes('selects an alternate')).length, 1);
 });
 
+test('a distant blocked rail approach spreads route probes across ticks and preserves progress on reload', () => {
+  let { s, jobId, equipmentId } = fixture();
+  const e = s.equipment.find((q) => q.id === equipmentId)!;
+  e.x = 30;
+  e.z = 60;
+  const operator = s.workers.find((w) => w.id === e.operator)!;
+  operator.x = e.x;
+  operator.z = e.z;
+  // A continuous temporary barrier makes every distant lifting approach
+  // unreachable. The planner must not exhaust all faces in one frame.
+  const barrier = {
+    id: S.id(s, 'stack'), x: 50, z: -30, w: 5, d: 145,
+    item: 'rail' as const, qty: 1, reserved: 0, source: 'opening',
+  };
+  s.stacks.push(barrier);
+  S.tick(s, 0.1);
+  let j = s.jobs.find((q) => q.id === jobId)!;
+  assert.equal(j.railWork?.routeProbe?.attempt, 1, stateSummary(s));
+  const corrupt = JSON.parse(S.save(s));
+  corrupt.jobs.find((q: Job) => q.id === jobId).railWork.routeProbe.attempt = 99;
+  assert.throws(() => S.load(JSON.stringify(corrupt)), /invalid rail route probe/);
+  s = S.load(S.save(s));
+  j = s.jobs.find((q) => q.id === jobId)!;
+  S.tick(s, 0.1);
+  assert.equal(j.railWork?.routeProbe?.attempt, 1, 'The next face waits for its own update');
+  for (let i = 0; i < 5; i++) S.tick(s, 0.1);
+  assert.equal(j.railWork?.routeProbe?.attempt, 2, 'Reloaded search advances by one face');
+  for (let i = 0; i < 95; i++) S.tick(s, 0.1);
+  assert.equal(j.railWork?.routeProbe?.attempt, 0, 'An exhausted sweep waits instead of repeating');
+  const notices = s.notices.filter((n) => n.entity === jobId && n.title === 'Rail route blocked');
+  assert.equal(notices.length, 1);
+  const retryAt = j.railWork!.routeProbe!.retryAt;
+  for (let i = 0; i < 10; i++) S.tick(s, 0.1);
+  assert.equal(j.railWork?.routeProbe?.retryAt, retryAt);
+  assert.equal(s.notices.filter((n) => n.entity === jobId && n.title === 'Rail route blocked').length, 1);
+  s.stacks = s.stacks.filter((q) => q.id !== barrier.id);
+  S.tick(s, 0.1);
+  assert.ok(
+    j.railWork?.routeProbe?.attempt === 1 ||
+      j.railWork?.routeProbe === undefined,
+    'Removing the obstruction restarts the probe immediately',
+  );
+});
+
 test('intent shows the saved alternate work approach even when no active route remains', () => {
   const { s, jobId, equipmentId } = fixture();
   tick(s, equipmentId);

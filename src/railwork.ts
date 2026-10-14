@@ -48,6 +48,7 @@ import {
   machineRoute,
   workerMoveBlocked,
   equipmentBoxes,
+  carrierBoxes,
   boxOverlap,
   personTouchesBox,
   walkRoute,
@@ -864,6 +865,7 @@ function alternateCraneApproach(
   preferred: Point,
   target: Point,
   api: RailWorkAPI,
+  probeIndex?: number,
 ): { point: Point; path: Point[]; reverse: boolean } | undefined {
   const reach = dist(preferred, target);
   if (e.kind !== 'excavator' || reach < 2 || reach > 6) return;
@@ -875,17 +877,95 @@ function alternateCraneApproach(
       z: target.z + Math.sin(angle + (n * Math.PI) / 4) * reach,
     }))
     .sort((a, b) => dist(e, a) - dist(e, b));
-  for (const point of candidates) {
+  for (const [candidateIndex, point] of candidates.entries()) {
     const yaw = facing(point, target);
     if (equipmentMoveBlocked(staticState, e, { ...point, yaw })) continue;
-    for (const reverse of [!!e.reverse, !e.reverse]) {
+    for (const [gearIndex, reverse] of [!!e.reverse, !e.reverse].entries()) {
+      if (probeIndex !== undefined && probeIndex !== candidateIndex * 2 + gearIndex) continue;
       const path = machineRoute(s, { ...e, reverse }, point, api.obstacles(s), 450, true, yaw);
       if (path) return { point, path, reverse };
     }
   }
 }
+/** A long failed route used to try every crane face in one simulation tick.
+ * Probe one pose per update, and only repeat an exhausted sweep after a
+ * relevant obstruction changes or a bounded periodic retry. */
+function distantRailApproach(
+  s: State,
+  j: Job,
+  e: Equipment,
+  preferred: Point,
+  target: Point,
+  api: RailWorkAPI,
+): { point: Point; path: Point[]; reverse: boolean } | undefined {
+  const r = j.railWork!;
+  const quant = (n: number) => Math.round(n * 10) / 10;
+  const near = (p: Point) => dist(p, e) < 9 || dist(p, preferred) < 9;
+  const signature = JSON.stringify({
+    phase: r.phase,
+    machine: [quant(e.x), quant(e.z), quant(e.yaw ?? 0), quant(e.reach ?? 0), e.cargo?.item],
+    goal: [quant(preferred.x), quant(preferred.z), quant(target.x), quant(target.z)],
+    static: api.obstacles(s).map((o) => [quant(o.x), quant(o.z), quant(o.w), quant(o.d)]),
+    actors: s.equipment.filter((q) => q.id !== e.id && near(q)).map((q) =>
+      [q.id, quant(q.x), quant(q.z), quant(q.yaw ?? 0), quant(q.reach ?? 0), q.cargo?.item]),
+    workers: s.workers.filter(near).map((w) => [w.id, quant(w.x), quant(w.z)]),
+    carriers: s.orders.filter((o) => o.drive && o.status !== 'done').flatMap((o) =>
+      carrierBoxes(o).filter(near).map((b) => [o.id, quant(b.x), quant(b.z)])),
+  });
+  let probe = r.routeProbe;
+  if (!probe || probe.signature !== signature) {
+    probe = { signature, attempt: 0, retryAt: 0 };
+    r.routeProbe = probe;
+  }
+  if (s.elapsed < probe.retryAt) {
+    j.reason = `Checking rail-handling approach ${Math.min(probe.attempt + 1, 18)} of 18`;
+    return;
+  }
+  const attempt = probe.attempt;
+  let result: { point: Point; path: Point[]; reverse: boolean } | undefined;
+  if (attempt < 4) {
+    const preview = attempt >= 2;
+    const reverse = attempt % 2 ? !e.reverse : !!e.reverse;
+    const canPreview = r.panel.state === 'carried' || !!r.buffer?.carried;
+    if (!preview || canPreview) {
+      const world = preview ? futureSiteState(s, j, e) : s;
+      const path = machineRoute(world, { ...e, reverse }, preferred, api.obstacles(world), 450, true);
+      if (path) result = { point: preferred, path, reverse };
+    }
+  } else if (e.kind === 'excavator') {
+    result = alternateCraneApproach(s, j, e, preferred, target, api, attempt - 4);
+  }
+  if (result) {
+    r.routeProbe = undefined;
+    return result;
+  }
+  probe.attempt++;
+  if (probe.attempt < 18) {
+    probe.retryAt = s.elapsed + 0.5;
+    j.reason = `Checking rail-handling approach ${probe.attempt + 1} of 18`;
+    return;
+  }
+  probe.attempt = 0;
+  probe.retryAt = s.elapsed + 15;
+  const blocker = 'the rail-handling approach';
+  e.blockedBy = blocker;
+  const old = r.routeBlockage;
+  const wait = old?.blocker === blocker ? old : { blocker, since: s.elapsed, retryAt: 0, warned: false };
+  wait.retryAt = probe.retryAt;
+  r.routeBlockage = wait;
+  if (!wait.warned) {
+    wait.warned = true;
+    const detail = `${e.id} cannot find a safe approach to ${j.id}; the route or lifting face is obstructed. Clear the approach or relocate staged stock to storage. Routing will retry when nearby space changes.`;
+    s.notices.unshift({ id: api.id(s, 'notice'), time: s.time, title: 'Rail route blocked', detail,
+      entity: j.id, state: 'todo', seen: false });
+    api.event(s, 'Traffic', j.id, detail);
+    s.events.at(-1)!.severity = 'warning';
+  }
+  j.reason = `Rail-handling route blocked; waiting for clearance before another route sweep`;
+}
 function clearRouteBlockage(s: State, j: Job) {
   if (j.railWork) j.railWork.routeBlockage = undefined;
+  if (j.railWork) j.railWork.routeProbe = undefined;
   for (const n of s.notices)
     if (n.entity === j.id && n.title === 'Rail route blocked') n.state = 'done';
 }
@@ -917,6 +997,22 @@ function machineAt(
     return false;
   }
   if (dist(e, point) > 0.04) {
+    if (j.kind === 'rail' && dist(e, point) > 40) {
+      const candidate = distantRailApproach(s, j, e, preferred, target, api);
+      if (!candidate) return false;
+      if (dist(candidate.point, preferred) > 0.02) {
+        j.railWork!.approach = {
+          preferred: { ...preferred }, target: { ...target }, point: candidate.point,
+        };
+        api.event(s, 'Traffic', j.id,
+          `${e.id} selects an alternate rail-handling approach around obstructing material.`);
+      }
+      clearRouteBlockage(s, j);
+      e.blockedBy = undefined;
+      e.path = candidate.path;
+      e.reverse = candidate.reverse;
+      return false;
+    }
     if (j.railWork?.routeBlockage && s.elapsed < j.railWork.routeBlockage.retryAt) {
       j.reason = `Rail-handling route blocked by ${j.railWork.routeBlockage.blocker}; waiting for a clear approach`;
       return false;

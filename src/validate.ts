@@ -893,6 +893,18 @@ export function validateState(value: any): asserts value is State {
           (r.routeBlockage.warned !== undefined && typeof r.routeBlockage.warned !== 'boolean'))
       )
         fail('invalid rail route blockage');
+      if (
+        r.routeProbe !== undefined &&
+        (!r.routeProbe ||
+          typeof r.routeProbe.signature !== 'string' ||
+          r.routeProbe.signature.length > 65536 ||
+          !Number.isInteger(r.routeProbe.attempt) ||
+          r.routeProbe.attempt < 0 ||
+          r.routeProbe.attempt >= 18 ||
+          !finite(r.routeProbe.retryAt) ||
+          r.routeProbe.retryAt < 0)
+      )
+        fail('invalid rail route probe');
       if (r.stagingBatch !== undefined) {
         const b = r.stagingBatch,
           material = MATERIALS[(j.item || 'rail') as keyof typeof MATERIALS];

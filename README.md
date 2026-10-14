@@ -2,7 +2,7 @@
 
 ## Native game
 
-The playable Godot migration uses the approved Concept C art and a separate local simulation process. Open **Plant 01 v0.32.0.app** in the surrounding `outputs/` folder, or double-click **Open Plant 01.command** for development. No browser is required. [Download the Mac app](https://github.com/lukacslacko/factory_game/releases/tag/v0.32.0). See [native game instructions](native/README.md) and [migration notes](docs/native-migration.md). The browser game and static visual proof remain available below.
+The playable Godot migration uses the approved Concept C art and a separate local simulation process. Open **Plant 01 v0.32.1.app** in the surrounding `outputs/` folder, or double-click **Open Plant 01.command** for development. No browser is required. [Download the Mac app](https://github.com/lukacslacko/factory_game/releases/tag/v0.32.1). See [native game instructions](native/README.md) and [migration notes](docs/native-migration.md). The browser game and static visual proof remain available below.
 
 
 A playable first version of the fantasy chemistry plant game. Build and operate the construction yard before chemical production arrives: hire a crew, receive physical materials, move equipment, pave ground, extend track, and assemble a small base.
@@ -10,6 +10,10 @@ A playable first version of the fantasy chemistry plant game. Build and operate 
 The world uses a true perspective 3D camera, with a meter grid, dimensional stock, angled lighting, and grid-aligned parked equipment. The records use the approved Condensed direction. The visual target is the latest **80% A / 20% B** selection, rather than the earlier rejected flat world studies.
 
 ![Native gameplay](native/screenshots/02-native-equipment.png)
+
+## Smoother rail routing — v0.32.1
+
+Long, blocked rail-handling routes now check one lifting approach per simulation update and save their search progress. A failed sweep waits for a relevant obstruction to change or a periodic retry, while a linked warning remains visible. The long-distance pose search is bounded to its local escape role; physical collision checks are unchanged. This addresses a simulation stall reproduced on a copy of a player yard in both v0.31.0 and v0.32.0.
 
 ## Denser native meadow — v0.32.0
 
