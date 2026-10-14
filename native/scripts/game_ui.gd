@@ -74,6 +74,11 @@ var dependency_report: Dictionary={}
 var dependency_captured_at: float=-1
 var dependency_pending: bool=false
 var dependency_error: String=""
+var unload_preflight_order_id: String=""
+var unload_preflight_pending: bool=false
+var unload_preflight_report: Dictionary={}
+var unload_preflight_error: String=""
+var unload_preflight_signature: String=""
 var startup: Window
 var continue_button: Button
 var purchase_window: Window
@@ -598,6 +603,7 @@ func receive_reply(message: Dictionary) -> void:
 		if str(message.get("action","")) in ["new_game","continue","import","load"]:
 			freight_car_selection.clear();freight_shunt_choices.clear()
 			dependency_report.clear();dependency_captured_at=-1;dependency_pending=false;dependency_error=""
+			unload_preflight_order_id="";unload_preflight_pending=false;unload_preflight_report.clear();unload_preflight_error="";unload_preflight_signature=""
 			started=true
 			startup.hide()
 		if message.has("message"): status_label.text=str(message.message)
@@ -616,6 +622,14 @@ func receive_reply(message: Dictionary) -> void:
 		if active_tab=="Work":
 			_refresh_register()
 			if is_instance_valid(register_scroll) and tables.size()>2:register_scroll.ensure_control_visible(tables[2].get_child(0))
+	if str(message.get("action",""))=="unload_preflight":
+		unload_preflight_pending=false
+		if bool(message.get("ok",false)) and message.get("result",{}) is Dictionary:
+			unload_preflight_report=message.result
+			unload_preflight_error=""
+		else:
+			unload_preflight_report.clear()
+			unload_preflight_error=str(message.get("error","Unloading preflight unavailable"))
 	if message.get("action")=="rail_edit_preview" and is_instance_valid(rail_edit_window):
 		if bool(message.get("ok",false)):_show_rail_edit_preview(message.get("result",{}))
 		else:
@@ -1793,9 +1807,54 @@ func _order_inspector(order: Dictionary) -> void:
 		_detail("Handling machine",order.unload.get("equipmentId",""))
 		_detail("Ground helper",order.unload.get("riggerId",""))
 	if order.has("railFreight"):_rail_freight_controls(order)
+	elif str(order.get("status",""))=="unloading":
+		_button(inspector_body,"Check unloading plan",func() -> void: _request_unload_preflight(id))
+		_unload_preflight_details(id)
 	var worker: OptionButton = _entity_option(inspector_body,"workers","Choose receiving operator…",controlled_worker,true)
 	_button(inspector_body,"Assign operator to unloading",func() -> void:
 		if not _selection(worker).is_empty(): _send("unload",{"orderId":id,"workerId":_selection(worker)}))
+
+func _request_unload_preflight(order_id: String, car_ids: Array[String]=[], storage_zone_id: String="") -> void:
+	if unload_preflight_pending:return
+	unload_preflight_order_id=order_id
+	unload_preflight_pending=true
+	unload_preflight_report.clear()
+	unload_preflight_error=""
+	var args: Dictionary={"orderId":order_id}
+	if not car_ids.is_empty():args.carIds=car_ids
+	if not storage_zone_id.is_empty():args.storageZoneId=storage_zone_id
+	unload_preflight_signature=JSON.stringify(args)
+	_send("unload_preflight",args)
+	inspector_pending=true
+
+func _unload_preflight_details(order_id: String, car_ids: Array[String]=[], storage_zone_id: String="") -> void:
+	if unload_preflight_order_id!=order_id:
+		_note(inspector_body,"Check the next physical lift before unloading. A purchase freight estimate does not verify site access.")
+		return
+	var current: Dictionary={"orderId":order_id}
+	if not car_ids.is_empty():current.carIds=car_ids
+	if not storage_zone_id.is_empty():current.storageZoneId=storage_zone_id
+	if JSON.stringify(current)!=unload_preflight_signature:
+		_note(inspector_body,"The car or stockyard selection changed. Check the unloading plan again before relying on it.")
+		return
+	if unload_preflight_pending:
+		_note(inspector_body,"Checking machine, crew, loaded approach, setdown and withdrawal…")
+		return
+	if not unload_preflight_error.is_empty():
+		_note(inspector_body,"Unloading check unavailable: %s"%unload_preflight_error)
+		return
+	if unload_preflight_report.is_empty():return
+	var result: Dictionary=unload_preflight_report
+	var feasible: bool=bool(result.get("feasible",false))
+	var readiness: String=str(result.get("readiness","ready" if feasible else "blocked"))
+	_detail("Next lift", "Route not verified yet" if readiness=="unverified" else "Reachable at last check" if feasible else "Not reachable at last check")
+	if result.has("item"):_detail("Cargo",_name(str(result.item)))
+	if result.has("quantity"):_detail("Lift quantity",result.quantity)
+	for pair: Array in [["Machine","equipmentId"],["Operator","operatorId"],["Ground helper","riggerId"],["Blocker","blockerId"]]:
+		if not str(result.get(pair[1],"")).is_empty():_detail(pair[0],result[pair[1]])
+	if result.has("destination"):_detail("Storage landing",_position(result.destination))
+	_note(inspector_body,str(result.get("reason","No verified handling plan was returned.")))
+	_note(inspector_body,"Read-only check of the next lift. The yard can change; unloading checks again before dispatch and during movement.")
 
 
 func _freight_cars() -> Array[Dictionary]:
@@ -1896,6 +1955,11 @@ func _rail_freight_controls(order: Dictionary) -> void:
 	apply.disabled=terminal or order.has("unload")
 	apply.tooltip_text="Wait for the current physical lift to finish before changing destinations."
 	var checks: Array[CheckBox] = _freight_car_checkboxes(inspector_body,order)
+	var preflight: Button = _button(inspector_body,"Check unloading plan",func() -> void:
+		_request_unload_preflight(id,_selected_freight_cars(order),_selection(storage)))
+	preflight.disabled=terminal or str(order.get("status",""))!="unloading" or unload_preflight_pending
+	preflight.tooltip_text="Check the selected cars and stockyard without assigning equipment or moving cargo. Apply a changed stockyard before starting unloading."
+	_unload_preflight_details(id,_selected_freight_cars(order),_selection(storage))
 	var start: Button = _button(inspector_body,"Start unloading",func() -> void:
 		var args: Dictionary = {"orderId":id}
 		var selected: Array[String] = _selected_freight_cars(order)
@@ -1921,6 +1985,7 @@ func _rail_freight_controls(order: Dictionary) -> void:
 		var tanker_selected: bool = false
 		for car: Dictionary in freight.get("cars",[]):
 			if car.get("kind")=="tanker" and str(car.id) in _selected_freight_cars(order):tanker_selected=true
+		preflight.disabled=terminal or str(order.get("status",""))!="unloading" or unload_preflight_pending or no_cars or tanker_selected
 		start.disabled=str(order.get("status",""))!="unloading" or bool(freight.get("unloadRequested",true)) or str(freight.get("storageZoneId","")).is_empty() or no_cars or freight.has("movement") or tanker_selected
 		shunt.disabled=terminal or not bool(freight.get("detached",false)) or str(freight.get("locomotivePhase","attached"))!="gone" or order.has("unload") or bool(freight.get("unloadRequested",false)) or freight.has("movement") or no_cars or _selection(shunter).is_empty() or _selection(target).is_empty()
 	shunter.item_selected.connect(func(_index: int) -> void:

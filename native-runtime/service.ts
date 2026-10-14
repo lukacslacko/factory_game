@@ -59,6 +59,7 @@ import {
 import { query, SQL_EXAMPLES, csv } from '../src/reports';
 import { DiagnosticRecorder } from '../src/diagnostics';
 import { diagnoseLogisticsDependencies } from '../src/logistics-dependencies';
+import { previewUnloading } from '../src/delivery';
 import { renderState } from './render';
 import { recordStockFootprints } from '../src/ground-wear';
 import { railEditPreview } from './rail-edit-preview';
@@ -356,6 +357,7 @@ const readonly = new Set([
   'tables',
   'sql',
   'purchase_preview',
+  'unload_preflight',
   'collection_quote',
   'storage_move_preview',
   'export',
@@ -390,6 +392,7 @@ async function dispatch(action: string, a: any) {
           'render-poses',
           'bounded-diagnostics',
           'dependency-diagnosis',
+          'unload-preflight',
         ],
       };
     case 'ping':
@@ -534,6 +537,12 @@ async function dispatch(action: string, a: any) {
           (railLoads.length ? 240 : 0) + loads.filter((l) => l.mode === 'road').length * 90,
       };
     }
+    case 'unload_preflight':
+      return previewUnloading(state, entityId(a), {
+        workerId: a.workerId,
+        carIds: a.carIds,
+        storageZoneId: a.storageZoneId,
+      }, { obstacles: Sim.obstacles });
     case 'starter_order':
       Sim.starterOrder(state);
       return {};

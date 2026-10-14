@@ -82,6 +82,7 @@ export interface DeliveryAPI {
   obstacles(s: State): Rect[];
   allocate(s: State, item: Item, from?: Point): Rect | null;
 }
+type DeliveryRoutingAPI = Pick<DeliveryAPI, 'obstacles'>;
 export const parcelPitch = (item: Item) =>
   item === 'slab'
     ? 0.18
@@ -207,7 +208,7 @@ function freeOperator(s: State, e?: Equipment, preferred?: string, target?:Point
   const goal=target||(e?machineStep(e):undefined);if(!goal)return;
   return selectWorker(s,[goal],{preferredId:preferred,equipmentId:e?.id,allowVehicle:true,eligible:w=>(!e?.operator||e.operator===w.id)&&w.role==='operator'&&(!w.vehicle||w.vehicle===e?.id||s.equipment.some(q=>q.id===w.vehicle&&!q.job&&!q.deliveryOrder&&!q.transportOrder&&!q.path.length))})?.worker;
 }
-function walkingRoute(s: State, w: Worker, p: Point, api: DeliveryAPI) {
+function walkingRoute(s: State, w: Worker, p: Point, api: DeliveryRoutingAPI) {
   return walkRoute(s, w, p, [
     ...s.buildings.filter((b) => !['lamp', 'power', 'water', 'shed', 'engineShed'].includes(b.kind)),
     ...s.stacks.filter((t) => t.qty > 0 || t.item === 'diesel'),
@@ -314,7 +315,8 @@ export function equipmentReservedForDelivery(s: State, e: Equipment, ignoreOrder
       o.automaticEquipment === e.id,
   );
 }
-function materialMachine(s: State, o: Order, preferred?: string, manual = false) {
+function materialMachine(s: State, o: Order, preferred?: string, manual = false,
+  releaseStaleOwner = false) {
   const mass = MATERIALS[selectedPendingLine(o)!.item as Item].mass;
   const qualified = (e: Equipment) =>
     !collectionOwnsEquipment(s, e.id) &&
@@ -334,9 +336,9 @@ function materialMachine(s: State, o: Order, preferred?: string, manual = false)
     const owner = s.equipment.find((e) => e.id === o.automaticEquipment),
       operator = owner && qualified(owner) ? freeOperator(s, owner, preferred) : undefined;
     if (owner && operator) return ready(owner) ? { e: owner, w: operator } : undefined;
-    // Never reached for an active lift: startUnloading is only called after release.
-    // Role, fuel, shift or explicit assignment changes therefore hand off supported freight.
-    o.automaticEquipment = undefined;
+    // A preview must leave this preference untouched. Dispatch can release an
+    // unavailable owner between lifts, then let another machine take the job.
+    if (releaseStaleOwner) o.automaticEquipment = undefined;
   }
   const machines = s.equipment.filter(
     (e) => !actionClearanceHoldsEquipment(s,e.id) && qualified(e) && ready(e) && (manual || !equipmentReservedForDelivery(s, e, o.id)),
@@ -367,7 +369,7 @@ function* storageDockCandidates(
   from: Point,
   r: Rect,
   e: Equipment,
-  api: DeliveryAPI,
+  api: DeliveryRoutingAPI,
   clearance = constructionStorageClearance(s),
 ) {
   const c = center(r),
@@ -393,16 +395,6 @@ function* storageDockCandidates(
     const path = route(from, p, obs, 1.1);
     if (path) yield { p, yaw, path, reach };
   }
-}
-function storageDock(
-  s: State,
-  from: Point,
-  r: Rect,
-  e: Equipment,
-  api: DeliveryAPI,
-  clearance = constructionStorageClearance(s),
-) {
-  return storageDockCandidates(s, from, r, e, api, clearance).next().value || null;
 }
 const isRailStock = (item: string) => item === 'rail' || item.startsWith('rail');
 
@@ -513,9 +505,12 @@ export function railStoragePlacementPreservesAccess(
 function chooseStorage(
   s: State,
   item: Item,
-  e: Equipment,
-  api: DeliveryAPI,
+  loadedStart: Equipment,
+  api: DeliveryRoutingAPI,
+  requestedQty: number,
   storageZoneId?: string,
+  ownerId?: string,
+  pickupReach?: number,
 ) {
   const zones = storageZoneId ? s.zones.filter((z) => z.id === storageZoneId) : s.zones;
   const inDestination = (r: Rect) =>
@@ -523,7 +518,85 @@ function chooseStorage(
   const m = MATERIALS[item];
   const preservesRailAccess = createRailStorageAccessCheck(s);
   const clearance = constructionStorageClearance(s);
-  const loaded = { ...e, cargo: { item, qty: 1 } };
+  let availableSlots = 0, accessibleDocks = 0, routeChecks = 0;
+  let routeLimit = false;
+  let handlingBlock: { reason: string; blockerId?: string } | undefined;
+  const MAX_ROUTE_CHECKS = 24;
+  const tryDock = (r: Rect, space: number, merge?: Stack) => {
+    availableSlots++;
+    const loadQty = Math.min(requestedQty, space);
+    const loaded = { ...loadedStart, cargo: { item, qty: loadQty } };
+    for (const dock of storageDockCandidates(s, loaded, r, loaded, api, clearance)) {
+      accessibleDocks++;
+      if (routeChecks >= MAX_ROUTE_CHECKS) { routeLimit = true; return null; }
+      routeChecks++;
+      const carrying = { ...loaded, reach: loaded.kind === 'forklift'
+        ? FORK_LOAD_CENTER : dist(dock.p, center(r)) };
+      if (!loadedStorageRoute(s, carrying, dock.p, api, dock.yaw)) continue;
+      if (pickupReach !== undefined && pickupReach > carrying.reach + 0.001) {
+        let at = { ...loaded, reach: pickupReach };
+        const steps = Math.ceil((pickupReach - carrying.reach) / 0.2);
+        let blocker = '';
+        for (let i = 1; i <= steps; i++) {
+          const next = pickupReach + (carrying.reach - pickupReach) * i / steps;
+          blocker = equipmentReachBlocked(s, at, next);
+          if (blocker) break;
+          at = { ...at, reach: next };
+        }
+        if (blocker) {
+          handlingBlock ??= { reason: `Loaded reach carriage blocked by ${blocker}`,
+            blockerId: blocker };
+          continue;
+        }
+      }
+      const landing: TrafficBox = { ...center(r), yaw: dock.yaw + Math.PI / 2,
+        length: m.w, width: m.d };
+      const landingBlockers = actionEnvelopeBlockers(s, loaded, [landing]);
+      if (landingBlockers.length) {
+        handlingBlock ??= { reason:
+          `Cargo setdown footprint occupied by ${landingBlockers.join(', ')}`,
+          blockerId: landingBlockers[0] };
+        continue;
+      }
+      const landingOwner = ownerId && previewManeuverBlocker(s, {
+        ownerId, equipmentId: loaded.id, kind: 'landing',
+        resourceId: merge?.id || `${r.x},${r.z}`,
+        area: maneuverArea([dock.p, center(r)], loaded.kind === 'excavator' ? 1.8 : 1.45),
+      });
+      if (landingOwner) {
+        handlingBlock ??= { reason: `Storage landing reserved by ${landingOwner}`,
+          blockerId: landingOwner };
+        continue;
+      }
+      // After the cargo is supported by its stack, the empty tool must leave
+      // along the same straight reverse motion used by the live unload task.
+      const placed: Stack = { ...r, id: 'PREVIEW-PLACED-STOCK', item,
+        qty: loadQty, reserved: 0, source: ownerId || 'preview' };
+      const afterSetdown = merge ? s : { ...s, stacks: [...s.stacks, placed] };
+      let withdrawing: Equipment = { ...loaded, ...dock.p, yaw: dock.yaw,
+        reach: dist(dock.p, center(r)), cargo: undefined, path: [] };
+      let withdrawalBlocker = '';
+      for (let i = 1; i <= 8; i++) {
+        const next = localPoint({ ...dock.p, yaw: dock.yaw }, -2.8 * i / 8, 0);
+        withdrawalBlocker = equipmentMoveBlocked(afterSetdown, withdrawing,
+          { ...next, yaw: dock.yaw });
+        if (withdrawalBlocker) break;
+        withdrawing = { ...withdrawing, ...next };
+      }
+      const carrierLeaves = ownerId && withdrawalBlocker === ownerId &&
+        s.orders.some((o) => o.id === ownerId && o.arrived + loadQty >= o.qty);
+      if (withdrawalBlocker && !carrierLeaves) {
+        handlingBlock ??= { reason: `Empty tool withdrawal blocked by ${withdrawalBlocker}`,
+          blockerId: withdrawalBlocker };
+        continue;
+      }
+      // The last lifted parcel releases its supplier truck immediately. Its
+      // departure may overlap the eventual empty-tool withdrawal, so that
+      // part of the preview remains uncertain rather than a fixed obstruction.
+      return { ...dock, uncertainty: carrierLeaves ? withdrawalBlocker : undefined };
+    }
+    return null;
+  };
   const unavailable = (r: Rect) => clearance.some((area) => overlap(area, r));
   const incoming = (id: string) =>
     incomingRailLayers(s, id) +
@@ -546,14 +619,21 @@ function chooseStorage(
         preservesRailAccess(item, t),
     )
     .sort((a, b) => b.qty - a.qty)) {
-    const dock = storageDock(s, e, stack, loaded, api, clearance);
+    const space = m.max - stack.qty - incoming(stack.id);
+    const dock = tryDock(stack, space, stack);
     if (dock)
-      return { rect: stack, merge: stack, space: m.max - stack.qty - incoming(stack.id), dock };
+      return { destination: { rect: stack, merge: stack,
+        space, dock }, reason: '', uncertainBlocker: dock.uncertainty };
+    if (routeLimit) break;
   }
   const candidates: Rect[] = [];
-  for (const z of zones)
-    for (let zz = z.z; zz + m.d <= z.z + z.d; zz++)
+  let surveyedCells = 0, surveyLimit = false;
+  // Search the far edge first as the live allocator does, but stop an
+  // enormous imported stockyard from making this dispatch unbounded.
+  candidateCells: for (const z of zones)
+    for (let zz = z.z + z.d - m.d; zz >= z.z; zz--)
       for (let xx = z.x; xx + m.w <= z.x + z.w; xx++) {
+        if (++surveyedCells > 2048) { surveyLimit = true; break candidateCells; }
         const r = { x: xx, z: zz, w: m.w, d: m.d };
         if (
           s.stacks.some((t) => (t.qty > 0 || t.item === 'diesel') && overlap(t, r)) ||
@@ -566,13 +646,25 @@ function chooseStorage(
         candidates.push(r);
       }
   // Fill the far side first, leaving the loading face accessible as a dense block grows.
-  candidates.sort((a, b) => b.z - a.z || a.x - b.x);
   for (const r of candidates) {
+    if (routeLimit) break;
     if (!preservesRailAccess(item, r)) continue;
-    const dock = storageDock(s, e, r, loaded, api, clearance);
-    if (dock) return { rect: r, space: m.max, dock };
+    const dock = tryDock(r, m.max);
+    if (dock) return { destination: { rect: r, space: m.max, dock },
+      reason: '', uncertainBlocker: dock.uncertainty };
   }
-  return null;
+  const reason = routeLimit || surveyLimit
+    ? 'Storage route survey reached its safe search limit; choose a smaller stockyard or clear an approach'
+    : handlingBlock?.reason || (accessibleDocks
+      ? 'No safe loaded route and complete final turn to an accessible storage dock'
+      : availableSlots
+        ? 'Storage has space, but no accessible machine dock and withdrawal face'
+        : s.zones.length
+          ? 'No reachable storage position or stack capacity'
+          : 'No stockyard — designate a storage area');
+  return { destination: null, reason, blockerId: handlingBlock?.blockerId,
+    surveyLimited: routeLimit || surveyLimit,
+    uncertainBlocker: undefined };
 }
 function riggingPoint(source: Point, item: Item): Point {
   return {
@@ -580,7 +672,18 @@ function riggingPoint(source: Point, item: Item): Point {
     z: source.z + 1.9,
   };
 }
-function pickupRoute(s: State, e: Equipment, pickup: Point, api: DeliveryAPI) {
+function riggingClearanceRoute(s: State, r: Worker, rig: Point, pickup: Point,
+  api: DeliveryRoutingAPI) {
+  // Both sides of the machine are valid refuges. A roadside fence can make
+  // the near-side route impossible even though the far side is freely walked.
+  for (const offset of [-3, 5, -5] as const) {
+    const point = { x: pickup.x + offset, z: pickup.z + 1.5 };
+    const path = walkingRoute(s, { ...r, ...rig }, point, api);
+    if (path) return { point, path };
+  }
+  return null;
+}
+function pickupRoute(s: State, e: Equipment, pickup: Point, api: DeliveryRoutingAPI) {
   const obstacles = api.obstacles(s);
   for (const reverse of [false, true]) {
     const path = machineRoute(s, { ...e, reverse }, pickup, obstacles, 250, true, -Math.PI / 2);
@@ -609,27 +712,53 @@ function selectedPendingLine(o: Order) {
   const slot=selectedShipmentLots(o)[0];
   return slot ? {item:slot.item} : pendingOrderLine(o);
 }
-function startUnloading(s: State, o: Order, api: DeliveryAPI, preferred?: string, manual = false) {
+export interface UnloadPreflight {
+  orderId: string;
+  feasible: boolean;
+  /** Resource absence cannot certify the physical route in either direction. */
+  readiness: 'ready' | 'unverified' | 'blocked';
+  reason: string;
+  item?: Item;
+  quantity?: number;
+  equipmentId?: string;
+  operatorId?: string;
+  riggerId?: string;
+  destination?: Rect;
+  drop?: Point;
+  blockerId?: string;
+}
+type UnloadPlan = {
+  feasible: true;
+  task: UnloadTask;
+  equipment: Equipment;
+  operator: Worker;
+  rigger?: Worker;
+  workerPath: Point[];
+  riggerPath: Point[];
+  result: UnloadPreflight;
+} | { feasible: false; reason: string; code: string; blockerId?: string };
+const previewManeuverBlocker = (s: State, request: Parameters<typeof claimManeuver>[1]) =>
+  claimManeuver({ ...s, maneuverReservations: s.maneuverReservations?.map((r) =>
+    ({ ...r, area: { ...r.area } })) }, request);
+
+/** One bounded, read-only selection for both preview and actual dispatch. */
+function planUnloading(s: State, o: Order, api: DeliveryRoutingAPI,
+  preferred?: string, manual = false, releaseStaleOwner = false): UnloadPlan {
   preferred ??= o.operatorId;
   const slot=selectedShipmentLots(o)[0];
-  if(!slot) {if(o.railFreight){o.railFreight.unloadRequested=false;o.note='Selected cars unloaded; choose more cars or arrange return';} return false;}
+  if(!slot) return { feasible: false, code: 'selected',
+    reason: 'Selected cars have no freight left to unload; choose more cars or arrange return' };
   const item = slot.item as Item,
     m = MATERIALS[item],
-    pair = materialMachine(s, o, preferred, manual);
+    pair = materialMachine(s, o, preferred, manual, releaseStaleOwner);
   if (!pair) {
-    waiting(
-      s,
-      o,
+    return { feasible: false, code: 'resources', reason:
       s.equipment.some((e) => EQUIPMENT[e.kind].capacity >= m.mass) &&
         !s.equipment.some(
           (e) => equipmentAllows(e, 'receiving') && EQUIPMENT[e.kind].capacity >= m.mass,
         )
         ? 'No suitable machine allows receiving — change Automatic work in Equipment'
-        : `Waiting for your ${m.mass > 2500 ? 'excavator' : 'forklift or excavator'} and a hired operator`,
-      'resources',
-      api,
-    );
-    return false;
+        : `Waiting for your ${m.mass > 2500 ? 'excavator' : 'forklift or excavator'} and a hired operator` };
   }
   const { e, w } = pair;
   const source = localPoint(freightPose(o, slot.carIndex), slot.x, slot.z);
@@ -641,29 +770,10 @@ function startUnloading(s: State, o: Order, api: DeliveryAPI, preferred?: string
         : selectWorker(s,[riggingPoint(source,item)],{equipmentId:e.id,workId:o.id,eligible:r=>r.role!=='operator'&&workerSupportsEquipment(r,e.id),route:(r,p)=>walkingRoute(s,r,p,api)})?.worker
       : undefined;
   if (e.kind === 'excavator' && !rigger) {
-    waiting(
-      s,
-      o,
-      equipmentAssistantReason(s, e.id) || 'Waiting for a reachable site worker to rig the excavator lift',
-      'rigger',
-      api,
-    );
-    return false;
+    return { feasible: false, code: 'rigger', reason:
+      equipmentAssistantReason(s, e.id) ||
+      'Waiting for a reachable site worker to rig the excavator lift' };
   }
-  const dest = chooseStorage(s, item, e, api, o.railFreight?.storageZoneId);
-  if (!dest) {
-    waiting(
-      s,
-      o,
-      s.zones.length
-        ? 'No reachable storage position or stack capacity'
-        : 'No stockyard — designate a storage area',
-      'storage',
-      api,
-    );
-    return false;
-  }
-  const qty = Math.min(slot.qty, dest.space, Math.floor(EQUIPMENT[e.kind].capacity / m.mass));
   const pickup = {
     x: source.x,
     z:
@@ -676,24 +786,76 @@ function startUnloading(s: State, o: Order, api: DeliveryAPI, preferred?: string
   const workerPath =
     w.vehicle === e.id ? [] : route(walkingFrom, boardPoint(e), api.obstacles(s), 0.15);
   if (!approachPath || !workerPath) {
-    waiting(s, o, 'Machine or operator cannot reach the unloading face', 'approach', api);
-    return false;
+    return { feasible: false, code: 'approach',
+      reason: 'Machine or operator cannot reach the unloading face' };
   }
-  const sourceY = (o.mode === 'rail' ? 1.3 : 1.15) + (slot.qty - qty) * parcelPitch(item);
   const riggerPath = rigger ? walkingRoute(s, rigger, riggingPoint(source, item), api) : [];
-  if (!riggerPath) {
-    o.note = 'Rigging worker cannot reach the lift';
-    return false;
-  }
-  const pickupOwner = claimManeuver(s, {
+  if (!riggerPath) return { feasible: false, code: 'rigger-route',
+    reason: 'Rigging worker cannot reach the lift' };
+  const riggerExit = rigger ? riggingClearanceRoute(s, rigger,
+    riggingPoint(source, item), pickup, api) : undefined;
+  if (rigger && !riggerExit) return { feasible: false, code: 'rigger-route',
+    reason: 'Rigging worker has no clear route out of the loaded withdrawal area' };
+  const pickupOwner = previewManeuverBlocker(s, {
     ownerId: o.id, equipmentId: e.id, kind: 'pickup', resourceId: o.id,
     area: maneuverArea([pickup, source], e.kind === 'excavator' ? 1.8 : 1.45),
   });
-  if (pickupOwner) {
-    waiting(s, o, `Unloading face reserved by ${pickupOwner}`, 'pickup-reserved', api);
-    return false;
+  if (pickupOwner) return { feasible: false, code: 'pickup-reserved',
+    reason: `Unloading face reserved by ${pickupOwner}`, blockerId: pickupOwner };
+  const pickupReach = dist(pickup, source);
+  const sweep = Math.hypot(pickupReach + m.d / 2, m.w / 2);
+  const withdrawal = Math.max(3, Math.ceil(sweep + 1.5 - pickupReach));
+  const maximumLiftQty = Math.min(slot.qty, Math.floor(EQUIPMENT[e.kind].capacity / m.mass));
+  // The operator is in the cab and the rigger has stepped out of the boom
+  // sweep before the live task begins its loaded withdrawal. Inspect that
+  // prospective phase, not their current pre-boarding positions.
+  const carryingState: State = { ...s, workers: s.workers.map((person) =>
+    person.id === w.id ? { ...person, vehicle: e.id, path: [] } :
+      person.id === rigger?.id ? { ...person,
+        x: riggerExit!.point.x, z: riggerExit!.point.z, path: [] } : person) };
+  let clearing: Equipment = { ...e, ...pickup, yaw: -Math.PI / 2,
+    reach: pickupReach, cargo: { item, qty: maximumLiftQty }, path: [] };
+  let temporaryWithdrawalBlocker: string | undefined;
+  for (let i = 1; i <= 8; i++) {
+    const next = { x: pickup.x, z: pickup.z + withdrawal * i / 8,
+      yaw: -Math.PI / 2 };
+    const blocker = equipmentMoveBlocked(carryingState, clearing, next);
+    if (blocker) {
+      const pedestrian = carryingState.workers.find((person) => person.id === blocker);
+      if (pedestrian?.duty === 'auto' && !pedestrian.vehicle) {
+        // The actual move pass requests this pedestrian to walk clear. Their
+        // current position is not a permanent physical obstruction, but a
+        // preview cannot certify when they will have yielded.
+        temporaryWithdrawalBlocker ??= blocker;
+      } else return { feasible: false, code: 'loaded-withdrawal',
+        reason: `Loaded withdrawal from carrier blocked by ${blocker}`,
+        blockerId: blocker };
+    }
+    clearing = { ...clearing, ...next };
   }
-  o.unload = {
+  const loadedStart: Equipment = { ...e, x: pickup.x, z: pickup.z + withdrawal,
+    yaw: -Math.PI / 2, reach: e.kind === 'forklift' ? FORK_LOAD_CENTER : 2.7,
+    cargo: { item, qty: maximumLiftQty }, path: [] };
+  const yieldable = (person: Worker) => person.id !== w.id && person.id !== rigger?.id &&
+    person.duty === 'auto' && !person.vehicle && !person.job &&
+    !person.deliveryOrder && !person.transportOrder && !person.assistingEquipment &&
+    !person.actionClearanceEquipment && !person.processAssignment &&
+    !person.railAssignment && workerAvailable(s, person);
+  const temporaryPedestrians = carryingState.workers.filter(yieldable);
+  // Future travel can be planned through the space of idle auto pedestrians:
+  // live movement still checks their real positions and asks them to yield.
+  // A route that needs that clearance is reported as unverified, never ready.
+  const storageSurveyState = temporaryPedestrians.length
+    ? { ...carryingState, workers: carryingState.workers.filter((person) => !yieldable(person)) }
+    : carryingState;
+  const storage = chooseStorage(storageSurveyState, item, loadedStart, api, maximumLiftQty,
+    o.railFreight?.storageZoneId, o.id, pickupReach);
+  const dest = storage.destination;
+  if (!dest) return { feasible: false, code: storage.surveyLimited ? 'survey-limit' : 'storage',
+    reason: storage.reason, blockerId: storage.blockerId };
+  const qty = Math.min(slot.qty, dest.space, Math.floor(EQUIPMENT[e.kind].capacity / m.mass));
+  const sourceY = (o.mode === 'rail' ? 1.3 : 1.15) + (slot.qty - qty) * parcelPitch(item);
+  const task: UnloadTask = {
     item,
     lineIndex: slot.lineIndex,
     carId: slot.carId,
@@ -716,9 +878,78 @@ function startUnloading(s: State, o: Order, api: DeliveryAPI, preferred?: string
       ? (dest.merge.baseHeight || 0) + dest.merge.qty * parcelPitch(item)
       : 0,
   };
+  const storageNeedsYield = temporaryPedestrians.length &&
+    !loadedStorageRoute(carryingState, loadedStart, dest.dock.p, api, dest.dock.yaw);
+  const provisionalBlocker = temporaryWithdrawalBlocker || storage.uncertainBlocker ||
+    (storageNeedsYield ? temporaryPedestrians[0].id : undefined);
+  return { feasible: true, task, equipment: e, operator: w, rigger,
+    workerPath, riggerPath,
+    result: { orderId: o.id, feasible: !provisionalBlocker,
+      readiness: provisionalBlocker ? 'unverified' : 'ready',
+      reason: temporaryWithdrawalBlocker
+        ? `Selected lift awaits ${temporaryWithdrawalBlocker} walking clear of its withdrawal lane`
+        : storage.uncertainBlocker
+          ? `Selected lift awaits departing carrier ${storage.uncertainBlocker} clearing the storage exit`
+          : storageNeedsYield
+            ? 'Selected storage route may need automatic pedestrians to walk clear'
+        : `Ready to unload ${qty} × ${label(item)} into storage`, item,
+      quantity: qty, equipmentId: e.id, operatorId: w.id,
+      riggerId: rigger?.id, destination: { ...dest.rect }, drop: { ...dest.dock.p },
+      blockerId: provisionalBlocker } };
+}
+/** Inspect arrived freight without selecting crew, leasing space, changing
+ * notices, or changing the order. Dispatch re-runs this exact plan. */
+export function previewUnloading(s: State, orderId: string,
+  options: { workerId?: string; carIds?: string[]; storageZoneId?: string } = {},
+  api: DeliveryRoutingAPI): UnloadPreflight {
+  const original = s.orders.find((o) => o.id === orderId);
+  if (!original || original.status !== 'unloading')
+    return { orderId, feasible: false, readiness: 'unverified',
+      reason: 'Choose arrived freight at its unloading berth' };
+  if (original.unload) {
+    const t = original.unload;
+    return { orderId, feasible: false, readiness: 'unverified',
+      reason: 'A physical unloading lift is already in progress; inspect its current route and machine status',
+      item: t.item, quantity: t.qty, equipmentId: t.equipmentId,
+      operatorId: t.operatorId, riggerId: t.riggerId,
+      destination: { ...t.destination }, drop: { ...t.drop } };
+  }
+  if (options.storageZoneId && !s.zones.some((z) => z.id === options.storageZoneId))
+    return { orderId, feasible: false, readiness: 'blocked',
+      reason: `Stockyard ${options.storageZoneId} does not exist` };
+  if (options.carIds && (!original.railFreight || options.carIds.some((id) =>
+    !original.railFreight!.cars.some((c) => c.id === id && !c.returned))))
+    return { orderId, feasible: false, readiness: 'blocked',
+      reason: 'Choose cars present on this freight train' };
+  const o = original.railFreight ? { ...original, railFreight: { ...original.railFreight,
+    storageZoneId: options.storageZoneId ?? original.railFreight.storageZoneId,
+    unloadCarIds: options.carIds ?? original.railFreight.unloadCarIds } } : original;
+  const plan = planUnloading(s, o, api, options.workerId, !!options.workerId);
+  return plan.feasible ? plan.result : { orderId, feasible: false,
+    readiness: ['resources', 'rigger', 'survey-limit'].includes(plan.code)
+      ? 'unverified' : 'blocked',
+    reason: plan.reason, blockerId: plan.blockerId };
+}
+function startUnloading(s: State, o: Order, api: DeliveryAPI, preferred?: string, manual = false) {
+  const plan = planUnloading(s, o, api, preferred, manual, true);
+  if (!plan.feasible) {
+    if (plan.code === 'selected' && o.railFreight) o.railFreight.unloadRequested = false;
+    waiting(s, o, plan.reason, plan.code, api);
+    return false;
+  }
+  const { task, equipment: e, operator: w, rigger, workerPath, riggerPath } = plan;
+  const pickupOwner = claimManeuver(s, {
+    ownerId: o.id, equipmentId: e.id, kind: 'pickup', resourceId: o.id,
+    area: maneuverArea([task.pickup, task.source], e.kind === 'excavator' ? 1.8 : 1.45),
+  });
+  if (pickupOwner) {
+    waiting(s, o, `Unloading face reserved by ${pickupOwner}`, 'pickup-reserved', api);
+    return false;
+  }
+  o.unload = task;
   noteWorkerAssignment(s,w,{equipmentId:e.id,workId:o.id});
   if(rigger)noteWorkerAssignment(s,rigger,{equipmentId:e.id,workId:o.id});
-  o.allocated = { ...dest.rect };
+  o.allocated = { ...task.destination };
   o.automaticEquipment = e.id;
   if (manual) {
     for (const other of s.orders)
@@ -777,7 +1008,7 @@ function loadedStorageRoute(
   s: State,
   e: Equipment,
   drop: Point,
-  api: DeliveryAPI,
+  api: DeliveryRoutingAPI,
   finalYaw: number,
 ) {
   const obstacles = api.obstacles(s);
@@ -1010,14 +1241,14 @@ function unloadTick(s: State, o: Order, dt: number, api: DeliveryAPI) {
     }
     if (t.clock < 2.5) return;
     if (r && r.status !== 'Clear of lift') {
-      const path = walkingRoute(s, r, { x: t.pickup.x - 3, z: t.pickup.z + 1.5 }, api);
-      if (!path) {
+      const clear = riggingClearanceRoute(s, r, r, t.pickup, api);
+      if (!clear) {
         o.note = 'Waiting for the rigging worker to clear the lift';
         return;
       }
       r.yieldingTo = undefined;
       r.yieldTarget = undefined;
-      r.path = path;
+      r.path = clear.path;
       r.status = 'Clear of lift';
       t.rigged = true;
       return;

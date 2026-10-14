@@ -279,6 +279,45 @@ test('a slab-stack move is one work group split into real capacity-limited loads
   assert.ok(stored.every((q) => q.qty <= MATERIALS.slab.max));
 });
 
+test('a busy large machine does not inflate lifts beyond the available forklift capacity', () => {
+  const { s, e, t } = fixture('slab', 12, 'forklift');
+  s.equipment.push({ ...e, id: 'EQ-BUSY-EXCAVATOR', kind: 'excavator',
+    x: 75, z: 65, job: 'JOB-OTHER', fuel: EQUIPMENT.excavator.tank,
+    tank: EQUIPMENT.excavator.tank });
+  const before = S.save(s);
+  const preview = S.previewStorageMove(s, { id: t.id });
+  assert.equal(preview.error, '');
+  assert.match(preview.readiness || '', /checked with site crew/i);
+  assert.equal(S.save(s), before);
+  const result = S.moveToStorage(s, { id: t.id });
+  assert.equal(result.error, '');
+  const lifts = s.jobs.filter((j) => result.jobIds!.includes(j.id));
+  assert.equal(lifts.length, 2);
+  assert.equal(lifts[0].qty, Math.floor(EQUIPMENT.forklift.capacity / MATERIALS.slab.mass));
+  assert.ok(lifts.every((j) => j.qty * MATERIALS.slab.mass <= EQUIPMENT.forklift.capacity));
+});
+
+test('preview rejects a second lift whose first placement removes the usable landing maneuver', () => {
+  const { s, t } = fixture('slab', 12, 'forklift');
+  s.zones = [{ id: 'TIGHT-YARD', name: 'Tight yard', x: 30, z: 43, w: 1, d: 1 }];
+  for (const [id, x, z, w, d] of [
+    ['NORTH', 34, 40, 3, 3], ['SOUTH', 34, 47, 3, 3], ['EAST', 37, 44, 3, 3],
+  ] as const) s.buildings.push({ id, kind: 'office', x, z, w, d,
+    rotation: 0, connected: false, name: id });
+  const before = S.save(s);
+  assert.equal(S.previewStorageMove(s, { id: t.id, quantity: 5 }).error, '',
+    'One physical lift can reach the empty bay');
+  assert.match(S.previewStorageMove(s, { id: t.id }).error,
+    /Lift 2.*storage landing.*earlier placements/i);
+  assert.match(S.moveToStorage(s, { id: t.id }).error,
+    /Lift 2.*storage landing/i,
+    'Submission uses the same prospective sequence and creates no stranded work');
+  assert.equal(S.save(s), before);
+  s.zones[0].x = 28;
+  assert.equal(S.previewStorageMove(s, { id: t.id }).error, '',
+    'A clear landing remains available when the player moves the stockyard');
+});
+
 test('moving recovered rail panels preserves each layer identity and groups the physical passes', () => {
   const { s, t } = fixture('rail', 3, 'excavator');
   t.railAssetIds = ['RAIL-9010', 'RAIL-9011', 'RAIL-9012'];

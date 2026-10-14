@@ -2,7 +2,11 @@
 
 ## Native game
 
-The playable Godot migration uses the approved Concept C art and a separate local simulation process. Open **Plant 01 v0.35.0.app** in the surrounding `outputs/` folder, or double-click **Open Plant 01.command** for development. No browser is required. [Download the Mac app](https://github.com/lukacslacko/factory_game/releases/tag/v0.35.0). See [native game instructions](native/README.md) and [migration notes](docs/native-migration.md). The browser game and static visual proof remain available below.
+The playable Godot migration uses the approved Concept C art and a separate local simulation process. Open **Plant 01 v0.36.0.app** in the surrounding `outputs/` folder, or double-click **Open Plant 01.command** for development. No browser is required. [Download the Mac app](https://github.com/lukacslacko/factory_game/releases/tag/v0.36.0). See [native game instructions](native/README.md) and [migration notes](docs/native-migration.md). The browser game and static visual proof remain available below.
+
+## Checked delivery and multi-lift previews — v0.36.0
+
+Storage-move planning now checks successive lifts against the source, stacks, machine, and crew positions left by earlier lifts. It uses the capacity of equipment actually available, and labels plans over 32 lifts as unverified. For arrived freight, **Check unloading plan** in the delivery inspector checks the next physical lift without moving cargo: crew access, loaded withdrawal and route, landing, and empty withdrawal. Rail checks use the selected cars and stockyard. Dispatch uses the same plan and checks again as the yard changes. See the [storage-move guide](docs/storage-moves.md). This advances [handling-plan parity #49](https://github.com/lukacslacko/factory_game/issues/49); later parcels and moving traffic still need fresh checks.
 
 ## Maneuver ownership and dependency diagnosis — v0.35.0
 

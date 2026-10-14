@@ -8,7 +8,7 @@ import { spawn, execFileSync } from 'node:child_process';
 import { once } from 'node:events';
 import * as Sim from '../src/sim';
 import { MATERIALS, PURCHASE_GROUPS } from '../src/catalog';
-import { seedHandlingResources } from './support/yard';
+import { seedHandlingResources, tickUntil } from './support/yard';
 import { renderState } from '../native-runtime/render';
 import { trackGeometry, trackSections } from '../src/track';
 const root = path.resolve(import.meta.dirname, '..');
@@ -179,6 +179,30 @@ test('native dependency diagnosis is on demand, read only, and absent from frequ
   assert.equal((await c.ok('export')).json, before);
   assert.equal(Object.hasOwn(await c.snapshot(), 'dependencyDiagnostics'), false,
     'The 200 ms snapshot stream never computes or carries the dependency graph');
+});
+
+test('native unload preflight reports the next physical lift without changing the save', async (t) => {
+  const host = await launch();
+  t.after(() => host.close());
+  const c = host.client;
+  const yard = Sim.createState();
+  assert.equal(Sim.addZone(yard, { x: 24, z: 47, w: 3, d: 3 }), '');
+  const [orderId] = Sim.purchase(yard, 'slab', 1);
+  tickUntil(yard, () => yard.orders.find((o) => o.id === orderId)?.status === 'unloading');
+  seedHandlingResources(yard, 'forklift');
+  await c.ok('import', { json: Sim.save(yard) });
+  const before = (await c.ok('export')).json;
+  const result = await c.ok('unload_preflight', { orderId });
+  assert.equal(result.orderId, orderId);
+  assert.equal(result.readiness, 'ready');
+  assert.equal(result.feasible, true);
+  assert.ok(result.equipmentId);
+  assert.ok(result.operatorId);
+  assert.deepEqual(JSON.parse((await c.ok('export')).json), JSON.parse(before));
+  const packing = await c.ok('purchase_preview', {
+    lines: [{ item: 'slab', qty: 1 }], mode: 'road' });
+  assert.equal(Object.hasOwn(packing, 'feasible'), false,
+    'Purchase packing must not masquerade as a site handling plan');
 });
 
 test('native host authenticates, starts in menu, and persists on disconnect without browser focus', async (t) => {
