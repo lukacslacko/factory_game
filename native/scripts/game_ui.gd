@@ -18,7 +18,7 @@ const StorageMoveUI = preload("res://scripts/storage_move_ui.gd")
 var collection_ui: RefCounted = CollectionUI.new()
 var electrical_ui: RefCounted = ElectricalUI.new()
 var storage_move_ui: RefCounted = StorageMoveUI.new()
-const TABS: Array[String] = ["Yard","Railway","Process","Electrical","Materials","Workers","Equipment","Deliveries","Work","Activity","Costs","SQL","Inbox"]
+const TABS: Array[String] = ["Yard","Railway","Process","Electrical","Materials","Workers","Equipment","Automations","Deliveries","Work","Activity","Costs","SQL","Inbox"]
 const ACTIVITIES: Array[String] = ["receiving","paving","construction","rail","recovery"]
 const CATALOG: Dictionary = {
 	"builder":{"name":"Construction worker","price":90,"wage":28},"operator":{"name":"Equipment operator","price":120,"wage":36},"engineer":{"name":"Site engineer","price":150,"wage":42},
@@ -70,6 +70,11 @@ var tab_buttons: Dictionary = {}
 var warning_button: Button
 var diagnosis_button: Button
 var diagnosis_note: Label
+var automation_status_label: Label
+var automation_buttons: Dictionary={}
+var automation_refuel_percent: SpinBox
+var automation_reserve_liters: SpinBox
+var automation_target_liters: SpinBox
 var dependency_report: Dictionary={}
 var dependency_captured_at: float=-1
 var dependency_pending: bool=false
@@ -706,12 +711,81 @@ func _table(parent: Node,title: String,headers: Array[String],widths: Array[int]
 	tables.append(table)
 	return table
 
+func _automation_switch(key: String, title: String, description: String) -> void:
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation",12)
+	register_body.add_child(row)
+	var detail := VBoxContainer.new()
+	detail.size_flags_horizontal=Control.SIZE_EXPAND_FILL
+	row.add_child(detail)
+	_label(detail,title)
+	_note(detail,description)
+	var button := CheckButton.new()
+	button.text="On"
+	button.tooltip_text=description
+	button.set_pressed_no_signal(bool(state.get("automations",{}).get(key,true)))
+	button.toggled.connect(func(enabled: bool) -> void:
+		_send("automation_configure",{"changes":{key:enabled}}))
+	row.add_child(button)
+	automation_buttons[key]=button
+
+func _automation_number(parent: Node, title: String, value: int, minimum: int, maximum: int, suffix: String) -> SpinBox:
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation",12)
+	parent.add_child(row)
+	var title_label := _label(row,title)
+	title_label.size_flags_horizontal=Control.SIZE_EXPAND_FILL
+	var entry := SpinBox.new()
+	entry.min_value=minimum
+	entry.max_value=maximum
+	entry.step=1
+	entry.rounded=true
+	entry.suffix=suffix
+	entry.value=value
+	entry.custom_minimum_size.x=145
+	row.add_child(entry)
+	return entry
+
+func _build_automations() -> void:
+	_label(register_body,"CONSUMABLE AUTOMATIONS")
+	_note(register_body,"These switches save with the yard. Each automatic action uses a real vehicle, worker, delivery, or paid collection; it does not create fuel or move barrels instantly.")
+	_automation_switch("vehicleRefueling","Request vehicle refueling when low","Equipment queues a refueling job at the selected tank percentage. A parked, uncoupled shunter attempts service with its qualified driver and a nearby barrel. Manual control and active work keep priority.")
+	_automation_switch("fuelOrdering","Order diesel for the site reserve","Once any owned vehicle first needs fuel, place road orders when stored plus incoming diesel falls below the reserve. Barrels still need to be delivered and physically unloaded.")
+	_automation_switch("emptyBarrelCollection","Collect empty diesel barrels","After the first vehicle fuel need, request the existing paid disposal service for unreserved empty barrels. The truck and site crew must physically load them.")
+	_label(register_body,"THRESHOLDS")
+	var settings: Dictionary=state.get("automations",{})
+	automation_refuel_percent=_automation_number(register_body,"Vehicle tank at or below",int(settings.get("refuelAtPercent",25)),1,90,"%")
+	automation_reserve_liters=_automation_number(register_body,"Stored + incoming diesel below",int(settings.get("fuelReserveLiters",200)),0,20000,"L")
+	automation_target_liters=_automation_number(register_body,"Order enough to reach",int(settings.get("fuelTargetLiters",400)),200,20000,"L")
+	_button(register_body,"Apply thresholds",func() -> void:
+		_send("automation_configure",{"changes":{"refuelAtPercent":int(automation_refuel_percent.value),"fuelReserveLiters":int(automation_reserve_liters.value),"fuelTargetLiters":int(automation_target_liters.value)}}))
+	automation_status_label=_note(register_body,"")
+	_refresh_automations()
+
+func _refresh_automations() -> void:
+	var settings: Dictionary=state.get("automations",{})
+	for key: String in automation_buttons:
+		var button: CheckButton=automation_buttons[key]
+		if is_instance_valid(button):button.set_pressed_no_signal(bool(settings.get(key,true)))
+	if not is_instance_valid(automation_status_label):return
+	var report: Dictionary=metadata.get("automationStatus",{})
+	var low_equipment: Array=report.get("lowEquipment",[])
+	var low_shunters: Array=report.get("lowShunters",[])
+	var stored: float=float(report.get("storedLiters",0))
+	var incoming: float=float(report.get("incomingLiters",0))
+	var tanks: float=float(report.get("tankLiters",0))
+	automation_status_label.text="CURRENT SITE FUEL\nStored barrels: %.1f L · Incoming: %.1f L · In vehicle tanks: %.1f L\nLow equipment: %s · Low shunters: %s · Empty barrels: %d\n%s"%[stored,incoming,tanks,", ".join(low_equipment) if not low_equipment.is_empty() else "none",", ".join(low_shunters) if not low_shunters.is_empty() else "none",int(report.get("emptyBarrels",0)),"Automatic ordering and disposal can begin after a vehicle first needs fuel." if not bool(settings.get("fuelDemandSeen",false)) else "Automation is armed. Pending freight and reserved disposal barrels prevent duplicate requests."]
+	for request: Dictionary in report.get("shunterRequests",[]):
+		automation_status_label.text+="\n%s fuel request: %s"%[request.get("id","Shunter"),request.get("reason","Waiting")]
+
 func _build_register() -> void:
 	audit_label=null
 	record_status=null
 	severity_filter=null
 	diagnosis_button=null
 	diagnosis_note=null
+	automation_status_label=null
+	automation_buttons.clear()
 	_clear(register_layout)
 	tables.clear()
 	var heading: HBoxContainer = HBoxContainer.new()
@@ -729,7 +803,7 @@ func _build_register() -> void:
 	if active_tab in ["Activity","Costs"]: audit_label=_note(register_layout,"")
 	var filters := HFlowContainer.new()
 	register_layout.add_child(filters)
-	filters.visible=active_tab not in ["SQL","Help"]
+	filters.visible=active_tab not in ["SQL","Help","Automations"]
 	_label(filters,"Search")
 	search_field=LineEdit.new()
 	search_field.placeholder_text="Search every column…"
@@ -750,7 +824,7 @@ func _build_register() -> void:
 	if active_tab in ["Activity","Inbox"]:
 		severity_filter=_option(filters,["All events" if active_tab=="Activity" else "All notices","Warnings only","Info only"])
 		severity_filter.item_selected.connect(func(_index: int) -> void: _refresh_register())
-	_note(register_layout,"Click a column heading to sort or an ID to inspect. Section headings collapse; column filters narrow individual fields." if active_tab not in ["SQL","Help"] else "Read-only reporting" if active_tab=="SQL" else "Step-by-step railway operations")
+	_note(register_layout,"Click a column heading to sort or an ID to inspect. Section headings collapse; column filters narrow individual fields." if active_tab not in ["SQL","Help","Automations"] else "Saved site policies for physical consumables" if active_tab=="Automations" else "Read-only reporting" if active_tab=="SQL" else "Step-by-step railway operations")
 	register_scroll=ScrollContainer.new()
 	register_scroll.size_flags_vertical=Control.SIZE_EXPAND_FILL
 	register_scroll.horizontal_scroll_mode=ScrollContainer.SCROLL_MODE_DISABLED
@@ -763,6 +837,7 @@ func _build_register() -> void:
 	if active_tab=="SQL": _build_sql(); return
 	if active_tab=="Help": _build_rail_help(); return
 	match active_tab:
+		"Automations": _build_automations()
 		"Process": ProcessUI.build_register(self)
 		"Electrical": electrical_ui.build_register(self)
 		"Railway":
@@ -849,6 +924,7 @@ func _refresh_register() -> void:
 		audit_label.text="Latest %d of %d costs · %d of %d events · %d of %d movements. Full histories remain in SQL, save files, and exports."%[_records("costs").size(),int(counts.get("costCount",_records("costs").size())),_records("events").size(),int(counts.get("eventCount",_records("events").size())),_records("movements").size(),int(counts.get("movementCount",_records("movements").size()))]
 	var rows: Array[Dictionary] = []
 	match active_tab:
+		"Automations": _refresh_automations()
 		"Process": ProcessUI.refresh_register(self)
 		"Electrical": electrical_ui.refresh_register(self)
 		"Railway":

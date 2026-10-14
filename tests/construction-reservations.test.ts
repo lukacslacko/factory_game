@@ -45,6 +45,10 @@ test('storage allocation keeps a slab job’s future straight withdrawal lane em
 
 test('an incoming truck reserves cargo outside another machine’s active slab withdrawal lane', () => {
   const { s, crane, job, lane } = yardWithReservedWithdrawal();
+  // This fixture holds a dry crane still to inspect storage reservation geometry.
+  // Automatic refueling would correctly service and resume it before the truck arrives.
+  s.automations!.vehicleRefueling = false;
+  s.automations!.fuelOrdering = false;
   // A real fuel stop leaves this job and its maneuver reservation active while
   // the dedicated receiving forklift handles the next truck.
   crane.fuel = 0;

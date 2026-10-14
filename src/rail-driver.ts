@@ -41,6 +41,8 @@ export function beginShunterRefueling(s: State, shunterId: string): string | und
   const aboard=w!.vehicle===e.id;
   e.refueling={barrelId:barrel.id,workerId:w!.id,phase:aboard?'alighting':'approach-engine',clock:0,carried:0,delivered:0};
   if(!barrelFoot(s,e,localPoint(e,0,2))){e.refueling=undefined;return 'No accessible side of the fuel barrel. Clear a walking route.';}
+  e.autoRefuelRequested=undefined;
+  e.autoRefuelReason=undefined;
   w!.path=[];
   if(aboard){w!.vehicle=undefined;w!.y=1.65;Object.assign(w!,localPoint(e,0,2));}
   w!.railAssignment=e.id;

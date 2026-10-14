@@ -2,6 +2,8 @@
 
 The existing factory simulation now runs in a local Node.js service, with Godot rendering the approved Concept C yard and providing native controls. The service owns simulation time and file persistence, so gameplay can continue while the window is unfocused. No web page, Chrome process, web server, or Internet connection is needed to play.
 
+Native v0.37.0 adds **Automations** for low-fuel vehicle service, diesel ordering, and empty-drum collection. All three are on by default and save with the yard. The first automatic order or disposal request waits until a vehicle actually needs fuel. Tank, reserve, and order-target thresholds can be changed, and the page reports stored, incoming, and vehicle fuel. Refueling, delivery, and disposal retain their physical crew, vehicles, costs, and ordinary status records. See [consumable automations](../docs/consumable-automations.md).
+
 Native v0.36.0 adds **Check unloading plan** to arrived deliveries. It inspects the selected freight and stockyard without dispatching: available machine and crew, loaded withdrawal, storage approach and final turn, setdown, and empty withdrawal. Missing crew is labeled unverified rather than an impossible route. Each dispatch repeats the plan; later parcels are checked at their own turn. Storage moves also replay up to 32 successive lifts against their projected source, destination stacks, machine and crew positions, with larger plans labeled unverified. See [storage moves](../docs/storage-moves.md).
 
 Native v0.35.0 lets receiving and storage crews claim their immediate pickup face or nearby landing bay for a short, owned maneuver. A remote carrier does not hold its destination throughout the trip. In **Work**, **Diagnose dependencies** requests a bounded read-only view of typed blockers, wait times, and cycles; the **Blocked work** table tracks physical rail-pickup prerequisite progress. The diagnosis cannot approve a move, and broader automatic recovery and logistics-officer policies remain planned. See [logistics diagnosis](../docs/logistics-diagnostics.md).
@@ -28,9 +30,9 @@ It retains walking-distance worker selection, safe action clearance, linked pers
 
 ## Download or open on this Mac
 
-[Download the Apple Silicon Mac app](https://github.com/lukacslacko/factory_game/releases/tag/v0.36.0), unzip it, and open **Plant 01.app**. This checkpoint targets macOS 14 or newer.
+[Download the Apple Silicon Mac app](https://github.com/lukacslacko/factory_game/releases/tag/v0.37.0), unzip it, and open **Plant 01.app**. This checkpoint targets macOS 14 or newer.
 
-On the creator’s Mac, the new build is **Plant 01 v0.36.0.app** beside the repository in `outputs/`. Save and quit the older game before opening it; the previous app is retained. Downloaded releases use the usual **Plant 01.app** name. It includes the Godot runner, Node runtime, simulation, terrain maps, and license notices. It is a local app for this Mac, not a notarized public release.
+On the creator’s Mac, the new build is **Plant 01 v0.37.0.app** beside the repository in `outputs/`. Save and quit the older game before opening it; the previous app is retained. Downloaded releases use the usual **Plant 01.app** name. It includes the Godot runner, Node runtime, simulation, terrain maps, and license notices. It is a local app for this Mac, not a notarized public release.
 
 For development, double-click **Open Plant 01.command** in the repository root. It uses Godot in `/Applications` and the installed Node runtime, building the simulation bundle when needed. Or run `npm run native:build` and open `native/project.godot` in Godot.
 

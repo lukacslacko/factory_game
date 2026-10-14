@@ -2,7 +2,11 @@
 
 ## Native game
 
-The playable Godot migration uses the approved Concept C art and a separate local simulation process. Open **Plant 01 v0.36.0.app** in the surrounding `outputs/` folder, or double-click **Open Plant 01.command** for development. No browser is required. [Download the Mac app](https://github.com/lukacslacko/factory_game/releases/tag/v0.36.0). See [native game instructions](native/README.md) and [migration notes](docs/native-migration.md). The browser game and static visual proof remain available below.
+The playable Godot migration uses the approved Concept C art and a separate local simulation process. Open **Plant 01 v0.37.0.app** in the surrounding `outputs/` folder, or double-click **Open Plant 01.command** for development. No browser is required. [Download the Mac app](https://github.com/lukacslacko/factory_game/releases/tag/v0.37.0). See [native game instructions](native/README.md) and [migration notes](docs/native-migration.md). The browser game and static visual proof remain available below.
+
+## Consumable automations — v0.37.0
+
+The native **Automations** tab saves three switches, all on by default: request physical vehicle refueling when tanks run low, order diesel drums for a low site reserve, and request paid collection of empty drums. Automatic orders and disposal wait until a vehicle first needs fuel. Refueling, delivery, and collection keep their ordinary people, equipment, time, and costs. The tank percentage, reserve, and order target can be changed. See the [consumable automation guide](docs/consumable-automations.md) and [issue #54](https://github.com/lukacslacko/factory_game/issues/54).
 
 ## Checked delivery and multi-lift previews — v0.36.0
 

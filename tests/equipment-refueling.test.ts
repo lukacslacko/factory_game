@@ -308,6 +308,8 @@ test('refueling import rejects impossible can balances, missing sources and inve
 test('queued refueling takes the next safe stop ahead of another slab while retaining the group equipment assignment', () => {
   const s = S.demoState(),
     e = s.equipment.find((e) => e.kind === 'excavator')!;
+  // This case submits the refueling request manually at a precise carried-load phase.
+  s.automations!.vehicleRefueling = false;
   for (const q of s.equipment) S.setEquipmentRole(s, q.id, q.id === e.id ? 'paving' : 'hold');
   e.fuel = 20;
   const work = S.pave(s, { x: 56, z: 35, w: 2, d: 1 });

@@ -59,6 +59,25 @@ export function validateState(value: any): asserts value is State {
   if (![1, 3, 10].includes(s.speed) || typeof s.paused !== 'boolean' || typeof s.name !== 'string')
     fail('invalid site settings');
   if (s.creative !== undefined && typeof s.creative !== 'boolean') fail('invalid creative mode');
+  if (s.automations !== undefined) {
+    const a = s.automations;
+    if (!a || typeof a !== 'object' || Array.isArray(a) ||
+        ['vehicleRefueling', 'fuelOrdering', 'emptyBarrelCollection', 'fuelDemandSeen']
+          .some((key) => typeof a[key] !== 'boolean') ||
+        !Number.isInteger(a.refuelAtPercent) || a.refuelAtPercent < 1 ||
+        a.refuelAtPercent > 90 || !Number.isInteger(a.fuelReserveLiters) ||
+        a.fuelReserveLiters < 0 || a.fuelReserveLiters > 20000 ||
+        !Number.isInteger(a.fuelTargetLiters) || a.fuelTargetLiters < 200 ||
+        a.fuelTargetLiters > 20000 || a.fuelTargetLiters <= a.fuelReserveLiters)
+      fail('invalid consumable automations');
+  }
+  for (const shunter of Array.isArray(s.shunters) ? s.shunters : [])
+    if ((shunter.autoRefuelRequested !== undefined &&
+         typeof shunter.autoRefuelRequested !== 'boolean') ||
+        (shunter.autoRefuelReason !== undefined &&
+         (typeof shunter.autoRefuelReason !== 'string' ||
+          shunter.autoRefuelReason.length > 240)))
+      fail('invalid shunter refueling request');
   const lists = [
     'workers',
     'equipment',

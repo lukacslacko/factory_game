@@ -585,6 +585,8 @@ export interface RailShunter extends Point {
   tank: number;
   used: number;
   manualControl?: boolean;
+  autoRefuelRequested?: boolean;
+  autoRefuelReason?: string;
   refueling?: {
     barrelId: string;
     workerId: string;
@@ -818,6 +820,17 @@ export interface State {
   paused: boolean;
   /** Direct, cost-free placement of completed assets for testing. */
   creative?: boolean;
+  /** Player-owned consumable policies; absent in older saves means defaults on. */
+  automations?: {
+    vehicleRefueling: boolean;
+    fuelOrdering: boolean;
+    emptyBarrelCollection: boolean;
+    refuelAtPercent: number;
+    fuelReserveLiters: number;
+    fuelTargetLiters: number;
+    /** No supplier or disposal service is ordered before a vehicle first needs fuel. */
+    fuelDemandSeen: boolean;
+  };
   next: number;
   revision: number;
   workers: Worker[];

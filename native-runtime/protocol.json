@@ -14,6 +14,7 @@
     "shutdown": "{}; save and stop service",
     "purchase_batch": "{lines:[{item:string,qty:int}],mode:road|rail}",
     "purchase": "{item:string,qty:int,mode:road|rail}",
+    "automation_configure": "{changes:{vehicleRefueling?,fuelOrdering?,emptyBarrelCollection?,refuelAtPercent?,fuelReserveLiters?,fuelTargetLiters?}}; saved consumable automation settings",
     "purchase_preview": "{lines:[{item,qty}],mode:road|rail}; packing/weight/cost preview only, not unloading feasibility",
     "unload_preflight": "{orderId,workerId?,carIds?,storageZoneId?}; read-only next-lift plan: {orderId,feasible,readiness:ready|unverified|blocked,reason,item?,quantity?,equipmentId?,operatorId?,riggerId?,destination?,drop?,blockerId?}; dispatch revalidates",
     "starter_order": "{}",

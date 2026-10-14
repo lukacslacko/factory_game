@@ -9,6 +9,9 @@ import { electricalObstacles, electricalPlannedRects } from './electrical-geomet
 import { electricalNetwork } from './electrical-network';
 import { quoteCollection, requestCollection as requestPhysicalCollection, cancelCollection as cancelPhysicalCollection, pauseCollection, resumeCollection, collectionInventory, collectionOwnsStack, collectionOwnsEquipment } from './collection';
 import { assignEquipmentRefueling, tickEquipmentRefueling, equipmentRefuelingCanDrive } from './equipment-refueling';
+import { DEFAULT_CONSUMABLE_AUTOMATIONS, tickConsumableAutomations } from './consumable-automations';
+export { configureConsumableAutomations, consumableAutomationStatus } from './consumable-automations';
+import { beginShunterRefueling } from './rail-driver';
 import { tickActionClearances, requestActionClearance, clearActionClearance, actionEnvelopeBlockers, releaseActionYield } from './action-clearance';
 import { appendRailLayers, takeRailLayers, recoveryStackCandidates } from './rail-stock';
 import {
@@ -233,6 +236,7 @@ export function createState(): State {
     speed: 1,
     paused: false,
     creative: false,
+    automations: { ...DEFAULT_CONSUMABLE_AUTOMATIONS },
     next: 1,
     revision: 1,
     workers: [],
@@ -3802,6 +3806,14 @@ export function tick(s: State, dt: number) {
   reconcileEquipmentAssignments(s);
   updateEquipmentAssistants(s, dt);
   tickActionClearances(s);
+  if (Math.floor((s.elapsed - dt) / 10) !== Math.floor(s.elapsed / 10))
+    tickConsumableAutomations(s, {
+      refuelEquipment: refuel,
+      refuelShunter: beginShunterRefueling,
+      purchaseDiesel: (site, barrels) => purchase(site, 'diesel', barrels, 'road'),
+      collectBarrels: (site, lines) => requestPhysicalCollection(site, { lines }, deliveryAPI),
+      event,
+    });
   // Scheduling is deliberately slower than movement; pathfinding is only needed when assignments change.
   if (Math.floor((s.elapsed - dt) * 2) !== Math.floor(s.elapsed * 2)) {
     queueLooseRailBufferCleanup(s);
@@ -3963,6 +3975,7 @@ export function load(json: string): State {
   }
   if (s.version < 4) migrateLegacyRailJobs(s, { release: finishRelease, event });
   s.version = 4;
+  s.automations ??= { ...DEFAULT_CONSUMABLE_AUTOMATIONS };
   if (!s.electrical) {
     s.electrical = {runs:[],meterLedger:[]};
     if (s.utilities.power && s.buildings.some(b=>['lamp','transferPump','electricalJunction'].includes(b.kind)))

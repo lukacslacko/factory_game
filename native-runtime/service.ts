@@ -294,6 +294,7 @@ function snapshot() {
     workRows: tables.work,
     railReservations: tables.railReservations,
     inventory: tables.inventory,
+    automationStatus: Sim.consumableAutomationStatus(state),
     electrical:electricalNetwork(state),
     process: {...tables.process,ledger:tables.process.ledger.slice(-200),operations:recentOperations},
     summaries: {
@@ -472,6 +473,9 @@ async function dispatch(action: string, a: any) {
     case 'collection_cancel': check(Sim.cancelCollection(state, a.id)); return {};
     case 'collection_pause': check(Sim.pauseCollection(state, a.id)); return {};
     case 'collection_resume': check(Sim.resumeCollection(state, a.id)); return {};
+    case 'automation_configure':
+      check(Sim.configureConsumableAutomations(state, a.changes));
+      return { settings: state.automations };
     case 'purchase_batch':
       return {
         orders: Sim.purchaseBatch(state, a.lines, a.mode, {
