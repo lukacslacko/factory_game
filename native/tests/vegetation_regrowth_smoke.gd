@@ -34,6 +34,15 @@ func _run()->void:
 		quit(1);return
 	var original:Transform3D=bush.transforms[index]
 	var cell:=str(int(floor(original.origin.x)))+","+str(int(floor(original.origin.z)))
+	# A moving machine must not carry a temporary foliage-free halo with it.
+	# Only traveled cells in the simulation should disturb persistent growth.
+	fixture.render.actors=[{"id":"EQ-TEST","kind":"excavator","x":original.origin.x,"z":original.origin.z,"yaw":0.0,"visible":true}]
+	world.vegetation_last_update_ms=0;world.sync_snapshot(fixture)
+	_check(world.vegetation_last_impacted_count==0 and not world.vegetation_cells_previous.has(cell),"A vehicle over grass and bushes does not erase them just by being there")
+	fixture.render.actors[0].x=original.origin.x+6.0
+	world.vegetation_last_update_ms=0;world.sync_snapshot(fixture)
+	_check(world.vegetation_last_impacted_count==0 and not world.vegetation_cells_previous.has(cell),"Moving a vehicle leaves no instantly reappearing vegetation halo")
+	fixture.render.actors.clear()
 	fixture.state.vegetationLastDisturbed[cell]=0.0
 	world.vegetation_last_update_ms=0;world.sync_snapshot(fixture)
 	_check(world.vegetation_last_impacted_count>0 and world.vegetation_last_impacted_count<stage_counts.grass/4,"Disturbing one cell updates nearby plants without rescanning the full meadow")
@@ -48,6 +57,19 @@ func _run()->void:
 	world.vegetation_last_update_ms=0;world.sync_snapshot(fixture)
 	var mature:Transform3D=bush.transforms[index]
 	_check(mature.origin==original.origin and mature.basis.is_equal_approx(original.basis) and world._plant_growth("bush",18.0*3600.0,-1.0,0.0)==1.0,"Fully recovered bush retains its original location and size")
+	fixture.state.stacks=[{"id":"STK-TEST","item":"rail","x":int(floor(original.origin.x)),"z":int(floor(original.origin.z)),"w":1,"d":1,"qty":1}]
+	world.vegetation_last_update_ms=0;world.sync_snapshot(fixture)
+	var neighbor:=str(int(floor(original.origin.x))-1)+","+str(int(floor(original.origin.z)))
+	_check(bool(world.vegetation_cells_previous.get(cell,[])[0]) and not world.vegetation_cells_previous.has(neighbor),"Stored stock covers only its occupied footprint, without a cell-wide empty halo")
+	fixture.state.stacks.clear()
+	fixture.state.stockGroundWear={}
+	fixture.state.stockGroundWear[cell]=1.0
+	fixture.state.vegetationLastDisturbed[cell]=fixture.state.elapsed
+	world.wear_last_update_ms=0;world.vegetation_last_update_ms=0;world.sync_snapshot(fixture)
+	var stock_cover:float=world.cover_image.get_pixel(int(floor(original.origin.x))+50,int(floor(original.origin.z))+40).r
+	_check(not bool(world.vegetation_cells_previous.get(cell,[])[0]) and float(world.vegetation_cells_previous.get(cell,[])[1])>.99 and stock_cover<.2 and world._plant_growth("grass",fixture.state.elapsed,fixture.state.elapsed,1.0)<.3 and world._plant_growth("bush",fixture.state.elapsed,fixture.state.elapsed,1.0)<.001,"Lifting stock reveals compacted ground, not instantly restored vegetation")
+	fixture.state.vegetationLastDisturbed.clear()
+	fixture.state.stockGroundWear.clear()
 	fixture.state.groundWear[cell]=1.0
 	world.wear_last_update_ms=0;world.sync_snapshot(fixture)
 	var ix:=int(floor(original.origin.x))+50;var iz:=int(floor(original.origin.z))+40

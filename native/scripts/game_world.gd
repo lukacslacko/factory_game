@@ -474,10 +474,17 @@ func _sync_paving()->void:
 		var shade:=.96+.05*sin(x*37.19+z*19.73)
 		paving.multimesh.set_instance_color(index,Color(shade,shade,shade,1)); index+=1
 
+func _visible_wear()->Dictionary:
+	var combined:Dictionary=state.get("groundWear",{}).duplicate()
+	var stock:Dictionary=state.get("stockGroundWear",{})
+	for cell in stock:
+		combined[cell]=maxf(float(combined.get(cell,0)),float(stock[cell]))
+	return combined
+
 func _sync_wear()->void:
 	var now:=Time.get_ticks_msec()
 	if wear_last_update_ms>0 and now-wear_last_update_ms<500:return
-	var wear:Dictionary=state.get("groundWear",{})
+	var wear:Dictionary=_visible_wear()
 	var open_cells:Dictionary={}
 	for cell:Dictionary in render.get("electrical",{}).get("trenches",[]):open_cells[str(int(cell.x))+","+str(int(cell.z))]=true
 	var key:=str(hash(JSON.stringify([wear,open_cells])))
@@ -761,17 +768,9 @@ func _mask_vegetation()->void:
 	var now:=Time.get_ticks_msec()
 	if vegetation_last_update_ms>0 and now-vegetation_last_update_ms<500:return
 	var masks:Dictionary=state.get("paving",{}).duplicate()
-	# Current vehicles temporarily cover plants; only committed travel disturbs
-	# them persistently, so foliage can grow back along abandoned routes.
-	for actor in render.get("actors",[]):
-		if str(actor.get("kind",""))!="worker" and bool(actor.get("visible",true)):_clear_vehicle_plants(actor,4.5,2.9,masks)
-	for shunter in render.get("railShunters",[]):_clear_vehicle_plants(shunter,10.0,3.0,masks)
-	for carrier in render.get("carriers",[]):
-		_clear_vehicle_plants(carrier,10.0 if str(carrier.kind)=="rail" else 8.8,3.0,masks)
-		if str(carrier.kind)=="rail":
-			if carrier.has("cars"):
-				for car in carrier.cars:_clear_vehicle_plants(car,float(car.get("length",16.8))-.8,3.0,masks)
-			elif not carrier.get("freight",{}).is_empty():_clear_vehicle_plants(carrier.freight,11.5,3.0,masks)
+	# Only permanent surfaces and placed objects hide foliage. Vehicle travel
+	# disturbs weeds and bushes and gradually wears grass in the simulation;
+	# masking the current vehicle footprint made a moving bald patch pop back.
 	for trench:Dictionary in render.get("electrical",{}).get("trenches",[]):
 		masks[str(int(trench.x))+","+str(int(trench.z))]=true
 		if float(trench.get("spoilM3",0))>.0001:
@@ -780,13 +779,17 @@ func _mask_vegetation()->void:
 				for z:int in range(int(rect.get("z",0)),int(rect.get("z",0))+int(rect.get("d",1))):masks[str(x)+","+str(z)]=true
 	for table in ["buildings","stacks"]:
 		for entity in state.get(table,[]):
-			if table=="stacks" and int(entity.get("qty",0))<=0:continue
-			for x in range(int(floor(float(entity.x)-.3)),int(ceil(float(entity.x)+float(entity.get("w",1))+.3))):
-				for z in range(int(floor(float(entity.z)-.3)),int(ceil(float(entity.z)+float(entity.get("d",1))+.3))):masks[str(x)+","+str(z)]=true
+			if table=="stacks":
+				var empty:bool=int(entity.get("qty",0))<=0 and str(entity.get("item",""))!="diesel"
+				var carried:bool=not str(entity.get("storageCarriedBy","")).is_empty() or not str(entity.get("electricalCarriedBy","")).is_empty()
+				if empty or carried:continue
+			var padding:float=0.0 if table=="stacks" else .3
+			for x in range(int(floor(float(entity.x)-padding)),int(ceil(float(entity.x)+float(entity.get("w",1))+padding))):
+				for z in range(int(floor(float(entity.z)-padding)),int(ceil(float(entity.z)+float(entity.get("d",1))+padding))):masks[str(x)+","+str(z)]=true
 	for rail in render.get("railGeometry",[]):
 		if bool(rail.get("planned",false)):continue
 		for cell in rail.geometry.get("cells",[]):masks[str(int(cell.x))+","+str(int(cell.z))]=true
-	var wear:Dictionary=state.get("groundWear",{})
+	var wear:Dictionary=_visible_wear()
 	var disturbed:Dictionary=state.get("vegetationLastDisturbed",{})
 	var elapsed:float=float(state.get("elapsed",0))
 	var cell_state:Dictionary={}
@@ -1041,14 +1044,6 @@ func _attachment_pose(pose:Dictionary,parent_id:String,carried:bool)->Dictionary
 func _relative_pose(pose:Dictionary,parent:Dictionary)->Vector3:
 	var dx:=float(pose.get("x",0))-float(parent.get("x",0));var dz:=float(pose.get("z",0))-float(parent.get("z",0));var angle:=float(parent.get("yaw",0))
 	return Vector3(dx*cos(angle)+dz*sin(angle),float(pose.get("y",0))-float(parent.get("y",0)),-dx*sin(angle)+dz*cos(angle))
-
-func _clear_vehicle_plants(pose:Dictionary,length:float,width:float,masks:Dictionary)->void:
-	var yaw:float=float(pose.get("yaw",0));var radius:float=maxf(length,width)*.5+1
-	var cx:float=float(pose.get("x",0));var cz:float=float(pose.get("z",0))
-	for x in range(int(floor(cx-radius)),int(ceil(cx+radius))):
-		for z in range(int(floor(cz-radius)),int(ceil(cz+radius))):
-			var dx:=float(x)+.5-cx;var dz:=float(z)+.5-cz
-			if absf(dx*cos(yaw)+dz*sin(yaw))<length*.5+.65 and absf(-dx*sin(yaw)+dz*cos(yaw))<width*.5+.65:masks[str(x)+","+str(z)]=true
 
 func _local_model_bounds(node:Node3D,transform:Transform3D)->AABB:
 	var bounds:=AABB();var first:bool=true

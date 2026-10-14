@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import * as S from '../src/sim.ts';
-import { recordEquipmentTravel, recoverGround, surfaceTravelCost, GROUND_WEAR_LIMIT, GROUND_RECOVERY_SECONDS, BUSH_RETURN_SECONDS } from '../src/ground-wear.ts';
+import { recordEquipmentTravel, recordStockFootprints, recoverGround, surfaceTravelCost, GROUND_WEAR_LIMIT, GROUND_RECOVERY_SECONDS, BUSH_RETURN_SECONDS } from '../src/ground-wear.ts';
 import { machineRoute, equipmentMoveBlocked } from '../src/traffic.ts';
 import { seedHandlingResources } from './support/yard.ts';
 import { dist, segmentClear } from '../src/path.ts';
@@ -53,6 +53,40 @@ test('quiet dirt recovers gradually, retaining paths while regrowing in the same
   const damaged = JSON.parse(S.save(s));
   damaged.vegetationLastDisturbed = { '30,30': s.elapsed + 1 };
   assert.throws(() => S.load(JSON.stringify(damaged)), /vegetation history/, 'Future disturbance cannot enter a save');
+});
+
+test('moving stored or staged stock leaves compacted dirt that regrows gradually', () => {
+  const s = S.createState();
+  const pile = { id: 'STK-TEST', item: 'rail' as const, x: 30, z: 30, w: 5, d: 2, qty: 3, reserved: 0, source: 'TEST' };
+  s.stacks.push(pile);
+  recordStockFootprints(s);
+  assert.equal(s.stockGroundWear!['30,30'], 1);
+  assert.equal(s.groundWear?.['30,30'], undefined, 'Stock marks must not change route preference');
+  assert.equal(s.vegetationLastDisturbed!['30,30'], 0);
+  s.elapsed = GROUND_RECOVERY_SECONDS / 2;
+  recoverGround(s, 0);
+  const recovered = s.stockGroundWear!['30,30'];
+  assert.ok(recovered > 0 && recovered < 1);
+  recordStockFootprints(s);
+  assert.equal(s.stockGroundWear!['30,30'], recovered, 'An unchanged pile does not rewrite wear every tick');
+  pile.x = 40;
+  recordStockFootprints(s);
+  assert.equal(s.stockGroundWear!['30,30'], 1, 'The vacated footprint stays disturbed');
+  assert.equal(s.stockGroundWear!['40,30'], 1, 'The new footprint is disturbed');
+  assert.equal(s.vegetationLastDisturbed!['30,30'], s.elapsed);
+  pile.qty = 0;
+  s.elapsed += 600;
+  recordStockFootprints(s);
+  assert.equal(s.vegetationLastDisturbed!['40,30'], s.elapsed, 'Removing the pile starts regrowth from its departure');
+  const reloaded = S.load(S.save(s));
+  assert.equal(reloaded.stockGroundWear!['40,30'], 1, 'The disturbed stock footprint survives save and reload');
+  assert.equal(reloaded.vegetationLastDisturbed!['40,30'], s.elapsed);
+  const invalid = JSON.parse(S.save(s));
+  invalid.stockGroundWear = { 'outside-cell': 1 };
+  assert.throws(() => S.load(JSON.stringify(invalid)), /stock ground wear cell/);
+  s.elapsed += GROUND_RECOVERY_SECONDS;
+  recoverGround(s, s.elapsed - GROUND_RECOVERY_SECONDS);
+  assert.equal(s.stockGroundWear!['40,30'], undefined, 'Grass recovers after the pile has gone');
 });
 
 test('stationary, transported, and concrete-supported equipment does not create dirt wear', () => {

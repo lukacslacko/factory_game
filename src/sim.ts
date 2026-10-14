@@ -53,7 +53,7 @@ import {
   workerSupportsEquipment,
   updateEquipmentAssistants,
 } from './work-crews';
-import { recordEquipmentTravel, recoverGround } from './ground-wear';
+import { recordEquipmentTravel, recordStockFootprints, recoverGround } from './ground-wear';
 import { railLocationStatus } from './rail-locations';
 import { railPossessionConflict } from './rail-operations';
 import { railRoute } from './rail-routing';
@@ -3616,6 +3616,7 @@ export function reconcileElectricalLoads(s: State) {
 }
 export function tick(s: State, dt: number) {
   if (s.paused) return;
+  recordStockFootprints(s);
   reconcileEquipmentAssignments(s);
   s.elapsed += dt;
   recoverGround(s, s.elapsed - dt);
@@ -3776,6 +3777,7 @@ export function tick(s: State, dt: number) {
         w.wage * 0.25 * intervals,
       );
   }
+  recordStockFootprints(s);
 }
 export function totals(s: State, item: Item) {
   return {

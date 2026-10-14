@@ -812,9 +812,11 @@ export interface State {
   electrical?: ElectricalState;
   buffers?: BufferStop[];
   paving: Record<string, string>;
-  /** Compaction from accepted equipment travel, bounded to one value per meter cell. */
+  /** Compaction from accepted equipment travel, used by routing and vegetation. */
   groundWear?: Record<string, number>;
-  /** Last accepted machine passage per dirt cell, in simulated elapsed seconds. */
+  /** Compaction beneath material stock, used only by vegetation rendering. */
+  stockGroundWear?: Record<string, number>;
+  /** Last machine passage or stock-footprint disturbance per dirt cell, in simulated elapsed seconds. */
   vegetationLastDisturbed?: Record<string, number>;
   zones: Zone[];
   jobs: Job[];

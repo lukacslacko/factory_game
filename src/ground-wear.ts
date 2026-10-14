@@ -24,6 +24,59 @@ function fixedTravelCost(p: Point) {
   return cost;
 }
 const counts = new WeakMap<Record<string, number>, number>();
+const stockFootprints = new WeakMap<State, Map<string, Rect>>();
+/** Stock suppresses plants while it is present. When a pile is first placed,
+ * moved, or removed, leave compacted ground behind so lifting it cannot reveal
+ * a full-grown patch of grass and bushes on the next frame. Unchanged piles
+ * cost only one ID/footprint comparison per update. */
+export function recordStockFootprints(s: State) {
+  let previous = stockFootprints.get(s);
+  if (!previous) {
+    previous = new Map();
+    stockFootprints.set(s, previous);
+  }
+  const seen = new Set<string>();
+  const changed: Rect[] = [];
+  for (const stack of s.stacks) {
+    if ((stack.qty <= 0 && stack.item !== 'diesel') || stack.storageCarriedBy || stack.electricalCarriedBy) continue;
+    seen.add(stack.id);
+    const old = previous.get(stack.id);
+    if (old && old.x === stack.x && old.z === stack.z && old.w === stack.w && old.d === stack.d) continue;
+    if (old) changed.push(old);
+    const footprint = { x: stack.x, z: stack.z, w: stack.w, d: stack.d };
+    changed.push(footprint);
+    previous.set(stack.id, footprint);
+  }
+  for (const [id, footprint] of previous) {
+    if (seen.has(id)) continue;
+    changed.push(footprint);
+    previous.delete(id);
+  }
+  if (!changed.length) return;
+  const wear = (s.stockGroundWear ??= {});
+  const disturbed = (s.vegetationLastDisturbed ??= {});
+  let wearCount = counts.get(wear) ?? Object.keys(wear).length;
+  let disturbedCount = counts.get(disturbed) ?? Object.keys(disturbed).length;
+  for (const rect of changed) {
+    for (let x = Math.floor(rect.x); x < Math.ceil(rect.x + rect.w); x++) {
+      for (let z = Math.floor(rect.z); z < Math.ceil(rect.z + rect.d); z++) {
+        const point = { x: x + 0.5, z: z + 0.5 };
+        const k = `${x},${z}`;
+        if (s.paving[k] || fixedTravelCost(point) !== undefined) continue;
+        if (wear[k] !== undefined || wearCount < GROUND_WEAR_LIMIT) {
+          if (wear[k] === undefined) wearCount++;
+          wear[k] = 1;
+        }
+        if (disturbed[k] !== undefined || disturbedCount < GROUND_WEAR_LIMIT) {
+          if (disturbed[k] === undefined) disturbedCount++;
+          disturbed[k] = s.elapsed;
+        }
+      }
+    }
+  }
+  counts.set(wear, wearCount);
+  counts.set(disturbed, disturbedCount);
+}
 /** Dirt compacts under the actual wheel/track strips, never under a parked
  * machine or its bucket. Called only after collision-checked movement commits. */
 export function recordEquipmentTravel(s: State, e: Equipment, from: Point & { yaw?: number }) {
@@ -74,16 +127,17 @@ export function recordEquipmentTravel(s: State, e: Equipment, from: Point & { ya
 export function recoverGround(s: State, previousElapsed: number) {
   const minutes = Math.floor(s.elapsed / 60) - Math.floor(previousElapsed / 60);
   if (minutes <= 0) return;
-  const wear = (s.groundWear ??= {});
-  for (const k of Object.keys(wear)) {
-    const recovered = Math.max(0, wear[k] - (minutes * 60) / GROUND_RECOVERY_SECONDS);
-    if (recovered < 0.001) delete wear[k];
-    else wear[k] = recovered;
+  for (const wear of [(s.groundWear ??= {}), (s.stockGroundWear ??= {})]) {
+    for (const k of Object.keys(wear)) {
+      const recovered = Math.max(0, wear[k] - (minutes * 60) / GROUND_RECOVERY_SECONDS);
+      if (recovered < 0.001) delete wear[k];
+      else wear[k] = recovered;
+    }
+    counts.set(wear, Object.keys(wear).length);
   }
-  counts.set(wear, Object.keys(wear).length);
   const disturbed = (s.vegetationLastDisturbed ??= {});
   for (const k of Object.keys(disturbed))
-    if (s.elapsed - disturbed[k] >= BUSH_RETURN_SECONDS && wear[k] === undefined)
+    if (s.elapsed - disturbed[k] >= BUSH_RETURN_SECONDS && s.groundWear![k] === undefined && s.stockGroundWear![k] === undefined)
       delete disturbed[k];
   counts.set(disturbed, Object.keys(disturbed).length);
 }

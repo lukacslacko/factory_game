@@ -59,6 +59,7 @@ import {
 import { query, SQL_EXAMPLES, csv } from '../src/reports';
 import { DiagnosticRecorder } from '../src/diagnostics';
 import { renderState } from './render';
+import { recordStockFootprints } from '../src/ground-wear';
 import { railEditPreview } from './rail-edit-preview';
 import type { State, Rect, BuildKind, EquipmentWorkRole, EquipmentActivity } from '../src/types';
 
@@ -263,6 +264,7 @@ function reportingRows() {
 }
 function snapshot() {
   if (!client || !authenticated || client.destroyed || closing) return;
+  recordStockFootprints(state);
   if (client.writableLength > HIGH_WATER || client.writableNeedDrain) {
     snapshotsSkipped++;
     return;

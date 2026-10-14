@@ -305,6 +305,26 @@ export function validateState(value: any): asserts value is State {
         fail('invalid ground wear cell');
     }
   }
+  if (s.stockGroundWear !== undefined) {
+    if (
+      !s.stockGroundWear ||
+      typeof s.stockGroundWear !== 'object' ||
+      Array.isArray(s.stockGroundWear) ||
+      Object.keys(s.stockGroundWear).length > 12000
+    )
+      fail('invalid stock ground wear');
+    for (const [key, amount] of Object.entries(s.stockGroundWear)) {
+      const coords = key.split(',').map(Number);
+      if (
+        !/^-?\d+,-?\d+$/.test(key) ||
+        coords.some((v) => Math.abs(v) >= 10000) ||
+        !finite(amount) ||
+        (amount as number) < 0 ||
+        (amount as number) > 1
+      )
+        fail('invalid stock ground wear cell');
+    }
+  }
   if (s.vegetationLastDisturbed !== undefined) {
     const cells = s.vegetationLastDisturbed;
     if (!cells || typeof cells !== 'object' || Array.isArray(cells) || Object.keys(cells).length > 12000)
