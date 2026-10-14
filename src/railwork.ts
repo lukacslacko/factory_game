@@ -48,6 +48,7 @@ import {
   machineRoute,
   workerMoveBlocked,
   equipmentBoxes,
+  staticObstacleRects,
   carrierBoxes,
   boxOverlap,
   personTouchesBox,
@@ -184,7 +185,8 @@ function landingObstacles(s: State, j: Job, api: RailWorkAPI) {
 function blocked(s: State, r: Rect, api: RailWorkAPI, j?: Job) {
   if (r.x < -12 || r.x + r.w > 220 || r.z < 7 || r.z + r.d > 110) return true;
   return (
-    (j ? landingObstacles(s, j, api) : api.obstacles(s)).some((o) => overlap(o, r, 0.15)) ||
+    (j ? landingObstacles(s, j, api) : api.obstacles(s)).some((o) =>
+      overlap(o, r, j?.stockMove?.toStorage ? 0 : 0.15)) ||
     s.rails.some((t) => railCells(t).some((p) => overlap(r, { ...p, w: 1, d: 1 }))) ||
     s.jobs.some((j) => j.status === 'doing' && j.railWork && overlap(j.railWork.stage, r))
   );
@@ -285,18 +287,24 @@ function futureSiteState(s: State, j: Job, e: Equipment): State {
     ),
   };
 }
-function stagingPreview(s: State, j: Job, e: Equipment, api: RailWorkAPI, deferFork = false) {
+function stagingPreview(s: State, j: Job, e: Equipment, api: RailWorkAPI,
+  deferFork = false, failures?: string[]) {
   return j.kind === 'rail'
-    ? chooseStaging(futureSiteState(s, j, e), j, e, api, deferFork)
-    : chooseStaging(s, j, e, api, deferFork);
+    ? chooseStaging(futureSiteState(s, j, e), j, e, api, deferFork, failures)
+    : chooseStaging(s, j, e, api, deferFork, failures);
 }
 
-function chooseStaging(s: State, j: Job, e: Equipment, api: RailWorkAPI, deferForkAccess = false) {
+function chooseStaging(s: State, j: Job, e: Equipment, api: RailWorkAPI,
+  deferForkAccess = false, failures?: string[]) {
   if ((j.kind === 'moveStock' || j.railRecovery) && j.stockMove) {
     const stage = j.stockMove.destination,
       p = center(stage),
       yaw = j.stockMove.yaw;
-    if (blocked(s, stage, api, j)) return undefined;
+    if (blocked(s, stage, api, j)) {
+      const obstacle = landingObstacles(s, j, api).find((o) => overlap(o, stage, 0.15));
+      failures?.push(`Landing footprint overlaps ${(obstacle as Rect & { id?: string })?.id || 'track or active work'}`);
+      return undefined;
+    }
     const side = { x: -Math.sin(yaw), z: Math.cos(yaw) },
       forward = { x: Math.cos(yaw), z: Math.sin(yaw) };
     const fork = e.kind === 'forklift';
@@ -322,34 +330,46 @@ function chooseStaging(s: State, j: Job, e: Equipment, api: RailWorkAPI, deferFo
         };
       const obstacles = api.obstacles(s),
         supported = [...obstacles, stage];
-      if (equipmentMoveBlocked(s, e, { ...dock, yaw: facingYaw })) continue;
+      const dockBlocker = equipmentMoveBlocked(s, e, { ...dock, yaw: facingYaw });
+      if (dockBlocker) {
+        failures?.push(`Loaded dock blocked by ${dockBlocker}`);
+        continue;
+      }
       if (
         !deferForkAccess &&
         !(
           machineRoute(s, e, dock, obstacles, 450, true, facingYaw) ||
           machineRoute(s, { ...e, reverse: !e.reverse }, dock, obstacles, 450, true, facingYaw)
         )
-      )
+      ) {
+        failures?.push(`No supported-load route from source withdrawal to E${dock.x.toFixed(1)}, S${dock.z.toFixed(1)}`);
         continue;
+      }
       const clear = localPoint(empty, -3.5, 0);
-      const withdraw = fork
-        ? forkStagingWithdrawal(s, empty, supported)
-        : machineRoute(s, empty, clear, supported, 350, true) ||
-          [-5.5, 5.5].some((n) =>
-            machineRoute(
-              s,
-              { ...empty, reverse: false },
-              localPoint(empty, 0, n),
-              supported,
-              350,
-              true,
-            ),
-          );
-      if (!withdraw) continue;
+      let stageExit: Point | undefined;
+      if (fork) {
+        if (forkStagingWithdrawal(s, empty, supported)) stageExit = clear;
+      } else if (machineRoute(s, empty, clear, supported, 350, true)) {
+        stageExit = clear;
+      } else {
+        for (const n of [-5.5, 5.5]) {
+          const sideExit = localPoint(empty, 0, n);
+          if (machineRoute(s, { ...empty, reverse: false }, sideExit,
+            supported, 350, true)) {
+            stageExit = sideExit;
+            break;
+          }
+        }
+      }
+      if (!stageExit) {
+        failures?.push(`No clear empty-tool withdrawal from E${dock.x.toFixed(1)}, S${dock.z.toFixed(1)}`);
+        continue;
+      }
       return {
         side,
         stage: { ...stage },
         stageDock: dock,
+        stageExit: { ...stageExit, yaw: facingYaw },
         railDock: dock,
         bufferAside: p,
         stageYaw: yaw,
@@ -479,6 +499,29 @@ function chooseStaging(s: State, j: Job, e: Equipment, api: RailWorkAPI, deferFo
   return undefined;
 }
 
+/** The storage preview and executing rail handler share the same landing dock,
+ * loaded approach, and empty withdrawal check. `s` is the projected site after
+ * the source lift and `e` is the loaded machine at its checked source clear pose. */
+export function planRailStorageLanding(
+  s: State,
+  e: Equipment,
+  item: Item,
+  destination: Rect,
+  yaw: number,
+  mergeId?: string,
+) {
+  const preview = {
+    id: 'rail-storage-landing-preview',
+    kind: 'moveStock',
+    item,
+    qty: e.cargo?.qty || 1,
+    status: 'doing',
+    stockMove: { sourceId: '', destination, yaw, mergeId, toStorage: true },
+  } as Job;
+  return chooseStaging(s, preview, e,
+    { obstacles: staticObstacleRects } as unknown as RailWorkAPI);
+}
+
 function panelCrewPoints(p: Point, yaw: number, length = 5, width = 3): Point[] {
   const f = { x: Math.cos(yaw), z: Math.sin(yaw) },
     n = { x: -Math.sin(yaw), z: Math.cos(yaw) };
@@ -546,10 +589,51 @@ function initialize(s: State, j: Job, e: Equipment, api: RailWorkAPI) {
               t.track?.layout === j.track.layout)),
       )
     : undefined;
-  let staging = stagingPreview(s, j, e, api, !!(forkHandoff && !e.cargo));
+  // A stock relocation reaches its landing only after lifting and withdrawing
+  // from its source. Surveying the landing from the empty machine's current
+  // pose can reject a perfectly valid loaded route (or promise one that the
+  // loaded machine cannot follow). Keep this a read-only projection; the real
+  // pickup and every maneuver are checked again when they execute.
+  let stagingState = s;
+  let stagingMachine = e;
+  let projectedPickup: ReturnType<typeof planRailPickup> | undefined;
+  if (j.kind === 'moveStock' && j.stockMove?.toStorage && !e.cargo) {
+    const stock = s.stacks.find((t) => t.id === j.stockMove!.sourceId);
+    const crew = s.workers.find((w) => w.id === j.worker);
+    if (stock && crew) {
+      const witness = j.stockMove.pickupWitness;
+      const pickup = witness && witness.equipmentId === e.id &&
+        witness.crewId === crew.id && witness.stockQty === stock.qty &&
+        witness.source.stackId === stock.id
+        ? { source: witness.source, reason: '', blockers: [] }
+        : planRailPickup(s, e, crew, stock, j.qty, api.obstacles(s));
+      if (!pickup.source) {
+        j.reason = `${stock.id}: ${pickup.reason}${pickup.blockers.length ?
+          `; blocked by ${pickup.blockers.join(', ')}` : ''}`;
+        return false;
+      }
+      projectedPickup = pickup;
+      stagingState = {
+        ...s,
+        stacks: s.stacks.map((t) => t.id === stock.id
+          ? { ...t, qty: t.qty - j.qty, reserved: Math.max(0, t.reserved - j.qty) }
+          : t),
+      };
+      stagingMachine = {
+        ...e,
+        ...pickup.source.clear,
+        yaw: facing(pickup.source.dock, pickup.source.pose),
+        cargo: { item: stock.item, qty: j.qty, yaw: pickup.source.pose.yaw },
+      };
+    }
+  }
+  const stagingFailures: string[] = [];
+  let staging = stagingPreview(stagingState, j, stagingMachine, api,
+    !!(forkHandoff && !e.cargo), stagingFailures);
   if (!staging) {
-    j.reason =
-      'Rail work needs a clear staging area beside the track and an accessible machine route';
+    j.reason = j.kind === 'moveStock' && j.stockMove?.toStorage
+      ? `Storage relocation cannot use its reserved landing: ${[...new Set(stagingFailures)].slice(0, 3).join('; ') || 'no checked loaded approach and empty withdrawal'}`
+      : 'Rail work needs a clear staging area beside the track and an accessible machine route';
     return false;
   }
   if (
@@ -592,7 +676,9 @@ function initialize(s: State, j: Job, e: Equipment, api: RailWorkAPI) {
   }
   if (sourceStack) {
     const crew = s.workers.find((w) => w.id === j.worker)!;
-    let pickup = planRailPickup(s, e, crew, sourceStack, sourceQty, api.obstacles(s));
+    let pickup = projectedPickup?.source?.stackId === sourceStack.id && sourceQty === j.qty
+      ? projectedPickup
+      : planRailPickup(s, e, crew, sourceStack, sourceQty, api.obstacles(s));
     if (!pickup.source && j.kind === 'rail') {
       const oldSource = sourceStack;
       const candidates = s.stacks
@@ -1710,6 +1796,7 @@ export function tickRailWork(s: State, j: Job, dt: number, api: RailWorkAPI): bo
       j.reason = `Waiting for ${recovery.activeJobId} to physically clear ${recovery.activeBlockerId} from the rail pickup`;
       return true;
     }
+    const priorBlocker = recovery.activeBlockerId;
     if (child.status === 'canceled')
       recovery.lastError = `${child.id} was canceled; move ${recovery.activeBlockerId} manually or clear another lifting face.`;
     recovery.activeJobId = undefined;
@@ -1717,6 +1804,27 @@ export function tickRailWork(s: State, j: Job, dt: number, api: RailWorkAPI): bo
     recovery.nextProbeAt = undefined;
     j.retryAt = undefined;
     j.retryRevision = undefined;
+    // A partly cleared stack still has exactly the same ground footprint.
+    // Keep removing its remaining layers without repeating the expensive
+    // blocked-source search after every successful physical lift.
+    const remainingAtOriginalFootprint = priorBlocker && s.stacks.some((t) =>
+      t.id === priorBlocker && t.qty > 0 &&
+      !(child.stockMove?.sourceId === t.id &&
+        t.x === child.stockMove.destination.x &&
+        t.z === child.stockMove.destination.z));
+    if (child.status === 'done' && priorBlocker && remainingAtOriginalFootprint) {
+      const next = api.recoverPickup?.(s, j, [priorBlocker]);
+      if (next?.jobId && next.blockerId) {
+        recovery.attemptedIds.push(next.blockerId);
+        recovery.activeJobId = next.jobId;
+        recovery.activeBlockerId = next.blockerId;
+        recovery.lastError = undefined;
+        j.reason = `Waiting for ${next.jobId} to physically clear ${next.blockerId} from the rail pickup`;
+        api.event(s, 'Work', j.id, j.reason);
+        return true;
+      }
+      recovery.lastError = next?.reason;
+    }
   }
   const e = s.equipment.find((e) => e.id === j.equipment),
     w = s.workers.find((w) => w.id === j.worker),
@@ -2127,7 +2235,8 @@ export function tickRailWork(s: State, j: Job, dt: number, api: RailWorkAPI): bo
       j.reason = `Waiting for ${stagingBlockers.join(', ')} to clear rail staging before lowering`;
       return true;
     }
-    if (landingObstacles(s, j, api).some((o) => overlap(o, r.stage, 0.15))) {
+    if (landingObstacles(s, j, api).some((o) =>
+      overlap(o, r.stage, j.stockMove?.toStorage ? 0 : 0.15))) {
       j.reason =
         'Rail staging landing space has become obstructed; clear the supported-panel footprint';
       return true;

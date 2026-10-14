@@ -297,6 +297,78 @@ test('a busy large machine does not inflate lifts beyond the available forklift 
   assert.ok(lifts.every((j) => j.qty * MATERIALS.slab.mass <= EQUIPMENT.forklift.capacity));
 });
 
+test('eight nearer occupied machines do not hide an available handling crew', () => {
+  const { s, e, t } = fixture('slab', 1, 'forklift');
+  Object.assign(e, { x: 19.5, z: 45.5 });
+  for (let n = 0; n < 8; n++) s.equipment.push({ ...e,
+    id: `EQ-BUSY-${n}`, x: 35 + n * 0.01, z: 56,
+    job: `JOB-BUSY-${n}`, operator: undefined, path: [] });
+  const before = S.save(s);
+  const preview = S.previewStorageMove(s, { id: t.id });
+  assert.equal(preview.error, '', preview.error);
+  assert.match(preview.readiness || '', /checked with site crew/i);
+  assert.equal(S.save(s), before, 'Bounded survey is read-only');
+});
+
+test('a constrained storage move never silently switches to another machine', () => {
+  const { s, e, t } = fixture('slab', 2, 'forklift');
+  const other = seedHandlingResources(s, 'excavator');
+  Object.assign(other, { x: 20, z: 57 });
+  e.job = 'JOB-OTHER';
+  const request = { id: t.id, quantity: 2, equipmentId: e.id };
+  const before = S.save(s);
+  assert.match(S.previewStorageMove(s, request).error, new RegExp(e.id));
+  assert.match(S.moveToStorage(s, request).error, /occupied|moving|fuel/i);
+  assert.equal(S.save(s), before, 'A refused constraint creates no jobs or reservations');
+  const available = S.previewStorageMove(s, { id: t.id, quantity: 2,
+    equipmentId: other.id });
+  assert.equal(available.error, '', available.error);
+  assert.match(available.readiness || '', /checked with site crew/i);
+  const accepted = S.moveToStorage(s, { id: t.id, quantity: 2,
+    equipmentId: other.id });
+  assert.equal(accepted.error, '');
+  assert.equal(accepted.jobIds?.length, 1);
+});
+
+test('an enormous stockyard produces an explicit bounded-survey result', () => {
+  const { s, t } = fixture('cableReel');
+  s.zones = [{ id: 'HUGE', name: 'Huge yard', x: 50, z: 43, w: 5000, d: 2 }];
+  s.buildings.push({ id: 'BLD-FULL-FIRST-BLOCK', kind: 'office',
+    name: 'Storage block', x: 50, z: 43, w: 2050, d: 2,
+    rotation: 0, connected: false });
+  const before = S.save(s);
+  const started = performance.now();
+  const preview = S.previewStorageMove(s, { id: t.id, zoneId: 'HUGE' });
+  assert.match(preview.error, /survey reached its .*safety limit/i);
+  assert.ok(performance.now() - started < 5000, 'The candidate survey remains bounded');
+  assert.equal(S.save(s), before);
+  assert.equal(S.moveToStorage(s, { id: t.id, zoneId: 'HUGE' }).error,
+    preview.error, 'Submission does not turn an unverified quote into a job');
+});
+
+test('storage submission rechecks a landing occupied since its preview', () => {
+  const { s, t } = fixture('cableReel');
+  const request = { id: t.id, zoneId: s.zones[0].id };
+  const first = S.previewStorageMove(s, request);
+  assert.equal(first.error, '');
+  const oldLanding = first.destination!;
+  s.buildings.push({ id: 'BLD-LATE-LANDING', kind: 'office', name: 'New obstruction',
+    ...oldLanding, rotation: 0, connected: false });
+  const afterChange = S.save(s);
+  const current = S.previewStorageMove(s, request);
+  assert.equal(S.save(s), afterChange, 'Revalidation is read-only');
+  const submitted = S.moveToStorage(s, request);
+  if (current.error) {
+    assert.equal(submitted.error, current.error);
+    assert.equal(s.jobs.length, 0);
+  } else {
+    assert.equal(submitted.error, '');
+    assert.deepEqual(submitted.job?.stockMove?.destination, current.destination);
+    assert.notDeepEqual(submitted.job?.stockMove?.destination, oldLanding,
+      'The old landing is not silently reused');
+  }
+});
+
 test('preview rejects a second lift whose first placement removes the usable landing maneuver', () => {
   const { s, t } = fixture('slab', 12, 'forklift');
   s.zones = [{ id: 'TIGHT-YARD', name: 'Tight yard', x: 30, z: 43, w: 1, d: 1 }];
@@ -338,6 +410,25 @@ test('moving recovered rail panels preserves each layer identity and groups the 
     'RAIL-9012',
   ]);
   assert.ok(stored.every((q) => inside(q, s.zones[0]) && q.qty <= MATERIALS.rail.max));
+});
+
+test('a grid-adjacent slab does not falsely block a rail stack top-up', () => {
+  const { s, t } = fixture('rail', 1, 'excavator');
+  const target = { ...t, id: 'STK-MERGE', x: 52, z: 42, qty: 1 };
+  const neighbor = { ...t, id: 'STK-NEIGHBOR-SLAB', item: 'slab' as const,
+    x: target.x, z: target.z + target.d, w: 1, d: 1, qty: 1 };
+  s.stacks.push(target, neighbor);
+  const before = S.save(s);
+  const preview = S.previewStorageMove(s, { id: t.id, quantity: 1,
+    zoneId: s.zones[0].id });
+  assert.equal(preview.error, '', preview.error);
+  assert.match(preview.readiness || '', /checked with site crew/i);
+  assert.equal(S.save(s), before);
+  const request = S.moveToStorage(s, { id: t.id, quantity: 1,
+    zoneId: s.zones[0].id });
+  assert.equal(request.error, '', request.error);
+  assert.equal(request.job?.stockMove?.mergeId, target.id,
+    'An adjacent slab on the next grid cell leaves the rail merge usable');
 });
 
 test('finite selected stockyard capacity rejects an overfill atomically and accepts a compatible top-up', () => {

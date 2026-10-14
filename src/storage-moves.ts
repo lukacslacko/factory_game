@@ -1,13 +1,14 @@
 import { storageDestinationReserved } from './storage-locks';
 import { angleDelta, localPoint } from './motion';
-import type { Equipment, Item, Job, Rect, Stack, State, Worker } from './types';
+import type { Equipment, Item, Job, RailWork, Rect, Stack, State, Worker } from './types';
 import { EQUIPMENT, MATERIALS, label, stockUnitMass } from './catalog';
 import { center, dist, overlap } from './path';
 import { collectionOwnsStack } from './collection';
-import { railStagingStackOwned } from './railwork';
+import { planRailStorageLanding, railStagingStackOwned } from './railwork';
 import { constructionStorageClearance, createRailStorageAccessCheck } from './delivery';
+import { createStorageAccessCheck, storageMergePreservesAccess } from './storage-access';
 import { electricalPlannedRects } from './electrical-geometry';
-import { planRailPickup } from './rail-pickup';
+import { planRailPickup, railCrewStandingPoints } from './rail-pickup';
 import {
   equipmentMoveBlocked,
   staticObstacleRects,
@@ -20,6 +21,10 @@ export interface StorageMoveRequest {
   id: string;
   zoneId?: string;
   quantity?: number;
+  /** Constrain preflight and submission to this physical machine. */
+  equipmentId?: string;
+  /** Automatic recovery refuses quotes without a checked machine and crew. */
+  requireVerified?: boolean;
 }
 export interface StorageMovePreview {
   error: string;
@@ -32,6 +37,10 @@ export interface StorageMovePreview {
 }
 export interface StorageMovePlan extends StorageMovePreview {
   placements?: { destination: Rect; quantity: number; mergeId?: string }[];
+  crewId?: string;
+  operatorId?: string;
+  equipmentId?: string;
+  pickupSource?: NonNullable<RailWork['source']>;
 }
 export { stockUnitMass } from './catalog';
 export function storageMoveSourceError(s: State, t: Stack | undefined): string {
@@ -120,6 +129,7 @@ interface HandlingSource {
   crew: Worker;
   operatorId?: string;
   clear: { x: number; z: number; yaw: number };
+  pickupSource?: NonNullable<RailWork['source']>;
 }
 interface StorageReach {
   machineId: string;
@@ -131,7 +141,7 @@ interface StorageReach {
 
 /** Preflight the source with real equipment and a real support worker. A
  * static exposed edge alone does not mean that either can get there. */
-function handlingSources(s: State, t: Stack, qty: number): HandlingSource[] {
+function handlingSources(s: State, t: Stack, qty: number, equipmentId?: string): HandlingSource[] {
   const obstacles = staticObstacleRects(s);
   const sourceAfterLift = {
     ...s,
@@ -141,16 +151,20 @@ function handlingSources(s: State, t: Stack, qty: number): HandlingSource[] {
     ? obstacles.filter((r) => (r as Rect & { id?: string }).id !== t.id)
     : obstacles;
   const candidates: HandlingSource[] = [];
-  const machines = s.equipment.slice()
+  // Occupied machines cannot perform this lift. Filter them before applying
+  // the bounded nearby survey, or eight parked/busy vehicles can hide the
+  // ninth, available one and incorrectly make a clear pickup "unverified".
+  const machines = s.equipment.filter((machine) =>
+    (!equipmentId || machine.id === equipmentId) &&
+    ['forklift', 'excavator'].includes(machine.kind) &&
+    EQUIPMENT[machine.kind].capacity >= stockUnitMass(t) * qty &&
+    !machine.job && !machine.path.length && !machine.cargo && machine.fuel > 0 &&
+    !machine.transportOrder && !machine.deliveryOrder && !machine.refueling &&
+    (!machine.operator || !s.workers.some((w) =>
+      w.id === machine.operator && w.duty !== 'auto')))
     .sort((a, b) => dist(a, center(t)) - dist(b, center(t)))
     .slice(0, 8);
   for (const machine of machines) {
-    if (!['forklift', 'excavator'].includes(machine.kind) ||
-        EQUIPMENT[machine.kind].capacity < stockUnitMass(t) * qty ||
-        machine.job || machine.path.length || machine.cargo || machine.fuel <= 0 ||
-        machine.transportOrder || machine.deliveryOrder || machine.refueling) continue;
-    if (machine.operator && s.workers.some((w) =>
-      w.id === machine.operator && w.duty !== 'auto')) continue;
     const cab = localPoint({ ...machine,
       yaw: machine.yaw ?? (machine.heading * Math.PI) / 2 }, -0.2, 1.85);
     const operator = s.workers.find((w) =>
@@ -161,20 +175,40 @@ function handlingSources(s: State, t: Stack, qty: number): HandlingSource[] {
       (w.vehicle === machine.id || !!walkRoute(s, w, cab, obstacles)));
     if (!operator) continue;
     const crews = s.workers.filter((w) =>
-      w.role !== 'operator' && w.duty === 'auto' && !w.vehicle && !w.transition &&
+      (w.role === 'builder' || w.role === 'engineer') && w.duty === 'auto' && !w.vehicle && !w.transition &&
       !w.job && !w.deliveryOrder && !w.transportOrder &&
       (!w.assistingEquipment || w.assistingEquipment === machine.id))
-      .sort((a, b) => dist(a, center(t)) - dist(b, center(t)))
+      // Prefer a helper on the machine's side of the stock. Someone slightly
+      // closer in straight-line distance but across the pile can require a
+      // very long walking-route search around the material.
+      .sort((a, b) => {
+        const origin = center(t);
+        const side = (w: Worker) =>
+          (w.x - origin.x) * (machine.x - origin.x) +
+          (w.z - origin.z) * (machine.z - origin.z) >= 0;
+        return Number(side(b)) - Number(side(a)) ||
+        Number(b.assistingEquipment === machine.id) -
+          Number(a.assistingEquipment === machine.id) ||
+        dist(a, machine) - dist(b, machine) ||
+        dist(a, origin) - dist(b, origin);
+      })
       .slice(0, 4);
     for (const crew of crews) {
       if (t.item.startsWith('rail')) {
         const pickup = planRailPickup(s, machine, crew, t, qty, obstacles);
-        if (pickup.source) candidates.push({
-          machine, crew, operatorId: operator.id,
-          clear: { ...pickup.source.clear,
-            yaw: Math.atan2(pickup.source.pose.z - pickup.source.dock.z,
-              pickup.source.pose.x - pickup.source.dock.x) },
-        });
+        if (pickup.source) {
+          candidates.push({
+            machine, crew, operatorId: operator.id,
+            pickupSource: pickup.source,
+            clear: { ...pickup.source.clear,
+              yaw: Math.atan2(pickup.source.pose.z - pickup.source.dock.z,
+                pickup.source.pose.x - pickup.source.dock.x) },
+          });
+          // The complete pickup face is a machine property; repeating its
+          // route search for three more capable helpers is costly and does
+          // not improve this machine's handling path.
+          break;
+        }
         continue;
       }
       const reach = Math.max(machine.kind === 'forklift' ? 3 : 4, Math.max(t.w, t.d) / 2 + 2.5);
@@ -237,6 +271,35 @@ function reachableStorage(
   for (const source of sources) {
     const { machine, clear } = source;
     if (EQUIPMENT[machine.kind].capacity < stockUnitMass(t) * qty) continue;
+    if (t.item.startsWith('rail')) {
+      // Generic cardinal storage faces can certify a landing that the rail
+      // handler rejects. Use its exact loaded dock and empty withdrawal check.
+      const loaded: Equipment = { ...machine, ...clear, path: [],
+        cargo: { item: t.item, qty, yaw: t.yaw || 0 },
+        lift: storageMoveStockHeight(t.item, t.qty) + 0.4 };
+      const landing = planRailStorageLanding(survey, loaded, t.item, r,
+        t.yaw || 0, excludeId);
+      if (!landing?.stageExit) continue;
+      const exit = landing.stageExit;
+      const exitYaw = Math.atan2(center(r).z - landing.stageDock.z,
+        center(r).x - landing.stageDock.x);
+      const landed = { ...survey,
+        stacks: excludeId
+          ? survey.stacks.map((q) => q.id === excludeId ? { ...q, qty: q.qty + qty } : q)
+          : [...survey.stacks, { ...r, id: 'storage-preview-landing',
+              item: t.item, yaw: t.yaw, qty, reserved: 0,
+              source: 'preview' } as Stack],
+        equipment: survey.equipment.map((e) => e.id === machine.id
+          ? { ...e, ...exit, yaw: exitYaw, cargo: undefined } : e),
+      };
+      const settle = railCrewStandingPoints({ ...r, item: t.item, yaw: t.yaw || 0 })
+        .find((point) => !!walkRoute(landed, source.crew, point,
+          staticObstacleRects(landed)));
+      if (!settle) continue;
+      return { machineId: machine.id, crewId: source.crew.id,
+        operatorId: source.operatorId,
+        withdrawal: { ...exit, yaw: exitYaw }, settle } satisfies StorageReach;
+    }
     const targets = faces(s, t, r, machine.kind, excludeId);
     for (const target of targets) {
       if (machine.kind === 'forklift' && Math.abs(Math.sin(clear.yaw - target.yaw)) > 0.01)
@@ -287,6 +350,8 @@ function reachableStorage(
 }
 
 const MAX_VERIFIED_LIFTS = 32;
+const MAX_STORAGE_CELLS = 2048;
+const MAX_STORAGE_TARGET_PROBES = 128;
 /** Replay the proposed lifts against their own resulting stock and crew poses.
  * Candidate enumeration stays cheap; only a complete plan receives this bounded
  * physical survey. Beyond the bound, the quote remains explicitly unverified. */
@@ -294,6 +359,7 @@ function verifyLiftSequence(
   s: State,
   source: Stack,
   placements: NonNullable<StorageMovePlan['placements']>,
+  equipmentId?: string,
 ): { blocked?: string; unverified?: boolean } {
   const projected: State = {
     ...s,
@@ -312,7 +378,7 @@ function verifyLiftSequence(
     if (from.qty < placement.quantity ||
         (target?.qty || 0) + placement.quantity > MATERIALS[source.item].max)
       return { blocked: `Lift ${lift} exceeds the remaining source or finite destination stack capacity.` };
-    const sources = handlingSources(projected, from, placement.quantity);
+    const sources = handlingSources(projected, from, placement.quantity, equipmentId);
     if (!sources.length)
       return { blocked: `Lift ${lift} has no complete pickup and loaded withdrawal from ${source.id} after the earlier placements.` };
     const reach = reachableStorage(projected, from, placement.destination,
@@ -365,39 +431,55 @@ export function planStorageMove(s: State, request: StorageMoveRequest): StorageM
   const kinds = (['forklift', 'excavator'] as const).filter(
     (kind) => EQUIPMENT[kind].capacity >= stockUnitMass(t),
   );
-  const owned = s.equipment.filter((e) => kinds.includes(e.kind));
+  const owned = s.equipment.filter((e) => kinds.includes(e.kind) &&
+    (!request.equipmentId || e.id === request.equipmentId));
+  if (request.equipmentId && !owned.length)
+    return bad(`${request.equipmentId} is unavailable or cannot lift ${t.id}.`);
   const ready = owned.filter((e) => !e.job && !e.path.length && !e.cargo &&
     !e.deliveryOrder && !e.transportOrder && !e.refueling && e.fuel > 0);
+  if (request.equipmentId && !ready.length)
+    return bad(`${request.equipmentId} is occupied, moving, or out of fuel; release it before assigning this move.`);
   const capacityPool = ready.length ? ready : owned;
   const capacity = capacityPool.length
     ? Math.max(...capacityPool.map((e) => EQUIPMENT[e.kind].capacity)) : 6000;
   const batch = t.item.startsWith('rail')
     ? 1
     : Math.max(1, Math.min(m.max, Math.floor(capacity / stockUnitMass(t))));
-  const sources = handlingSources(s, t, Math.min(batch, quantity));
   const availableMachine = ready.some((e) =>
     EQUIPMENT[e.kind].capacity >= stockUnitMass(t) * Math.min(batch, quantity));
-  const availableSupport = s.workers.some((w) => w.role !== 'operator' &&
+  const availableSupport = s.workers.some((w) => (w.role === 'builder' || w.role === 'engineer') &&
     w.duty === 'auto' && !w.job && !w.vehicle && !w.deliveryOrder &&
     !w.transportOrder && !w.transition);
   const availableOperator = s.workers.some((w) => w.role === 'operator' &&
     w.duty === 'auto' && !w.job && !w.deliveryOrder && !w.transportOrder &&
     !w.transition);
-  const surveyLimited = s.equipment.length > 8 ||
-    s.workers.filter((w) => w.role !== 'operator' && w.duty === 'auto').length > 4;
+  if (request.requireVerified &&
+      (!availableMachine || !availableSupport || !availableOperator))
+    return bad(`No separate operator, support worker, and machine have a verified handling route for ${t.id}.`);
+  const sources = handlingSources(s, t, Math.min(batch, quantity), request.equipmentId);
+  const surveyLimited = ready.filter((e) =>
+    EQUIPMENT[e.kind].capacity >= stockUnitMass(t) * Math.min(batch, quantity)).length > 8 ||
+    s.workers.filter((w) => (w.role === 'builder' || w.role === 'engineer') && w.duty === 'auto').length > 4;
   const unverified = !availableMachine || !availableSupport || !availableOperator ||
     (!sources.length && surveyLimited);
   if (!sources.length && !unverified) {
     const blockers = new Set<string>();
+    const pickupReasons = new Set<string>();
     if (t.item.startsWith('rail')) {
       const obstacles = staticObstacleRects(s);
-      for (const machine of owned.slice(0, 4))
-        for (const crew of s.workers.filter((w) => w.role !== 'operator' &&
+      for (const machine of ready.slice(0, 4))
+        for (const crew of s.workers.filter((w) => (w.role === 'builder' || w.role === 'engineer') &&
           w.duty === 'auto' && !w.job).slice(0, 4))
-          for (const id of planRailPickup(s, machine, crew, t,
-            Math.min(batch, quantity), obstacles).blockers) blockers.add(id);
+          {
+            const pickup = planRailPickup(s, machine, crew, t,
+              Math.min(batch, quantity), obstacles);
+            if (pickup.reason) pickupReasons.add(pickup.reason);
+            for (const id of pickup.blockers) blockers.add(id);
+          }
     }
-    return bad(`${t.id} has no complete pickup plan for an available machine and support worker${blockers.size ? `; blocked by ${[...blockers].slice(0, 8).join(', ')}` : ''}. Check its exposed edge, approach, rigging access, and loaded withdrawal; clear nearby stock or assign a crew.`);
+    return bad(`${t.id} has no complete pickup plan for an available machine and support worker: ` +
+      `${[...pickupReasons][0] || 'machine approach, crew access, or loaded withdrawal is blocked'}` +
+      `${blockers.size ? `; blocked by ${[...blockers].slice(0, 8).join(', ')}` : ''}.`);
   }
   if (!sources.length) {
     // Preserve the ability to queue work before hiring. This is explicitly
@@ -431,10 +513,15 @@ export function planStorageMove(s: State, request: StorageMoveRequest): StorageM
     ),
   ];
   let lastSequenceBlocker = '';
-  for (const zone of zones) {
+  let surveyedCells = 0;
+  let targetProbes = 0;
+  let surveyLimit = false;
+  zoneSearch: for (const zone of zones) {
     const placements: NonNullable<StorageMovePlan['placements']> = [];
+    let firstReach: StorageReach | undefined;
     const projected: Stack[] = [];
-    let access = createRailStorageAccessCheck(s);
+    let railAccess = createRailStorageAccessCheck(s);
+    let stockAccess = createStorageAccessCheck(s);
     let remaining = quantity;
     // Merge only ordinary, unreserved like stock. Reels and drums keep their own contents and identity.
     const merges = s.stacks.filter(
@@ -455,9 +542,17 @@ export function planStorageMove(s: State, request: StorageMoveRequest): StorageM
         q.z + q.d <= zone.z + zone.d,
     );
     for (const q of merges) {
-      if (!reachableStorage(s, t, q, sources, Math.min(batch, remaining, m.max - q.qty), q.id,
-        projected))
-        continue;
+      if (!remaining) break;
+      if (!storageMergePreservesAccess(s, q,
+        Math.min(remaining, m.max - q.qty), projected)) continue;
+      if (++targetProbes > MAX_STORAGE_TARGET_PROBES) {
+        surveyLimit = true;
+        break zoneSearch;
+      }
+      const reach = reachableStorage(s, t, q, sources,
+        Math.min(batch, remaining, m.max - q.qty), q.id, projected);
+      if (!reach) continue;
+      firstReach ||= reach;
       let space = m.max - q.qty;
       while (remaining && space) {
         const qty = Math.min(batch, remaining, space);
@@ -471,8 +566,12 @@ export function planStorageMove(s: State, request: StorageMoveRequest): StorageM
       }
     }
     const candidates: Rect[] = [];
-    for (let z = zone.z; z + t.d <= zone.z + zone.d; z++)
+    candidateCells: for (let z = zone.z; remaining && z + t.d <= zone.z + zone.d; z++)
       for (let x = zone.x; x + t.w <= zone.x + zone.w; x++) {
+        if (++surveyedCells > MAX_STORAGE_CELLS) {
+          surveyLimit = true;
+          break candidateCells;
+        }
         const r = { x, z, w: t.w, d: t.d };
         if (
           !occupied.some((q) => overlap(q, r, 0.12)) &&
@@ -485,13 +584,17 @@ export function planStorageMove(s: State, request: StorageMoveRequest): StorageM
     );
     for (const r of candidates) {
       if (!remaining) break;
-      if (
-        placements.some((q) => overlap(q.destination, r, 0.12)) ||
-        !access(t.item, r, t.yaw) ||
-        !reachableStorage(s, t, r, sources, Math.min(batch, remaining, m.max), undefined,
-          projected)
-      )
-        continue;
+      if (placements.some((q) => overlap(q.destination, r, 0.12)) ||
+          !railAccess(t.item, r, t.yaw) ||
+          !stockAccess(t.item, r, t.yaw, Math.min(batch, remaining, m.max))) continue;
+      if (++targetProbes > MAX_STORAGE_TARGET_PROBES) {
+        surveyLimit = true;
+        break zoneSearch;
+      }
+      const reach = reachableStorage(s, t, r, sources,
+        Math.min(batch, remaining, m.max), undefined, projected);
+      if (!reach) continue;
+      firstReach ||= reach;
       let space = m.max;
       while (remaining && space) {
         const qty = Math.min(batch, remaining, space);
@@ -501,10 +604,15 @@ export function planStorageMove(s: State, request: StorageMoveRequest): StorageM
       }
       projected.push({ ...r, id: `storage-preview-${projected.length}`, item: t.item,
         yaw: t.yaw, qty: m.max - space, reserved: 0, source: 'preview' });
-      access = createRailStorageAccessCheck(s, projected);
+      railAccess = createRailStorageAccessCheck(s, projected);
+      stockAccess = createStorageAccessCheck(s, projected);
     }
     if (!remaining) {
-      const sequence = unverified ? { unverified: true } : verifyLiftSequence(s, t, placements);
+      // A single placement is already checked above against the current
+      // source and actual landing. Only a later lift needs projected replay.
+      const sequence = unverified ? { unverified: true } :
+        placements.length === 1 ? {} :
+          verifyLiftSequence(s, t, placements, request.equipmentId);
       if (sequence.blocked) {
         lastSequenceBlocker = sequence.blocked;
         continue;
@@ -516,6 +624,12 @@ export function planStorageMove(s: State, request: StorageMoveRequest): StorageM
         zoneId: zone.id,
         destination: placements[0].destination,
         placements,
+        crewId: firstReach?.crewId,
+        operatorId: firstReach?.operatorId,
+        equipmentId: firstReach?.machineId,
+        pickupSource: firstReach && sources.find((source) =>
+          source.machine.id === firstReach.machineId &&
+          source.crew.id === firstReach.crewId)?.pickupSource,
         readiness: unverified
           ? 'Route not verified yet: crew may be unavailable or outside the bounded nearby survey.'
           : sequence.unverified
@@ -523,7 +637,12 @@ export function planStorageMove(s: State, request: StorageMoveRequest): StorageM
           : 'Pickup, crew access, loaded route, setdown, and empty withdrawal checked with site crew.',
       };
     }
+    if (surveyLimit) break zoneSearch;
   }
+  if (surveyLimit) return bad(
+    `Storage route survey reached its ${MAX_STORAGE_CELLS}-cell or ` +
+    `${MAX_STORAGE_TARGET_PROBES}-dock safety limit. Select a smaller stockyard or clear a closer approach.`,
+  );
   if (lastSequenceBlocker) return bad(lastSequenceBlocker);
   return bad(
     request.zoneId
@@ -547,6 +666,8 @@ export interface StorageMoveAPI {
 export function requestStorageMove(s: State, request: StorageMoveRequest, api: StorageMoveAPI) {
   const plan = planStorageMove(s, request);
   if (plan.error) return { error: plan.error };
+  if (request.requireVerified && !plan.readiness?.includes('checked with site crew'))
+    return { error: `No complete physical handling route was verified for ${request.id}; no recovery job was created.` };
   const source = s.stacks.find((t) => t.id === request.id)!;
   const zone = s.zones.find((z) => z.id === plan.zoneId)!;
   const group = api.createGroup(
@@ -577,6 +698,10 @@ export function requestStorageMove(s: State, request: StorageMoveRequest, api: S
     );
     j.item = source.item;
     j.qty = p.quantity;
+    // Keep the real helper whose walking and rigging route was checked in the
+    // preview with the recovery machine. Re-selecting a different, merely
+    // nearby worker can turn a verified short route into a long blocked one.
+    j.preferredWorker = plan.crewId;
     j.railStageOnly = source.item.startsWith('rail') || undefined;
     j.stockMove = {
       sourceId: source.id,
@@ -587,6 +712,14 @@ export function requestStorageMove(s: State, request: StorageMoveRequest, api: S
       zoneId: zone.id,
       queuedReservation: true,
       afterJobId: preceding,
+      ...(plan.pickupSource && p === plan.placements![0] ? {
+        pickupWitness: {
+          source: plan.pickupSource,
+          equipmentId: plan.equipmentId!,
+          crewId: plan.crewId!,
+          stockQty: source.qty,
+        },
+      } : {}),
     };
     preceding = j.id;
     return j;

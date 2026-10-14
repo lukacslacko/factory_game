@@ -2,7 +2,11 @@
 
 ## Native game
 
-The playable Godot migration uses the approved Concept C art and a separate local simulation process. Open **Plant 01 v0.37.0.app** in the surrounding `outputs/` folder, or double-click **Open Plant 01.command** for development. No browser is required. [Download the Mac app](https://github.com/lukacslacko/factory_game/releases/tag/v0.37.0). See [native game instructions](native/README.md) and [migration notes](docs/native-migration.md). The browser game and static visual proof remain available below.
+The playable Godot migration uses the approved Concept C art and a separate local simulation process. Open **Plant 01 v0.38.0.app** in the surrounding `outputs/` folder, or double-click **Open Plant 01.command** for development. No browser is required. [Download the Mac app](https://github.com/lukacslacko/factory_game/releases/tag/v0.38.0). See [native game instructions](native/README.md) and [migration notes](docs/native-migration.md). The browser game and static visual proof remain available below.
+
+## Logistics coordination — v0.38.0
+
+Rail pickup recovery now clears an obstructing stack through as many safe, physical lifts as needed. The blocked job resumes when its actual approach opens; a separate barrel or pile in the way is moved only when a checked destination and crew exist. Stockyard placement protects future retrieval, and nearby crews reserve the immediate maneuver space before handling cargo. An on-duty logistics officer can coordinate eligible recovery work under saved policies, while the Work diagnosis and warning views show the linked prerequisite and blocker. A copied player save reproduced the blocked rail pickup and completed it after recovery, without changing the live save. See the [logistics diagnosis guide](docs/logistics-diagnostics.md).
 
 ## Consumable automations — v0.37.0
 

@@ -31,7 +31,7 @@ export type Item =
   | 'diesel'
   | 'fence';
 export type BuildKind = Item | 'power' | 'water';
-export type Role = 'builder' | 'operator' | 'engineer' | 'railDriver';
+export type Role = 'builder' | 'operator' | 'engineer' | 'railDriver' | 'logisticsOfficer';
 export type EquipmentKind = 'excavator' | 'forklift';
 export type EquipmentWorkRole =
   'all' | 'receiving' | 'paving' | 'construction' | 'rail' | 'recovery' | 'hold';
@@ -425,6 +425,13 @@ export interface Job extends Rect {
   stockMove?: {
     sourceId: string; destination: Rect; yaw: number; mergeId?: string;
     toStorage?: boolean; zoneId?: string; queuedReservation?: boolean; afterJobId?: string;
+    /** Checked pickup face retained for the first lift of this saved move. */
+    pickupWitness?: {
+      source: NonNullable<RailWork['source']>;
+      equipmentId: string;
+      crewId: string;
+      stockQty: number;
+    };
     /** Exact conserved contents of the supported physical load. */
     load?: Stack;
   };
@@ -468,9 +475,11 @@ export interface Job extends Rect {
   logisticsNoticeId?: string;
   logisticsWaitSince?: number;
   logisticsWaitReason?: string;
-  /** A bounded, one-level physical move of stock obstructing an unlifted rail pickup. */
+  /** Bounded, one-level physical stock moves; repeated IDs are separate batches of the same blocker. */
   railPickupRecovery?: {
     attemptedIds: string[];
+    /** Last surveyed, physically obstructing stock, for diagnosis and reload. */
+    blockerIds?: string[];
     activeJobId?: string;
     activeBlockerId?: string;
     lastError?: string;
@@ -796,6 +805,10 @@ export interface ManeuverReservation {
   equipmentId: string;
   kind: 'pickup' | 'landing';
   area: Rect;
+  /** At most two immediately needed pinch points, never a whole travel route. */
+  chokeAreas?: Rect[];
+  /** Orders simultaneous claim batches; it cannot evict a live physical lease. */
+  priority?: number;
   resourceId?: string;
   acquiredAt: number;
   refreshedAt: number;
@@ -811,6 +824,19 @@ export interface Notice {
   seen: boolean;
   severity?: 'info' | 'warning';
 }
+/** Site policy only. A logistics officer must be present and on duty before
+ * either automatic action can be dispatched; all players retain diagnostics. */
+export interface LogisticsPolicy {
+  automaticStockRelocation: boolean;
+  automaticIdleClearance: boolean;
+  minimumWaitSeconds: number;
+  maxActiveRelocations: number;
+}
+export interface LogisticsOfficerAttempt {
+  rootId: string;
+  sourceId: string;
+  at: number;
+}
 export interface State {
   version: 1 | 2 | 3 | 4;
   name: string;
@@ -820,6 +846,11 @@ export interface State {
   paused: boolean;
   /** Direct, cost-free placement of completed assets for testing. */
   creative?: boolean;
+  /** Absent on older saves means the safe default policy. */
+  logisticsPolicy?: LogisticsPolicy;
+  /** Bounded record of submitted physical recovery attempts, so an officer
+   * cannot cycle the same blocker forever after jobs complete. */
+  logisticsOfficerAttempts?: LogisticsOfficerAttempt[];
   /** Player-owned consumable policies; absent in older saves means defaults on. */
   automations?: {
     vehicleRefueling: boolean;

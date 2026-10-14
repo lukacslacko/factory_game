@@ -51,6 +51,9 @@ export function workerCanStart(s: State, w: Worker, o: WorkerSelectionOptions = 
   const seated = w.vehicle ? s.equipment.find((e) => e.id === w.vehicle) : undefined;
   if (seated && (seated.path.length || seated.trafficGoal)) return false;
   return (
+    // Logistics officers coordinate checked jobs; they are never an implicit
+    // construction helper, locomotive crew member, or fuel carrier.
+    w.role !== 'logisticsOfficer' &&
     (!w.vehicle || !actionClearanceHoldsEquipment(s, w.vehicle)) &&
     workerAvailable(s, w) &&
     (!w.job || w.job === o.allowJobId) &&

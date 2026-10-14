@@ -3,6 +3,16 @@ import { overlap } from './path';
 
 const LEASE_SECONDS = 6;
 const MAX_RESERVATIONS = 512;
+type ManeuverClaim = Pick<ManeuverReservation,
+  'ownerId' | 'equipmentId' | 'kind' | 'area' | 'resourceId' | 'chokeAreas' | 'priority'>;
+
+export const maneuverFootprints = (r: Pick<ManeuverReservation, 'area' | 'chokeAreas'>) =>
+  [r.area, ...(r.chokeAreas || [])];
+
+const claimsConflict = (a: ManeuverClaim, b: ManeuverClaim) =>
+  !!a.resourceId && a.resourceId === b.resourceId ||
+  maneuverFootprints(a).some((one) =>
+    maneuverFootprints(b).some((two) => overlap(one, two, 0.1)));
 
 /** A short maneuver envelope around the parked machine and its next motion.
  * Long travel corridors remain open to other work and normal traffic control. */
@@ -50,19 +60,19 @@ export function releaseManeuvers(s: State, ownerId: string): void {
  * only the caller's lease; an unavailable new dock never evicts another crew. */
 export function claimManeuver(
   s: State,
-  request: Pick<ManeuverReservation,
-    'ownerId' | 'equipmentId' | 'kind' | 'area' | 'resourceId'>,
+  request: ManeuverClaim,
 ): string {
   reconcileManeuverReservations(s);
   s.maneuverReservations ??= [];
   const conflict = s.maneuverReservations.find((r) =>
-    r.ownerId !== request.ownerId &&
-    (overlap(r.area, request.area, 0.1) ||
-      !!request.resourceId && request.resourceId === r.resourceId));
+    r.ownerId !== request.ownerId && claimsConflict(r, request));
   if (conflict) return conflict.ownerId;
   const existing = s.maneuverReservations.find((r) => r.ownerId === request.ownerId);
   if (existing) {
-    Object.assign(existing, request, { refreshedAt: s.elapsed,
+    // Optional pinch-point geometry belongs to this exact next maneuver;
+    // replacing the dock must not retain an earlier route's choke or resource.
+    Object.assign(existing, { resourceId: undefined, chokeAreas: undefined,
+      priority: undefined }, request, { refreshedAt: s.elapsed,
       expiresAt: s.elapsed + LEASE_SECONDS });
     return '';
   }
@@ -70,4 +80,15 @@ export function claimManeuver(
   s.maneuverReservations.push({ ...request, acquiredAt: s.elapsed,
     refreshedAt: s.elapsed, expiresAt: s.elapsed + LEASE_SECONDS });
   return '';
+}
+
+/** Resolve contenders presented in one update in explicit service priority
+ * order. A pre-existing live lease is never preempted, even by a high-priority
+ * request; that would invalidate a machine already approaching its load. */
+export function claimManeuverBatch(s: State, requests: readonly ManeuverClaim[]) {
+  const outcomes = new Map<string, string>();
+  for (const request of [...requests].sort((a, b) =>
+    (b.priority || 0) - (a.priority || 0) || a.ownerId.localeCompare(b.ownerId)))
+    outcomes.set(request.ownerId, claimManeuver(s, request));
+  return outcomes;
 }

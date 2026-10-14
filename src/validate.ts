@@ -21,6 +21,7 @@ import { EQUIPMENT_ROLES, EQUIPMENT_ACTIVITIES } from './equipment-roles';
 import { MATERIALS, EQUIPMENT, ROLES, SERVICES } from './catalog';
 import { isRailCommodity } from './rail-commodities';
 import { railWorkGroup } from './rail-work-groups';
+import { maneuverFootprints } from './maneuver-reservations';
 const fail = (message: string): never => {
   throw new Error(`Invalid save: ${message}.`);
 };
@@ -59,6 +60,26 @@ export function validateState(value: any): asserts value is State {
   if (![1, 3, 10].includes(s.speed) || typeof s.paused !== 'boolean' || typeof s.name !== 'string')
     fail('invalid site settings');
   if (s.creative !== undefined && typeof s.creative !== 'boolean') fail('invalid creative mode');
+  if (s.logisticsPolicy !== undefined) {
+    const p = s.logisticsPolicy;
+    if (!p || typeof p !== 'object' || Array.isArray(p) ||
+        typeof p.automaticStockRelocation !== 'boolean' ||
+        typeof p.automaticIdleClearance !== 'boolean' ||
+        !Number.isInteger(p.minimumWaitSeconds) || p.minimumWaitSeconds < 5 ||
+        p.minimumWaitSeconds > 600 ||
+        !Number.isInteger(p.maxActiveRelocations) || p.maxActiveRelocations < 1 ||
+        p.maxActiveRelocations > 3)
+      fail('invalid logistics officer policy');
+  }
+  if (s.logisticsOfficerAttempts !== undefined &&
+      (!Array.isArray(s.logisticsOfficerAttempts) ||
+        s.logisticsOfficerAttempts.length > 64 ||
+        s.logisticsOfficerAttempts.some((a: any) =>
+          !a || typeof a.rootId !== 'string' || !a.rootId ||
+          a.rootId.length > 128 || typeof a.sourceId !== 'string' ||
+          !a.sourceId || a.sourceId.length > 128 ||
+          !finite(a.at) || a.at < 0 || a.at > s.elapsed)))
+    fail('invalid logistics officer attempt history');
   if (s.automations !== undefined) {
     const a = s.automations;
     if (!a || typeof a !== 'object' || Array.isArray(a) ||
@@ -120,6 +141,12 @@ export function validateState(value: any): asserts value is State {
           !['pickup', 'landing'].includes(r.kind) || !point(r.area) ||
           !finite(r.area.w) || !finite(r.area.d) ||
           r.area.w <= 0 || r.area.d <= 0 || r.area.w > 30 || r.area.d > 30 ||
+          (r.chokeAreas !== undefined &&
+            (!Array.isArray(r.chokeAreas) || r.chokeAreas.length > 2 ||
+              r.chokeAreas.some((a: any) => !point(a) || !finite(a.w) || !finite(a.d) ||
+                a.w <= 0 || a.d <= 0 || a.w > 12 || a.d > 12))) ||
+          (r.priority !== undefined &&
+            (!Number.isInteger(r.priority) || r.priority < 0 || r.priority > 100)) ||
           ![r.acquiredAt, r.refreshedAt, r.expiresAt].every(finite) ||
           r.acquiredAt < 0 || r.refreshedAt < r.acquiredAt ||
           r.expiresAt < r.refreshedAt || r.expiresAt > r.refreshedAt + 6.01 ||
@@ -132,10 +159,12 @@ export function validateState(value: any): asserts value is State {
       for (let j = i + 1; j < s.maneuverReservations.length; j++) {
         const a = s.maneuverReservations[i], b = s.maneuverReservations[j];
         if ((a.resourceId && a.resourceId === b.resourceId) ||
-            (a.area.x < b.area.x + b.area.w + 0.1 &&
-              a.area.x + a.area.w + 0.1 > b.area.x &&
-              a.area.z < b.area.z + b.area.d + 0.1 &&
-              a.area.z + a.area.d + 0.1 > b.area.z))
+            maneuverFootprints(a).some((first) =>
+              maneuverFootprints(b).some((second) =>
+                first.x < second.x + second.w + 0.1 &&
+                first.x + first.w + 0.1 > second.x &&
+                first.z < second.z + second.d + 0.1 &&
+                first.z + first.d + 0.1 > second.z)))
           fail('conflicting saved maneuver reservations');
       }
   }
@@ -627,13 +656,15 @@ export function validateState(value: any): asserts value is State {
       const active = r?.activeJobId && s.jobs.find((q: any) => q.id === r.activeJobId);
       if (
         j.kind !== 'rail' || !r || !Array.isArray(attempts) ||
-        attempts.length > 2 ||
+        attempts.length > 24 ||
         attempts.some((id: any) => typeof id !== 'string' || !id || id.length > 128) ||
-        new Set(attempts).size !== attempts.length ||
+        (r.blockerIds !== undefined &&
+          (!Array.isArray(r.blockerIds) || r.blockerIds.length > 24 ||
+            r.blockerIds.some((id: any) => typeof id !== 'string' || !id || id.length > 128))) ||
         (r.activeJobId === undefined) !== (r.activeBlockerId === undefined) ||
         (r.lastError !== undefined && (typeof r.lastError !== 'string' || r.lastError.length > 500)) ||
         (r.nextProbeAt !== undefined &&
-          (!finite(r.nextProbeAt) || r.nextProbeAt < 0 || r.nextProbeAt > s.elapsed + 10.001)) ||
+          (!finite(r.nextProbeAt) || r.nextProbeAt < 0 || r.nextProbeAt > s.elapsed + 15.001)) ||
         (r.activeJobId !== undefined &&
           (typeof r.activeJobId !== 'string' || !active ||
             typeof r.activeBlockerId !== 'string' ||
@@ -689,6 +720,23 @@ export function validateState(value: any): asserts value is State {
         (m.queuedReservation !== undefined && typeof m.queuedReservation !== 'boolean') ||
         (m.zoneId !== undefined && typeof m.zoneId !== 'string') ||
         (m.afterJobId !== undefined && typeof m.afterJobId !== 'string') ||
+        (m.pickupWitness !== undefined && (
+          !m.pickupWitness ||
+          !m.toStorage || !j.item?.startsWith('rail') ||
+          typeof m.pickupWitness.equipmentId !== 'string' ||
+          typeof m.pickupWitness.crewId !== 'string' ||
+          !Number.isInteger(m.pickupWitness.stockQty) ||
+          m.pickupWitness.stockQty < j.qty ||
+          m.pickupWitness.stockQty > MATERIALS[j.item as keyof typeof MATERIALS].max ||
+          m.pickupWitness.source?.stackId !== m.sourceId ||
+          !point(m.pickupWitness.source.pose) ||
+          !finite(m.pickupWitness.source.pose.y) ||
+          !finite(m.pickupWitness.source.pose.yaw) ||
+          !point(m.pickupWitness.source.dock) ||
+          !point(m.pickupWitness.source.clear) ||
+          !point(m.pickupWitness.source.approach) ||
+          !point(m.pickupWitness.source.workerPoint) ||
+          typeof m.pickupWitness.source.entering !== 'boolean')) ||
         (m.load && (m.load.item !== j.item || m.load.qty !== j.qty || m.load.reserved !== 0 || !point(m.load) || !finite(m.load.w) || !finite(m.load.d))) ||
         (m.mergeId !== undefined && typeof m.mergeId !== 'string') ||
         !finite(m.yaw) ||

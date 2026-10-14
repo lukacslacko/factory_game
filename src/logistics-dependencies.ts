@@ -3,7 +3,7 @@ import type { Equipment, Job, Point, State, Worker } from './types';
 
 export type DependencyKind =
   | 'recovery-prerequisite' | 'storage-predecessor' | 'action-clearance'
-  | 'traffic' | 'assigned-equipment' | 'rail-route' | 'owns-resource';
+  | 'traffic' | 'assigned-equipment' | 'rail-route' | 'rail-pickup' | 'owns-resource';
 export type DependencyEntity =
   | 'job' | 'equipment' | 'worker' | 'stock' | 'building' | 'delivery' | 'unknown';
 export type DependencyMobility =
@@ -37,9 +37,9 @@ export interface DependencyReport {
   truncated: boolean;
 }
 
-// This runs only on explicit inspection, never on a simulation tick or the
-// 200 ms native snapshot path. Limits still prevent an imported huge yard from
-// monopolizing the service while its blocked-work view is opened.
+// Run on explicit inspection or the slow, officer-only coordination cadence,
+// never on the movement or 200 ms native snapshot path. Limits keep an
+// imported huge yard from monopolizing the service during either review.
 const MAX_JOBS = 512;
 const MAX_CLEARANCES = 256;
 const MAX_ACTORS = 2048;
@@ -125,6 +125,8 @@ export function diagnoseLogisticsDependencies(s: State): DependencyReport {
     const recovery = j.railPickupRecovery;
     if (recovery?.activeJobId && jobById.has(recovery.activeJobId))
       add(j.id, recovery.activeJobId, 'recovery-prerequisite');
+    for (const blocker of recovery?.blockerIds || [])
+      if (stockIds.has(blocker)) add(j.id, blocker, 'rail-pickup');
     const predecessor = j.stockMove?.afterJobId;
     if (predecessor && jobById.has(predecessor))
       add(j.id, predecessor, 'storage-predecessor');

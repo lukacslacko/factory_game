@@ -59,6 +59,7 @@ import {
 import { query, SQL_EXAMPLES, csv } from '../src/reports';
 import { DiagnosticRecorder } from '../src/diagnostics';
 import { diagnoseLogisticsDependencies } from '../src/logistics-dependencies';
+import { configureLogisticsPolicy, logisticsPolicy, onDutyLogisticsOfficers } from '../src/logistics-officer';
 import { previewUnloading } from '../src/delivery';
 import { renderState } from './render';
 import { recordStockFootprints } from '../src/ground-wear';
@@ -295,6 +296,8 @@ function snapshot() {
     railReservations: tables.railReservations,
     inventory: tables.inventory,
     automationStatus: Sim.consumableAutomationStatus(state),
+    logisticsPolicy: logisticsPolicy(state),
+    logisticsOfficerStatus: { onDutyOfficerIds: onDutyLogisticsOfficers(state).map((w) => w.id) },
     electrical:electricalNetwork(state),
     process: {...tables.process,ledger:tables.process.ledger.slice(-200),operations:recentOperations},
     summaries: {
@@ -476,6 +479,9 @@ async function dispatch(action: string, a: any) {
     case 'automation_configure':
       check(Sim.configureConsumableAutomations(state, a.changes));
       return { settings: state.automations };
+    case 'logistics_policy_configure':
+      check(configureLogisticsPolicy(state, a.changes));
+      return { settings: logisticsPolicy(state) };
     case 'purchase_batch':
       return {
         orders: Sim.purchaseBatch(state, a.lines, a.mode, {

@@ -37,7 +37,9 @@ export function storageMoveDestinationError(s: State, j: Job) {
   if (target && target.qty + j.qty > MATERIALS[j.item!].max)
     return `Reserved destination ${target.id} has insufficient stack capacity; clear space before lowering.`;
   const obstacle = [...staticObstacleRects(s), ...electricalPlannedRects(s)].find(
-    (r) => (r as { id?: string }).id !== target?.id && overlap(r, d, 0.06),
+    // Touching grid-aligned stock has no shared landing footprint. The wider
+    // approach and withdrawal are checked by their own physical maneuvers.
+    (r) => (r as { id?: string }).id !== target?.id && overlap(r, d),
   );
   if (obstacle)
     return `Storage landing space is obstructed by ${(obstacle as { id?: string }).id || 'planned infrastructure'}; clear the footprint before lowering.`;

@@ -272,22 +272,29 @@ test('multiple hired workers keep numbered names after save and later arrivals',
   assert.equal(new Set(s.workers.map((w) => w.id)).size, 4);
 });
 
-test('a small square stockyard fills all nine slab cells before asking for more area', () => {
+test('a small square stockyard keeps a retrieval face open and uses a second yard', () => {
   const s = emptyYard();
   seedHandlingResources(s);
   s.zones = [{ id: 'ZONE-TEST', name: 'Nine slab cells', x: 25, z: 30, w: 3, d: 3 }];
   S.purchase(s, 'slab', 9 * MATERIALS.slab.max);
   tickUntil(
     s,
-    () => s.orders.every((o) => o.status === 'done'),
+    () => S.totals(s, 'slab').stored === 8 * MATERIALS.slab.max,
     3000,
     () => conserve(s, 'slab'),
   );
+  advance(s, 30);
   const occupied = s.stacks.filter((t) => t.qty > 0);
-  assert.equal(occupied.length, 9);
+  assert.equal(occupied.length, 8);
   for (let x = 25; x < 28; x++)
     for (let z = 30; z < 33; z++)
-      assert.equal(occupied.find((t) => t.x === x && t.z === z)?.qty, MATERIALS.slab.max);
+      if (x !== 26 || z !== 30)
+        assert.equal(occupied.find((t) => t.x === x && t.z === z)?.qty, MATERIALS.slab.max);
+  assert.ok(s.orders.some((o) => o.status === 'unloading' && /storage/i.test(o.note)));
+  assert.equal(S.addZone(s, { x: 35, z: 30, w: 6, d: 6 }), '');
+  tickUntil(s, () => s.orders.every((o) => o.status === 'done'), 1200,
+    () => conserve(s, 'slab'));
+  assert.equal(S.totals(s, 'slab').stored, 9 * MATERIALS.slab.max);
 });
 
 test('a lowloader descent resumes from its saved pose with the same machine and operator', () => {

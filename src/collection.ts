@@ -336,7 +336,7 @@ function crew(s: CollectionState, e: Equipment, c: Collection, operator: boolean
           ? w.role === 'operator' &&
             (!e.operator || e.operator === w.id) &&
             (!w.vehicle || w.vehicle === e.id)
-          : w.role !== 'operator' &&
+          : (w.role === 'builder' || w.role === 'engineer') &&
             !w.vehicle &&
             (!w.assistingEquipment || w.assistingEquipment === e.id)),
     )

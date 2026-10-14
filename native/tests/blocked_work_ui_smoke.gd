@@ -30,8 +30,15 @@ func _run()->void:
 	ui.command.connect(func(action:String,args:Dictionary)->void:actions.append({"action":action,"args":args}))
 	ui.update_snapshot(fixture);ui.receive_reply({"action":"continue","ok":true});ui.update_snapshot(fixture)
 	ui.show_tab("Work")
-	_check(ui.tables.size()==3 and ui.tables[1].rows.size()==3,"Work register exposes unresolved warnings and an active physical prerequisite without requiring a warning")
+	_check(ui.tables.size()==4 and ui.tables[1].rows.size()==3,"Work register exposes unresolved warnings and an active physical prerequisite without requiring a warning")
 	_check(actions.is_empty() and ui.tables[2].rows.is_empty(),"Opening Work never polls dependency diagnosis")
+	_check(ui.tables[3].rows.size()==3 and ui.tables[3].rows[0].cells[0]=="Worker clearance · WRK-1001" and ui.tables[3].rows[0].cells[1]==2,"Live cause groups summarize a known blocker and affected work without diagnosis polling")
+	_check(ui.tables[3].rows[0].cells[2]=="1:00" and ui.tables[3].rows[0].cells[4].contains("E31.0, S20.0"),"Cause group exposes longest actual wait and physical work area")
+	var physical_group:Dictionary=ui.tables[3].rows[2]
+	_check(physical_group.cells[0]=="Physical recovery · STK-1001" and physical_group.cells[4].contains("6 × 3 m"),"Active rail-pickup group identifies the blocking stock footprint")
+	_check(physical_group.cells[5]=="JOB-1005" and physical_group.cells[6].contains("40%") and physical_group.refs["0"]=="STK-1001","Cause group links blocker and physical prerequisite progress")
+	ui.tables[3].entity_clicked.emit("STK-1001")
+	_check(ui.selected_id=="STK-1001","Grouped blocker opens its physical stock inspector")
 	var diagnose:Button=_button(ui,"Diagnose dependencies")
 	_check(diagnose!=null and ui.diagnosis_note.text.contains("on demand"),"Diagnosis is an explicit action with a read-only limitation")
 	if diagnose:diagnose.pressed.emit();diagnose.pressed.emit()
@@ -64,6 +71,7 @@ func _run()->void:
 	fixture.state.notices.push_front({"id":"N-1005","time":25285,"title":"Rail pickup blocked","detail":"Old pickup face obstruction at STK-1001","entity":"JOB-1004","state":"todo","severity":"warning"})
 	ui.update_snapshot(fixture);ui.show_tab("Work")
 	_check(ui.tables[1].rows.size()==3 and ui.tables[1].rows[0].id=="N-1005" and ui.tables[1].rows[0].cells[7]=="JOB-1005","Existing rail warning is enriched with live recovery progress, without duplicate parent rows")
+	_check(ui.tables[3].rows.size()==3 and ui.tables[3].rows[2].cells[1]==1,"A new warning for the same rail recovery does not double-count its work")
 	ui.show_entity("N-1005")
 	_check(_button(ui.inspector_body,"Inspect JOB-1005")!=null and _button(ui.inspector_body,"Inspect STK-1001")!=null,"Warning inspector exposes current physical recovery links even if its old text is stale")
 	var jump:Button=_button(ui,"Review blocked work")
@@ -79,6 +87,26 @@ func _run()->void:
 	fixture.state.jobs[3].erase("railPickupRecovery");fixture.state.notices[0].state="done"
 	ui.update_snapshot(fixture);ui.show_tab("Work")
 	_check(ui.tables[1].rows.size()==1 and ui.tables[1].rows[0].id=="N-1002","Completed prerequisite disappears when rail pickup resumes")
+	_check(ui.tables[3].rows.size()==1 and ui.tables[3].rows[0].cells[0]=="Material supply","Resolved causes disappear from the live grouped view")
+	fixture.state.workers.append({"id":"WRK-1006","name":"Worker #6","role":"logisticsOfficer","duty":"auto","status":"Coordinating logistics"})
+	fixture.logisticsPolicy={"automaticStockRelocation":false,"automaticIdleClearance":true,"minimumWaitSeconds":45,"maxActiveRelocations":2}
+	fixture.logisticsOfficerStatus={"onDutyOfficerIds":["WRK-1006"]}
+	ui.update_snapshot(fixture);ui.show_tab("Work")
+	_check(ui.catalog.has("logisticsOfficer") and ui.logistics_officer_status_label.text.contains("Hired: 1") and ui.logistics_officer_status_label.text.contains("On duty: 1"),"Work shows hired and on-duty logistics officer status")
+	ui.logistics_officer_status_label.meta_clicked.emit("WRK-1006")
+	_check(ui.selected_id=="WRK-1006","Officer status ID opens the worker inspector")
+	_check(not ui.logistics_policy_buttons["automaticStockRelocation"].button_pressed and ui.logistics_policy_buttons["automaticIdleClearance"].button_pressed,"Saved officer switches restore independently")
+	_check(int(ui.logistics_wait_seconds.value)==45 and int(ui.logistics_active_moves.value)==2,"Saved wait and concurrency thresholds restore to controls")
+	var action_count:int=actions.size()
+	ui.logistics_policy_buttons["automaticStockRelocation"].toggled.emit(true)
+	_check(actions.size()==action_count+1 and actions[-1].action=="logistics_policy_configure" and actions[-1].args.changes=={"automaticStockRelocation":true},"Officer stock-recovery toggle sends one policy change")
+	ui.logistics_wait_seconds.value=60;ui.logistics_active_moves.value=3
+	var apply_policy:Button=_button(ui,"Apply logistics thresholds")
+	if apply_policy:apply_policy.pressed.emit()
+	_check(apply_policy!=null and actions.size()==action_count+2 and actions[-1].args.changes=={"minimumWaitSeconds":60,"maxActiveRelocations":3},"Officer thresholds submit both bounded settings together")
+	fixture.logisticsOfficerStatus={"onDutyOfficerIds":[]}
+	ui.update_snapshot(fixture);ui._refresh_register()
+	_check(ui.logistics_officer_status_label.text.contains("On duty: 0") and ui.logistics_officer_status_label.text.contains("no automatic logistics dispatch"),"Off-shift officer status explains why saved policies cannot dispatch")
 	ui.queue_free();await process_frame
 	print("BLOCKED_WORK_UI_SMOKE ",JSON.stringify({"passed":failures.is_empty(),"checks":checks,"failures":failures,"serviceStarted":false,"gpuRendering":false}))
 	quit(0 if failures.is_empty() else 1)

@@ -107,8 +107,12 @@ function clearStandingPoint(s: State, w: Worker, p: Point): boolean {
 /** A helper can shadow its own machine's transit, between physical rigging operations. */
 function accompanyingTransit(s: State, w: Worker, equipmentId: string): boolean {
   const e = s.equipment.find((q) => q.id === equipmentId);
+  const job = w.job ? s.jobs.find((j) => j.id === w.job) : undefined;
+  const waitingForRecovery = job?.equipment === equipmentId &&
+    job.worker === w.id && job.status === 'doing' &&
+    !!job.railPickupRecovery?.activeJobId;
   if (
-    !e?.path.length ||
+    (!e?.path.length && !waitingForRecovery) ||
     w.transition ||
     w.vehicle ||
     w.transportOrder ||
@@ -116,7 +120,7 @@ function accompanyingTransit(s: State, w: Worker, equipmentId: string): boolean 
     w.yieldingTo
   )
     return false;
-  const job = w.job ? s.jobs.find((j) => j.id === w.job) : undefined;
+  if (waitingForRecovery) return true;
   if (
     job?.equipment === equipmentId &&
     job.worker === w.id &&

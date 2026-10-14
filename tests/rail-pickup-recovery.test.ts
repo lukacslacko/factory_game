@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as S from '../src/sim';
 import { setJobEquipment } from '../src/jobs';
+import { tickRailWork, type RailWorkAPI } from '../src/railwork';
 import { seedHandlingResources, stateSummary } from './support/yard';
 import type { State } from '../src/types';
 
@@ -64,6 +65,74 @@ test('crowded rail pickup creates one physical stock-move prerequisite and resum
   assert.equal(s.jobs.find((j) => j.id === childId)?.status, 'done', stateSummary(s));
   assert.equal(job.status, 'done', stateSummary(s));
   assert.equal(s.stacks.find((t) => t.id === child.stockMove!.sourceId)?.qty, 0);
+});
+
+test('a multilayer obstructing rail pile is cleared through bounded successive lifts', () => {
+  let { s, job, blocker } = crowdedPickup();
+  s.stacks.find((t) => t.id === blocker.id)!.qty = 3;
+  let childId = '';
+  for (let n = 0; n < 3000 && !childId; n++) {
+    S.tick(s, 0.1);
+    childId = job.railPickupRecovery?.activeJobId || '';
+  }
+  assert.ok(childId, stateSummary(s));
+  const moves = s.jobs.filter((j) => j.kind === 'moveStock');
+  assert.equal(moves.length, 1, 'Only one physical lift is planned in this simulation tick');
+  assert.equal(moves[0].stockMove?.sourceId, blocker.id);
+  assert.equal(moves[0].id, childId);
+  assert.equal(s.stacks.find((t) => t.id === blocker.id)?.reserved, 1);
+  s = S.load(S.save(s));
+  job = s.jobs.find((j) => j.id === job.id)!;
+  let resumed = false;
+  for (let n = 0; n < 23000 && !resumed; n++) {
+    S.tick(s, 0.1);
+    resumed = !!job.railWork?.panel.state.startsWith('carried') || job.status === 'done';
+  }
+  assert.equal(s.stacks.find((t) => t.id === blocker.id)?.qty, 0, stateSummary(s));
+  assert.ok(resumed, stateSummary(s));
+  assert.equal(s.jobs.filter((j) => j.kind === 'moveStock' &&
+    j.stockMove?.sourceId === blocker.id).length, 3,
+  'Reload retries must make one physical move per removed layer, without duplicates');
+});
+
+test('a fully moved drum is not repeatedly relocated under its retained stock ID', () => {
+  const s = S.createState();
+  const parent = S.plan(s, 'rail', 125, 4).job!;
+  parent.status = 'doing';
+  parent.phase = 'Waiting';
+  const sourceId = 'STK-DRUM';
+  const child = { ...parent, id: 'JOB-MOVED-DRUM', kind: 'moveStock' as const,
+    status: 'done' as const, railPickupRecovery: undefined,
+    stockMove: { sourceId, destination: { x: 54, z: 54, w: 1, d: 1 }, yaw: 0,
+      toStorage: true },
+  };
+  s.jobs.push(child);
+  s.stacks.push({ id: sourceId, item: 'diesel', x: 54, z: 54, w: 1, d: 1,
+    qty: 1, reserved: 0, liters: 200, source: 'opening' });
+  parent.railPickupRecovery = { attemptedIds: [sourceId],
+    activeJobId: child.id, activeBlockerId: sourceId };
+  let repeated = 0;
+  tickRailWork(s, parent, 0.1, {
+    recoverPickup: () => { repeated++; return { reason: '' }; },
+  } as unknown as RailWorkAPI);
+  assert.equal(repeated, 0);
+  assert.equal(parent.railPickupRecovery.activeJobId, undefined);
+
+  // A partly emptied pile keeps its old footprint and does need its next
+  // physical lift before the original rail crew retries pickup.
+  const rail = s.stacks[0];
+  rail.item = 'rail';
+  rail.x = 45;
+  rail.z = 45;
+  rail.w = 5;
+  rail.d = 3;
+  rail.qty = 2;
+  parent.railPickupRecovery.activeJobId = child.id;
+  parent.railPickupRecovery.activeBlockerId = sourceId;
+  tickRailWork(s, parent, 0.1, {
+    recoverPickup: () => { repeated++; return { reason: '' }; },
+  } as unknown as RailWorkAPI);
+  assert.equal(repeated, 1);
 });
 
 test('without a second crew, rail pickup stays specifically blocked and creates no unverified move', () => {

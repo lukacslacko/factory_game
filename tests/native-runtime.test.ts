@@ -177,6 +177,32 @@ test('native consumable automation settings validate atomically and persist with
   assert.equal(exported.automations.fuelDemandSeen, false);
 });
 
+test('native logistics policy is configurable, saved, and exposed with officer availability', async (t) => {
+  const host = await launch();
+  t.after(() => host.close());
+  const c = host.client;
+  await c.ok('new_game', { mode: 'empty' });
+  const result = await c.ok('logistics_policy_configure', { changes: {
+    automaticStockRelocation: false, minimumWaitSeconds: 45,
+    maxActiveRelocations: 2,
+  } });
+  assert.equal(result.settings.automaticStockRelocation, false);
+  assert.equal(result.settings.minimumWaitSeconds, 45);
+  assert.equal((await c.request('logistics_policy_configure', {
+    changes: { maxActiveRelocations: 9 },
+  })).ok, false);
+  const saved = JSON.parse((await c.ok('export')).json);
+  assert.equal(saved.logisticsPolicy.minimumWaitSeconds, 45);
+  assert.equal(saved.logisticsPolicy.maxActiveRelocations, 2);
+  const before = c.snapshots;
+  for (let n = 0; n < 50 && c.snapshots === before; n++) await sleep(20);
+  assert.equal(c.latest.logisticsPolicy.automaticStockRelocation, false);
+  assert.deepEqual(c.latest.logisticsOfficerStatus.onDutyOfficerIds, []);
+  await c.ok('save');
+  assert.equal(Sim.load(await fs.readFile(path.join(host.dir, 'yard.json'), 'utf8'))
+    .logisticsPolicy?.minimumWaitSeconds, 45);
+});
+
 test('native dependency diagnosis is on demand, read only, and absent from frequent snapshots', async (t) => {
   const host = await launch();
   t.after(() => host.close());

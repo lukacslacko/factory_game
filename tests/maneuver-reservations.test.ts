@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import * as S from '../src/sim.ts';
 import { MATERIALS } from '../src/catalog.ts';
 import { dist } from '../src/path.ts';
-import { claimManeuver, reconcileManeuverReservations } from '../src/maneuver-reservations.ts';
+import { claimManeuver, claimManeuverBatch, reconcileManeuverReservations } from '../src/maneuver-reservations.ts';
 import { seedHandlingResources, tickUntil } from './support/yard.ts';
 import type { Stack } from '../src/types.ts';
 
@@ -16,11 +16,15 @@ test('delivery owns only its next local maneuver and saves without letting anoth
   tickUntil(s, () => !!order().unload, 300);
   const pickup = s.maneuverReservations?.find((r) => r.ownerId === orderId);
   assert.equal(pickup?.kind, 'pickup');
+  pickup!.chokeAreas = [{ x: pickup!.area.x + pickup!.area.w + 1,
+    z: pickup!.area.z, w: 1, d: 1 }];
+  pickup!.priority = 10;
   assert.equal(claimManeuver(s, { ownerId: 'OTHER-CREW', equipmentId: 'OTHER-MACHINE',
     kind: 'pickup', area: pickup!.area }), orderId);
   assert.equal(s.maneuverReservations?.length, 1);
   s = S.load(S.save(s));
   assert.equal(s.maneuverReservations?.[0]?.ownerId, orderId);
+  assert.equal(s.maneuverReservations?.[0]?.chokeAreas?.length, 1);
   tickUntil(s, () => order().unload?.phase === 'carry' &&
     dist(s.equipment[0], order().unload!.drop) > 10, 600);
   assert.equal(s.maneuverReservations?.length || 0, 0,
@@ -116,4 +120,43 @@ test('expired or interrupted maneuver leases cannot pin another crew, and damage
   conflicting.maneuverReservations.push({ ...conflicting.maneuverReservations[0],
     ownerId: 'THIRD', equipmentId: 'EQ-THIRD' });
   assert.throws(() => S.load(JSON.stringify(conflicting)), /conflicting saved maneuver reservations/i);
+});
+
+test('simultaneous claims honor priority and reserve only the next choke point', () => {
+  let s = S.createState();
+  const [lowId] = S.purchase(s, 'slab', 1);
+  const [highId] = S.purchase(s, 'slab', 1);
+  for (const id of [lowId, highId]) {
+    const o = s.orders.find((q) => q.id === id)!;
+    o.status = 'unloading';
+    o.unload = { item: 'slab', equipmentId: `${id}-EQ`, operatorId: `${id}-WRK`,
+      phase: 'approach', clock: 0, qty: 1, source: { x: 4, z: 4 },
+      sourceY: 1, sourceYaw: 0, pickup: { x: 4, z: 8 },
+      destination: { x: 30, z: 30, w: 1, d: 1 }, drop: { x: 32, z: 30 },
+      dropYaw: 0, destinationY: 0 };
+  }
+  const choke = { x: 12, z: 12, w: 2, d: 2 };
+  const results = claimManeuverBatch(s, [
+    { ownerId: lowId, equipmentId: `${lowId}-EQ`, kind: 'pickup',
+      priority: 5, area: { x: 2, z: 2, w: 3, d: 3 }, chokeAreas: [choke] },
+    { ownerId: highId, equipmentId: `${highId}-EQ`, kind: 'pickup',
+      priority: 20, area: { x: 24, z: 24, w: 3, d: 3 }, chokeAreas: [choke] },
+  ]);
+  assert.equal(results.get(highId), '');
+  assert.equal(results.get(lowId), highId);
+  assert.deepEqual(s.maneuverReservations?.map((r) => r.ownerId), [highId]);
+  assert.equal(JSON.parse(S.save(s)).maneuverReservations[0].chokeAreas.length, 1);
+  s.orders.find((o) => o.id === highId)!.unload = undefined;
+  reconcileManeuverReservations(s);
+  assert.equal(s.maneuverReservations?.length, 0,
+    'A finished or interrupted action releases its choke before lease expiry');
+  assert.equal(claimManeuver(s, { ownerId: lowId, equipmentId: `${lowId}-EQ`,
+    kind: 'pickup', area: { x: 2, z: 2, w: 3, d: 3 }, chokeAreas: [choke] }), '');
+  assert.equal(claimManeuver(s, { ownerId: lowId, equipmentId: `${lowId}-EQ`,
+    kind: 'pickup', area: { x: 3, z: 3, w: 3, d: 3 } }), '');
+  assert.equal(s.maneuverReservations?.[0]?.chokeAreas, undefined,
+    'A replacement maneuver releases its prior choke');
+  const invalid = JSON.parse(S.save(s));
+  invalid.maneuverReservations[0].chokeAreas = Array(3).fill(choke);
+  assert.throws(() => S.load(JSON.stringify(invalid)), /maneuver reservation/i);
 });

@@ -22,6 +22,7 @@ import { equipmentAllows } from './equipment-roles';
 import { FORK_LOAD_CENTER } from './fork-geometry';
 import { deliveryBlockageNotice, resetDeliveryBlockage } from './delivery-control';
 import { staticRailAisle, staticRailPickupFaces } from './rail-pickup';
+import { createStorageAccessCheck, storageMergePreservesAccess } from './storage-access';
 import { claimManeuver, maneuverArea, releaseManeuvers } from './maneuver-reservations';
 import type {
   State,
@@ -517,6 +518,7 @@ function chooseStorage(
     zones.some((z) => r.x >= z.x && r.z >= z.z && r.x + r.w <= z.x + z.w && r.z + r.d <= z.z + z.d);
   const m = MATERIALS[item];
   const preservesRailAccess = createRailStorageAccessCheck(s);
+  const preservesStockAccess = createStorageAccessCheck(s);
   const clearance = constructionStorageClearance(s);
   let availableSlots = 0, accessibleDocks = 0, routeChecks = 0;
   let routeLimit = false;
@@ -620,6 +622,7 @@ function chooseStorage(
     )
     .sort((a, b) => b.qty - a.qty)) {
     const space = m.max - stack.qty - incoming(stack.id);
+    if (!storageMergePreservesAccess(s, stack, Math.min(requestedQty, space))) continue;
     const dock = tryDock(stack, space, stack);
     if (dock)
       return { destination: { rect: stack, merge: stack,
@@ -648,7 +651,8 @@ function chooseStorage(
   // Fill the far side first, leaving the loading face accessible as a dense block grows.
   for (const r of candidates) {
     if (routeLimit) break;
-    if (!preservesRailAccess(item, r)) continue;
+    if (!preservesRailAccess(item, r) ||
+        !preservesStockAccess(item, r, undefined, Math.min(requestedQty, m.max))) continue;
     const dock = tryDock(r, m.max);
     if (dock) return { destination: { rect: r, space: m.max, dock },
       reason: '', uncertainBlocker: dock.uncertainty };
@@ -767,7 +771,7 @@ function planUnloading(s: State, o: Order, api: DeliveryRoutingAPI,
     e.kind === 'excavator'
       ? assignedAssistant
         ? availableEquipmentAssistant(s, e.id)
-        : selectWorker(s,[riggingPoint(source,item)],{equipmentId:e.id,workId:o.id,eligible:r=>r.role!=='operator'&&workerSupportsEquipment(r,e.id),route:(r,p)=>walkingRoute(s,r,p,api)})?.worker
+        : selectWorker(s,[riggingPoint(source,item)],{equipmentId:e.id,workId:o.id,eligible:r=>(r.role==='builder'||r.role==='engineer')&&workerSupportsEquipment(r,e.id),route:(r,p)=>walkingRoute(s,r,p,api)})?.worker
       : undefined;
   if (e.kind === 'excavator' && !rigger) {
     return { feasible: false, code: 'rigger', reason:

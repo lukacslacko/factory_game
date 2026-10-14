@@ -106,6 +106,25 @@ test('idle supporting workers walk around real stock and stop on clear nearby gr
   assert.ok(dist(w, settled) < 0.01, 'Worker stays nearby without circling');
 });
 
+test('a rail helper walks toward its own parked machine during a stock-recovery wait', () => {
+  const { s, e, w } = crew();
+  assert.equal(setEquipmentAssistant(s, e.id, w.id), '');
+  const job = S.plan(s, 'rail', 125, 4).job!;
+  job.status = 'doing';
+  job.equipment = e.id;
+  job.worker = w.id;
+  job.railPickupRecovery = {
+    attemptedIds: ['STK-BLOCKER'], activeJobId: 'JOB-RECOVERY',
+    activeBlockerId: 'STK-BLOCKER',
+  };
+  w.job = job.id;
+  w.x = 55;
+  w.z = 30;
+  updateEquipmentAssistants(s, 0.1);
+  assert.ok(w.path.length > 0, 'The helper starts moving while the parent job waits');
+  assert.match(w.status, /Supporting/);
+});
+
 test('supporting workers respect rest, manual control, off-site state, and shifts', () => {
   const { s, e, w } = crew();
   w.x = 60;

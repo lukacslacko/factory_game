@@ -113,6 +113,19 @@ test('ordinary progress descriptions do not enter the blocked view', () => {
   assert.deepEqual(waiting.blockerIds, []);
 });
 
+test('a surveyed rail-pickup stock blocker remains a typed physical edge through reload', () => {
+  const s = S.createState();
+  const job = S.plan(s, 'rail', 125, 4).job!;
+  s.stacks.push({ id: 'STK-OBSTRUCTION', item: 'railCurve',
+    x: 39, z: 48, w: 6, d: 3, qty: 3, reserved: 0, source: 'opening' });
+  job.railPickupRecovery = { attemptedIds: [], blockerIds: ['STK-OBSTRUCTION'] };
+  job.reason = 'Waiting for the rail pickup to clear';
+  const row = diagnoseLogisticsDependencies(S.load(S.save(s))).diagnoses
+    .find((r) => r.id === job.id)!;
+  assert.equal(row.classification, 'physical-relocation');
+  assert.equal(row.edges.find((e) => e.to === 'STK-OBSTRUCTION')?.kind, 'rail-pickup');
+});
+
 test('large imported diagnostics stop at documented job and edge bounds', () => {
   const s = S.createState();
   for (let i = 0; i < 800; i++) s.jobs.push({

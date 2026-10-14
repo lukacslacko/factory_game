@@ -304,6 +304,12 @@ export const ROLES: Record<
     wage: 42,
     description: 'Installs site infrastructure; can also perform construction work.',
   },
+  logisticsOfficer: {
+    name: 'Logistics officer',
+    price: 160,
+    wage: 42,
+    description: 'Coordinates blocked work and, while on duty, can dispatch checked stock moves and clear idle equipment from work aisles. Does not operate or rig machinery.',
+  },
 };
 export const SERVICES = {
   power: {
@@ -321,7 +327,7 @@ export const SERVICES = {
 };
 /** One shared, deliberately ordered catalog for the desktop and browser stores. */
 export const PURCHASE_GROUPS: { id: string; name: string; items: string[] }[] = [
-  { id: 'workers', name: 'Workers', items: ['builder', 'operator', 'engineer', 'railDriver'] },
+  { id: 'workers', name: 'Workers', items: ['builder', 'operator', 'engineer', 'railDriver', 'logisticsOfficer'] },
   { id: 'equipment', name: 'Equipment', items: ['excavator', 'forklift'] },
   { id: 'site', name: 'Paving and buildings', items: ['slab', 'office', 'sanitary', 'shed', 'engineShed', 'store', 'fence'] },
   { id: 'railway', name: 'Railway', items: ['rail', 'railCurve', 'railPoints', 'railFrog', 'railClosure', 'railExit', 'bufferStop'] },

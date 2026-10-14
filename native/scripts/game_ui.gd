@@ -22,6 +22,7 @@ const TABS: Array[String] = ["Yard","Railway","Process","Electrical","Materials"
 const ACTIVITIES: Array[String] = ["receiving","paving","construction","rail","recovery"]
 const CATALOG: Dictionary = {
 	"builder":{"name":"Construction worker","price":90,"wage":28},"operator":{"name":"Equipment operator","price":120,"wage":36},"engineer":{"name":"Site engineer","price":150,"wage":42},
+	"logisticsOfficer":{"name":"Logistics officer","price":160,"wage":42},
 	"excavator":{"name":"EX-6 tracked excavator","price":64000,"mass":8500,"capacity":6000},"forklift":{"name":"FL-25 rough-terrain forklift","price":28500,"mass":4500,"capacity":2500},
 	"slab":{"name":"Concrete slab · 1 × 1 m","price":38,"mass":280},"rail":{"name":"Straight rail panel · 5 m","price":780,"mass":1450},"railCurve":{"name":"Curved rail panel · 15°","price":1120,"mass":1520},
 	"bufferStop":{"name":"Railway buffer stop","price":1250,"mass":850},
@@ -79,6 +80,10 @@ var dependency_report: Dictionary={}
 var dependency_captured_at: float=-1
 var dependency_pending: bool=false
 var dependency_error: String=""
+var logistics_officer_status_label: RichTextLabel
+var logistics_policy_buttons: Dictionary={}
+var logistics_wait_seconds: SpinBox
+var logistics_active_moves: SpinBox
 var unload_preflight_order_id: String=""
 var unload_preflight_pending: bool=false
 var unload_preflight_report: Dictionary={}
@@ -669,8 +674,8 @@ func _open_warnings() -> void:
 		_refresh_register()
 
 func _jump_blocked_work() -> void:
-	if active_tab=="Work" and tables.size()>1:
-		register_scroll.ensure_control_visible(tables[1].get_child(0))
+	if active_tab=="Work" and tables.size()>3:
+		register_scroll.ensure_control_visible(tables[3].get_child(0))
 
 func _request_dependency_diagnosis() -> void:
 	if dependency_pending:return
@@ -778,12 +783,70 @@ func _refresh_automations() -> void:
 	for request: Dictionary in report.get("shunterRequests",[]):
 		automation_status_label.text+="\n%s fuel request: %s"%[request.get("id","Shunter"),request.get("reason","Waiting")]
 
+func _logistics_policy() -> Dictionary:
+	return metadata.get("logisticsPolicy",state.get("logisticsPolicy",{}))
+
+func _logistics_switch(key: String,title: String,description: String) -> void:
+	var row:=HBoxContainer.new()
+	row.add_theme_constant_override("separation",12)
+	register_body.add_child(row)
+	var detail:=VBoxContainer.new();detail.size_flags_horizontal=Control.SIZE_EXPAND_FILL
+	row.add_child(detail)
+	_label(detail,title)
+	_note(detail,description)
+	var button:=CheckButton.new()
+	button.text="On"
+	button.tooltip_text=description
+	button.set_pressed_no_signal(bool(_logistics_policy().get(key,true)))
+	button.toggled.connect(func(enabled: bool)->void:
+		_send("logistics_policy_configure",{"changes":{key:enabled}}))
+	row.add_child(button)
+	logistics_policy_buttons[key]=button
+
+func _build_work_logistics() -> void:
+	_label(register_body,"LOGISTICS OFFICER")
+	_note(register_body,"Hire a logistics officer from Purchase / hire. Only an officer on site, on shift, and under automatic duty may coordinate recovery. Each approved relocation remains an ordinary physical job with a machine, operator, and destination.")
+	logistics_officer_status_label=RichTextLabel.new()
+	logistics_officer_status_label.bbcode_enabled=true
+	logistics_officer_status_label.fit_content=true
+	logistics_officer_status_label.scroll_active=false
+	logistics_officer_status_label.size_flags_horizontal=Control.SIZE_EXPAND_FILL
+	logistics_officer_status_label.meta_clicked.connect(func(meta: Variant)->void:_user_entity(str(meta)))
+	register_body.add_child(logistics_officer_status_label)
+	_logistics_switch("automaticStockRelocation","Automatically relocate obstructing stock","After a recorded wait, dispatch a checked storage move only when the source, equipment, and destination are physically available.")
+	_logistics_switch("automaticIdleClearance","Clear idle equipment from work areas","Ask available, automatically controlled equipment to move clear of a reported action or traffic obstruction.")
+	var policy: Dictionary=_logistics_policy()
+	logistics_wait_seconds=_automation_number(register_body,"Minimum reported wait",int(policy.get("minimumWaitSeconds",20)),5,600,"s")
+	logistics_active_moves=_automation_number(register_body,"Maximum active relocation jobs",int(policy.get("maxActiveRelocations",1)),1,3,"moves")
+	_button(register_body,"Apply logistics thresholds",func()->void:
+		_send("logistics_policy_configure",{"changes":{"minimumWaitSeconds":int(logistics_wait_seconds.value),"maxActiveRelocations":int(logistics_active_moves.value)}}))
+	_refresh_logistics_officer()
+
+func _refresh_logistics_officer() -> void:
+	if not is_instance_valid(logistics_officer_status_label):return
+	var policy: Dictionary=_logistics_policy()
+	for key: String in logistics_policy_buttons:
+		var button: CheckButton=logistics_policy_buttons[key]
+		if is_instance_valid(button):button.set_pressed_no_signal(bool(policy.get(key,true)))
+	var hired: Array[String]=[]
+	for worker: Dictionary in _records("workers"):
+		if str(worker.get("role",""))=="logisticsOfficer":hired.append(str(worker.get("id","")))
+	var on_duty: Array[String]=[]
+	for id: Variant in metadata.get("logisticsOfficerStatus",{}).get("onDutyOfficerIds",[]):on_duty.append(str(id))
+	var hired_links: Array[String]=[]
+	for id: String in hired:hired_links.append("[url=%s]%s[/url]"%[id,id])
+	var duty_links: Array[String]=[]
+	for id: String in on_duty:duty_links.append("[url=%s]%s[/url]"%[id,id])
+	logistics_officer_status_label.text="Hired: %d%s · On duty: %d%s\n%s"%[hired.size()," ("+", ".join(hired_links)+")" if not hired_links.is_empty() else "",on_duty.size()," ("+", ".join(duty_links)+")" if not duty_links.is_empty() else "","Recovery controls are saved, but no automatic logistics dispatch can start until an officer is available." if on_duty.is_empty() else "On-duty officers may initiate checked, physical recovery jobs under these saved limits."]
+
 func _build_register() -> void:
 	audit_label=null
 	record_status=null
 	severity_filter=null
 	diagnosis_button=null
 	diagnosis_note=null
+	logistics_officer_status_label=null
+	logistics_policy_buttons.clear()
 	automation_status_label=null
 	automation_buttons.clear()
 	_clear(register_layout)
@@ -880,6 +943,7 @@ func _build_register() -> void:
 			_table(register_body,"Empty return trains",["ID","Supplier engine","Deliveries","Cars","Phase","Waiting / status"])
 			collection_ui.build_register(self)
 		"Work":
+			_build_work_logistics()
 			_button(filters,"Expand all",func() -> void:
 				for group: Dictionary in _records("jobGroups"): group_expansion[str(group.id)]=true
 				_refresh_register())
@@ -889,6 +953,8 @@ func _build_register() -> void:
 			_table(register_body,"Blocked work · reported causes",["Notice","Reported cause","Work / owner","Linked IDs","Active tasks","Waiting","Suggested step","Physical prerequisite","Progress"],[92,260,96,160,106,92,250,110,170])
 			diagnosis_note=_note(register_body,"")
 			_table(register_body,"Dependency diagnosis · on demand",["Work / owner","Class","Blockers","Wait s","Cycle","Dependency edges","Reported reason"],[110,110,190,80,190,220,260])
+			_note(register_body,"Live cause groups below combine unresolved warnings that share a known blocker or physical prerequisite. They report observed waits, not permission to move a person, machine, or stack.")
+			_table(register_body,"Blocked work · grouped by cause",["Cause / blocker","Affected tasks","Longest wait","Work / owner","Physical area","Prerequisite","Progress / state","Next useful step"],[180,100,110,170,170,125,180,260])
 		"Activity":
 			_table(register_body,"Events",["Time","Severity","Type","Entity","Event"],[115,65,80,90,300])
 			_table(register_body,"Material movements",["Time","Material","Qty","From","To","Reason"])
@@ -1023,8 +1089,11 @@ func _refresh_register() -> void:
 				var label_text: String = "  ".repeat(int(work.get("depth",0)))+(marker if work.get("group",false) else "· ")+str(work.get("label",work.get("kind","Work")))
 				rows.append(_row(str(work.id),[work.id,label_text,work.get("status",""),"%d%%"%roundi(float(work.get("progress",0))*100),work.get("worker",""),work.get("operator",""),work.get("equipment",""),work.get("preferredEquipment",""),work.get("reason","")]))
 			_set_table(0,rows)
-			_set_table(1,_blocked_work_rows())
+			var blocked_rows: Array[Dictionary]=_blocked_work_rows()
+			_set_table(1,blocked_rows)
 			_set_table(2,_dependency_diagnosis_rows())
+			_set_table(3,_blocked_cause_rows(blocked_rows))
+			_refresh_logistics_officer()
 		"Activity":
 			for e: Dictionary in _records("events"):
 				var severity: String = str(e.get("severity","info"))
@@ -1647,6 +1716,77 @@ func _blocked_work_rows() -> Array[Dictionary]:
 		var action: String="Inspect %s; physical relocation must complete before rail pickup is checked again"%pickup.jobId
 		var progress: String="%d%% · %s · %s"%[roundi(float(pickup.progress)*100),pickup.status,pickup.phase]
 		rows.append(_row(str(work.id),["—",work.get("reason","Rail pickup waits for physical relocation"),work.id,linked,1,"—",action,pickup.jobId,progress],["",work.get("reason",""),work.id,linked,1,-1,action,pickup.jobId,float(pickup.progress)],{"0":str(work.id),"2":str(work.id),"7":str(pickup.jobId)}))
+	return rows
+
+func _blocked_area(id: String) -> String:
+	var found: Dictionary=_entity(id)
+	if found.is_empty():return "Location not recorded"
+	var entity: Dictionary=found.entity
+	if not entity.has("x") or not entity.has("z"):return "Location not recorded"
+	var position: String=_position(entity)
+	if entity.has("w") or entity.has("d"):
+		position+=" · %s × %s m"%[entity.get("w",1),entity.get("d",1)]
+	return position
+
+func _reported_wait_seconds(text: String) -> int:
+	var parts: PackedStringArray=text.split(":")
+	return int(parts[0])*60+int(parts[1]) if parts.size()==2 else -1
+
+func _blocked_cause_rows(blocked_rows: Array[Dictionary]) -> Array[Dictionary]:
+	var groups: Dictionary={}
+	var id_pattern: RegEx=RegEx.new()
+	id_pattern.compile("[A-Z]{1,16}-[0-9]{3,}(?:/BAY)?")
+	for row: Dictionary in blocked_rows:
+		var cells: Array=row.get("cells",[])
+		if cells.size()<9:continue
+		var owner: String=str(cells[2])
+		var prerequisite: String=str(cells[7])
+		var linked_ids: Array[String]=[]
+		for hit: RegExMatch in id_pattern.search_all(str(cells[3])):
+			if hit.get_string() not in linked_ids:linked_ids.append(hit.get_string())
+		var blocker: String=""
+		for prefix: String in ["STK-","WRK-","EQ-","JOB-"]:
+			for id: String in linked_ids:
+				if blocker.is_empty() and id.begins_with(prefix) and id!=prerequisite:blocker=id
+		var reason: String=str(cells[1]).to_lower()
+		var category: String="Other reported wait"
+		if not prerequisite.is_empty():category="Physical recovery"
+		elif blocker.begins_with("STK-"):category="Stock access"
+		elif blocker.begins_with("WRK-"):category="Worker clearance"
+		elif blocker.begins_with("EQ-"):category="Equipment clearance"
+		elif blocker.begins_with("JOB-"):category="Prerequisite work"
+		elif reason.contains("material") or reason.contains("slab") or reason.contains("stock"):category="Material supply"
+		elif reason.contains("worker") or reason.contains("crew"):category="Crew availability"
+		elif reason.contains("route") or reason.contains("path") or reason.contains("access"):category="Route access"
+		var cause_id: String=blocker if not blocker.is_empty() else prerequisite
+		var key: String=category+"|"+cause_id
+		if not groups.has(key):
+			groups[key]={"category":category,"causeId":cause_id,"owners":[],"ownerCounts":{},"maxWait":-1,"area":"","prerequisite":prerequisite,"progress":"","action":"","root":owner}
+		var group: Dictionary=groups[key]
+		if owner not in group.owners:group.owners.append(owner)
+		group.ownerCounts[owner]=maxi(int(group.ownerCounts.get(owner,0)),int(cells[4]))
+		group.maxWait=maxi(int(group.maxWait),_reported_wait_seconds(str(cells[5])))
+		if str(group.area).is_empty():
+			group.area=_blocked_area(cause_id)
+			if group.area=="Location not recorded":group.area=_blocked_area(owner)
+		if str(group.prerequisite).is_empty() and not prerequisite.is_empty():group.prerequisite=prerequisite
+		if str(group.progress).is_empty() and not str(cells[8]).is_empty():group.progress=str(cells[8])
+		if str(group.action).is_empty():group.action=str(cells[6])
+		groups[key]=group
+	var rows: Array[Dictionary]=[]
+	for key: String in groups:
+		var group: Dictionary=groups[key]
+		var count: int=0
+		for owner: String in group.ownerCounts:count+=int(group.ownerCounts[owner])
+		var cause_id: String=str(group.causeId)
+		var label: String=str(group.category)+( " · "+cause_id if not cause_id.is_empty() else "")
+		var wait_seconds: int=int(group.maxWait)
+		var wait_text: String="%d:%02d"%[int(wait_seconds/60),wait_seconds%60] if wait_seconds>=0 else "Not recorded"
+		var owners: String=" · ".join(group.owners)
+		var progress: String=str(group.progress) if not str(group.progress).is_empty() else "No active recovery job"
+		var reference: String=cause_id if not cause_id.is_empty() else str(group.root)
+		rows.append(_row(reference,[label,count,wait_text,owners,group.area,group.prerequisite if not str(group.prerequisite).is_empty() else "—",progress,group.action],[label,count,wait_seconds,owners,group.area,group.prerequisite,progress,group.action],{"0":reference,"3":str(group.root),"5":str(group.prerequisite)}))
+	rows.sort_custom(func(a: Dictionary,b: Dictionary)->bool:return int(a.sort[2])>int(b.sort[2]))
 	return rows
 
 func _blocked_work_action(notice: Dictionary,blockers: Array[String]) -> String:

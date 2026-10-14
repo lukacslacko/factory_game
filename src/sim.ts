@@ -3,6 +3,7 @@ import { reconcileBlockedWorkWarnings } from './logistics-warnings';
 import { reconcileManeuverReservations, releaseManeuvers } from './maneuver-reservations';
 import { planStorageMove, requestStorageMove } from './storage-moves';
 import type { StorageMoveRequest } from './storage-moves';
+import { onDutyLogisticsOfficers, recordLogisticsOfficerAction, reviewLogisticsOfficer } from './logistics-officer';
 import { planElectricalRun, tickElectricalJob, cancelElectricalRun, resumeElectricalRun, recoverElectricalRun, electricalRemovalConflict } from './electrical';
 import type { ElectricalRequest } from './electrical-types';
 import { electricalObstacles, electricalPlannedRects } from './electrical-geometry';
@@ -717,66 +718,77 @@ export function moveRailStock(
 }
 
 export function previewStorageMove(s: State, request: StorageMoveRequest) {
-  const { placements: _, ...preview } = planStorageMove(s, request);
+  const { placements: _, pickupSource: _pickup, ...preview } = planStorageMove(s, request);
   return preview;
 }
 export function moveToStorage(s: State, request: StorageMoveRequest) {
   return requestStorageMove(s, request, { id, createGroup: createJobGroup, createJob: newJob, event });
 }
 
-/** One checked, physical blocker move at a time. The rail crew keeps its
+/** One checked, physical blocker batch at a time. The rail crew keeps its
  * assignment and never relinquishes a suspended load for recovery. */
 function requestRailPickupRecovery(s: State, parent: Job, blockers: string[]) {
   const recovery = parent.railPickupRecovery ||= { attemptedIds: [] };
+  recovery.blockerIds = [...new Set(blockers)].slice(0, 24);
   const attempts = recovery.attemptedIds;
   if (s.elapsed < (recovery.nextProbeAt || 0))
     return { reason: recovery.lastError || 'Waiting before another bounded recovery survey.' };
-  recovery.nextProbeAt = s.elapsed + 10;
-  if (attempts.length >= 2)
-    return { reason: 'Two automatic stock moves were tried. Clear the remaining lifting face manually.' };
+  recovery.nextProbeAt = s.elapsed + 15;
+  if (attempts.length >= 24)
+    return { reason: 'Twenty-four physical recovery lifts were tried. Clear the remaining lifting face or add accessible storage.' };
   const candidates = [...new Set(blockers)]
-    .filter((blockerId) => blockerId !== parent.stack && !attempts.includes(blockerId))
+    .filter((blockerId) => blockerId !== parent.stack &&
+      attempts.filter((id) => id === blockerId).length < 16)
+    // A partially relocated pile retains the same footprint. Finish clearing
+    // that pile before disturbing another source, including after old saves
+    // that queued a single-panel prerequisite.
+    .sort((a, b) =>
+      attempts.filter((id) => id === b).length - attempts.filter((id) => id === a).length)
     .slice(0, 4);
   if (!candidates.length)
     return { reason: recovery.lastError ||
-      'No untried movable stock was identified; clear the fixed obstruction or choose another rail source.' };
+      'No further bounded stock relocation is feasible; clear the named obstruction or choose another rail source.' };
   // A manually assigned machine is never borrowed for an automatic prerequisite.
   // Role and availability are checked on the actual site crew, without moving them.
   const eligible = s.equipment.filter((e) =>
-    equipmentAllows(e, 'recovery') && !equipmentHasAssignedWork(s, e));
+    equipmentAllows(e, 'recovery') && !equipmentHasAssignedWork(s, e) &&
+    !e.job && !e.path.length && !e.cargo && e.fuel > 0 &&
+    !e.transportOrder && !e.deliveryOrder && !e.refueling);
   if (!eligible.length)
     return { reason: 'No unassigned machine permits recovery work; assign a separate crew or move the blocker manually.' };
-  const survey = { ...s, equipment: eligible };
   let firstFailure = '';
   for (const blockerId of candidates) {
     const stack = s.stacks.find((t) => t.id === blockerId);
-    if (!stack || !stack.item.startsWith('rail') || stack.qty - stack.reserved < 1) continue;
-    const request = { id: blockerId, quantity: 1 };
-    const checked = planStorageMove(survey, request);
-    if (checked.error) {
-      firstFailure ||= `${blockerId}: ${checked.error}`;
-      continue;
-    }
-    if (!checked.readiness?.includes('checked with site crew')) {
-      firstFailure ||= `${blockerId}: no separate operator, support worker, and machine have a verified handling route.`;
-      continue;
-    }
-    // Submission recomputes atomically. Do not accept a placement reached only
-    // by a manually reserved or role-incompatible machine in the full state.
-    const current = planStorageMove(s, request);
-    if (current.error || !current.readiness?.includes('checked with site crew') ||
-        JSON.stringify(current.placements) !== JSON.stringify(checked.placements)) {
-      firstFailure ||= `${blockerId}: storage placement changes when reserved machines are excluded.`;
-      continue;
-    }
-    const result = requestStorageMove(s, request, {
-      id, createGroup: createJobGroup, createJob: newJob, event,
-    });
-    if (result.error || result.jobIds?.length !== 1) {
-      firstFailure ||= `${blockerId}: ${result.error || 'No single physical recovery job was created.'}`;
-      continue;
-    }
-    return { jobId: result.jobIds[0], blockerId, reason: '' };
+    if (!stack || stack.reserved || stack.qty < 1) continue;
+    // Revalidate one lift at a time. Planning several projected routes in a
+    // large saved yard can freeze one movement tick for many seconds; the
+    // parent stays linked to each real move until the whole footprint clears.
+    for (const quantity of [1])
+      for (const machine of [...eligible]
+        .sort((a, b) => Math.hypot(a.x - stack.x, a.z - stack.z) -
+          Math.hypot(b.x - stack.x, b.z - stack.z))
+        .slice(0, 4)) {
+        const request = { id: blockerId, quantity,
+          equipmentId: machine.id, requireVerified: true };
+        const result = requestStorageMove(s, request, {
+          id, createGroup: createJobGroup, createJob: newJob, event,
+        });
+        if (result.error || !result.jobIds?.length || !result.groupId) {
+          firstFailure ||= `${blockerId}: ${result.error || 'No physical recovery jobs were created.'}`;
+          continue;
+        }
+        const group = s.jobGroups?.find((g) => g.id === result.groupId);
+        if (group) {
+          // A verified recovery crew stays with every lift in its chain;
+          // automatic work assignment cannot borrow the rail installer's
+          // manually assigned excavator midway through the prerequisite.
+          group.preferredEquipment = machine.id;
+          group.equipmentPriority = s.next++;
+        }
+        event(s, 'Logistics', result.groupId,
+          `${machine.id} assigned to move ${quantity} panel${quantity === 1 ? '' : 's'} from ${blockerId} in ${result.jobIds.length} physical lift${result.jobIds.length === 1 ? '' : 's'} before ${parent.id} retries its rail pickup.`);
+        return { jobId: result.jobIds.at(-1), blockerId, reason: '' };
+      }
   }
   return { reason: firstFailure ||
     'Blocking stock is reserved or cannot be lifted safely. Free an exposed panel or clear a lifting face.' };
@@ -1584,6 +1596,46 @@ function parkTrafficBlocker(
     }
   }
   return false;
+}
+
+/** The officer coordinates ordinary physical work; it never changes stock or
+ * equipment positions directly. Run on a slow cadence outside the movement
+ * loop so dependency diagnosis and route checks cannot stall animation. */
+function tickLogisticsOfficer(s: State) {
+  if (!onDutyLogisticsOfficers(s).length) return;
+  const proposal = reviewLogisticsOfficer(s).action;
+  if (!proposal) return;
+  if (proposal.kind === 'relocate-stock') {
+    const result = requestStorageMove(s, {
+      id: proposal.sourceId,
+      quantity: proposal.quantity,
+      equipmentId: proposal.equipmentId,
+      zoneId: proposal.zoneId,
+      requireVerified: true,
+    }, { id, createGroup: createJobGroup, createJob: newJob, event });
+    if (result.error || !result.groupId || !result.jobIds?.length) return;
+    const group = s.jobGroups?.find((g) => g.id === result.groupId);
+    if (group) {
+      group.preferredEquipment = proposal.equipmentId;
+      group.equipmentPriority = s.next++;
+    }
+    recordLogisticsOfficerAction(s, proposal);
+    event(s, 'Logistics', result.groupId,
+      `${proposal.officerId} dispatched ${proposal.equipmentId} to physically relocate ${proposal.sourceId} before ${proposal.rootId} resumes.`);
+    return;
+  }
+  const blocker = s.equipment.find((e) => e.id === proposal.equipmentId);
+  const root = s.jobs.find((j) => j.id === proposal.rootId);
+  const clearance = s.actionClearances?.find((r) =>
+    r.blockerIds.includes(proposal.equipmentId) &&
+    (r.ownerId === proposal.rootId || r.ownerId === root?.equipment));
+  const requester = s.equipment.find((e) =>
+    e.id === (clearance?.requesterEquipmentId || root?.equipment));
+  const goal = clearance?.point || (root ? { x: root.x, z: root.z } : undefined);
+  if (blocker && requester && requester.id !== blocker.id && goal &&
+      parkTrafficBlocker(s, requester, blocker, goal))
+    event(s, 'Logistics', blocker.id,
+      `${proposal.officerId} requested ${blocker.id} to clear ${proposal.rootId}'s working space.`);
 }
 
 function tickMove(s: State, p: Worker | Equipment, dt: number, speed: number) {
@@ -2879,7 +2931,7 @@ function assign(s: State, j: Job) {
     return;
   }
   // Availability preflight is cheap; actual walking costs are compared only after a feasible machine is chosen.
-  const helperOptions={equipmentId:requestedId,preferredId:j.preferredWorker,eligible:(w:Worker)=>w.role!=='operator'&&workerSupportsEquipment(w,requestedId)};
+  const helperOptions={equipmentId:requestedId,preferredId:j.preferredWorker,eligible:(w:Worker)=>(w.role==='builder'||w.role==='engineer')&&workerSupportsEquipment(w,requestedId)};
   let worker=s.workers.find(w=>w.id===j.preferredWorker&&workerCanStart(s,w,helperOptions))||s.workers.find(w=>workerCanStart(s,w,helperOptions));
   if (requestedId && equipmentAssistant(s, requestedId))
     worker = availableEquipmentAssistant(s, requestedId);
@@ -2888,7 +2940,7 @@ function assign(s: State, j: Job) {
     j.kind === 'slab' &&
     s.workers.some(
       (w) =>
-        w.role !== 'operator' &&
+        (w.role === 'builder' || w.role === 'engineer') &&
         workerSupportsEquipment(w, requestedId || w.assistingEquipment) &&
         workerAvailable(s, w) &&
         (w.id === j.preferredWorker || w.duty === 'auto') &&
@@ -2911,7 +2963,7 @@ function assign(s: State, j: Job) {
         equipmentCanDoJob(e, j, s),
     );
   if (!worker && !prefetch && !hasReadyHelper) {
-    const reachReason=s.workers.some(w=>workerCanStart(s,w,{equipmentId:requestedId,preferredId:j.preferredWorker,eligible:q=>q.role!=='operator'}))?'No reachable construction worker — clear a walking route to the work point':'Need an available construction worker';
+    const reachReason=s.workers.some(w=>workerCanStart(s,w,{equipmentId:requestedId,preferredId:j.preferredWorker,eligible:q=>q.role==='builder'||q.role==='engineer'}))?'No reachable construction worker — clear a walking route to the work point':'Need an available construction worker';
     j.reason = requestedId ? equipmentAssistantReason(s, requestedId) || reachReason : reachReason;
     return;
   }
@@ -3061,7 +3113,9 @@ function assign(s: State, j: Job) {
     equipmentId: eq.id,
     preferredId: j.preferredWorker,
     workId: j.parentId || j.id,
-    eligible: (person) => person.role !== 'operator' && workerSupportsEquipment(person, eq.id),
+    eligible: (person) =>
+      (person.role === 'builder' || person.role === 'engineer') &&
+      workerSupportsEquipment(person, eq.id),
     obstacles: obs,
   });
   worker = helperChoice?.worker;
@@ -3806,7 +3860,7 @@ export function tick(s: State, dt: number) {
   reconcileEquipmentAssignments(s);
   updateEquipmentAssistants(s, dt);
   tickActionClearances(s);
-  if (Math.floor((s.elapsed - dt) / 10) !== Math.floor(s.elapsed / 10))
+  if (Math.floor((s.elapsed - dt) / 10) !== Math.floor(s.elapsed / 10)) {
     tickConsumableAutomations(s, {
       refuelEquipment: refuel,
       refuelShunter: beginShunterRefueling,
@@ -3814,6 +3868,8 @@ export function tick(s: State, dt: number) {
       collectBarrels: (site, lines) => requestPhysicalCollection(site, { lines }, deliveryAPI),
       event,
     });
+    tickLogisticsOfficer(s);
+  }
   // Scheduling is deliberately slower than movement; pathfinding is only needed when assignments change.
   if (Math.floor((s.elapsed - dt) * 2) !== Math.floor(s.elapsed * 2)) {
     queueLooseRailBufferCleanup(s);
