@@ -132,7 +132,7 @@ func receive(ui, message: Dictionary) -> void:
 			if str(zone.id)==zone_id:label=_zone_label(zone);break
 		var destination: Dictionary=result.get("destination",{})
 		if zone_id.is_empty() or destination.is_empty():preview_note.text="No reachable storage destination was returned. Refresh the preview.";submit_button.disabled=true;return
-		preview_note.text="%d units · %s\n%s → %s\nPlacement: %s · %s × %s m\nSpace and reservations are checked again when work is created."%[int(result.get("quantity",quantity.value)),ui._mass(float(result.get("mass",0))),"Automatic choice" if selected_zone.is_empty() else "Selected stockyard",label,ui._position(destination),destination.get("w",1),destination.get("d",1)]
+		preview_note.text="%d units · %s\n%s → %s\nPlacement: %s · %s × %s m\n%s\nSpace and routes are checked again when work is created."%[int(result.get("quantity",quantity.value)),ui._mass(float(result.get("mass",0))),"Automatic choice" if selected_zone.is_empty() else "Selected stockyard",label,ui._position(destination),destination.get("w",1),destination.get("d",1),str(result.get("readiness","Handling route requires recheck before dispatch."))]
 		submit_button.disabled=false
 	elif request_id==move_request and submitting:
 		var error: String=str(result.get("error",message.get("error","")))

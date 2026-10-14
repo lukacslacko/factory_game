@@ -1,4 +1,5 @@
 import { storageDestinationReserved } from './storage-locks';
+import { reconcileBlockedWorkWarnings } from './logistics-warnings';
 import { planStorageMove, requestStorageMove } from './storage-moves';
 import type { StorageMoveRequest } from './storage-moves';
 import { planElectricalRun, tickElectricalJob, cancelElectricalRun, resumeElectricalRun, recoverElectricalRun, electricalRemovalConflict } from './electrical';
@@ -3763,6 +3764,8 @@ export function tick(s: State, dt: number) {
     );
     for (const { job } of queued) assign(s, job);
   }
+  if (Math.floor(s.elapsed - dt) !== Math.floor(s.elapsed))
+    reconcileBlockedWorkWarnings(s, () => id(s, 'notice'));
   if (s.wageClock >= 900) {
     const intervals = Math.floor(s.wageClock / 900);
     s.wageClock %= 900;

@@ -54,6 +54,8 @@ func _run()->void:
 	_check(_text(ui.inspector_body).contains("place supported slab"),"Assigned worker sees the actual job clearance instead of an unexplained wait")
 	ui.show_entity("N-1001")
 	_check(_button(ui.inspector_body,"Inspect JOB-1001")!=null and _button(ui.inspector_body,"Locate WRK-1002")!=null,"Notice inspector has direct owner and blocker inspection and location controls")
+	_press(ui,"Warnings 1")
+	_check(ui.active_tab=="Inbox" and is_instance_valid(ui.severity_filter) and ui.severity_filter.selected==1 and ui.tables[0].rows.size()==1,"Warning count opens the separate warnings-only inbox view")
 	ui.show_tab("Inbox")
 	_check(is_instance_valid(ui.severity_filter) and ui.severity_filter.item_count==3,"Inbox has an explicit warnings-only selector")
 	ui.severity_filter.selected=1;ui.severity_filter.item_selected.emit(1)

@@ -1,0 +1,24 @@
+{
+  "version": "0.33.0",
+  "build": 230,
+  "scope": "First site-logistics batch: checked storage-move source and destination previews, deduplicated persistent work warnings, warnings-only native shortcut",
+  "fullSuite": { "passed": 816, "failed": 0, "durationSeconds": 641.0 },
+  "nativeChecks": {
+    "warningUiAssertions": 24,
+    "storageUiAssertions": 37,
+    "storageBridgeAssertions": 106,
+    "packageStartedWithIsolatedData": true,
+    "packageSignatureVerified": true
+  },
+  "releaseArchive": {
+    "name": "Plant-01-macOS-arm64-v0.33.0.zip",
+    "bytes": 152186442,
+    "sha256": "bd48fe740794547a81d8c6b01972171fdf437cf9ab6cd4dbc3af38a4611bb8aa"
+  },
+  "issues": {
+    "completed": [42],
+    "partial": [49],
+    "remaining": [50, 51, 52, 53]
+  },
+  "limits": "Changing yard occupancy is rechecked during execution. Delivery previews, shared long-term yard access, automatic recovery and logistics officer policies remain in later batches."
+}

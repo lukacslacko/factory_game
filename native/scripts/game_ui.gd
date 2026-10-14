@@ -67,6 +67,7 @@ var error_label: Label
 var error_panel: PanelContainer
 var pause_button: Button
 var tab_buttons: Dictionary = {}
+var warning_button: Button
 var startup: Window
 var continue_button: Button
 var purchase_window: Window
@@ -144,6 +145,8 @@ func setup() -> void:
 		button.custom_minimum_size.y=34
 		button.toggle_mode=true
 		tab_buttons[tab]=button
+	warning_button=_button(top,"Warnings 0",_open_warnings)
+	warning_button.tooltip_text="Show unresolved blocked-work and traffic warnings"
 	time_label=_label(top,"Connecting…")
 	time_label.custom_minimum_size.x=122
 	time_label.horizontal_alignment=HORIZONTAL_ALIGNMENT_RIGHT
@@ -529,9 +532,12 @@ func update_snapshot(message: Dictionary) -> void:
 	total=float(message.get("summaries",{}).get("totalCosts",total))
 	summary_label.text=("CREATIVE · " if bool(state.get("creative",false)) else "")+"%d workers · %d working · %d queued · %s"%[_records("workers").size(),active,queued,_money(total)]
 	var unseen: int = 0
+	var active_warnings: int = 0
 	for notice: Dictionary in _records("notices"):
 		if not bool(notice.get("seen",false)): unseen+=1
+		if _notice_severity(notice)=="warning" and str(notice.get("state","todo"))!="done":active_warnings+=1
 	(tab_buttons["Inbox"] as Button).text="Inbox %d"%unseen
+	warning_button.text="Warnings %d"%active_warnings
 	refresh_pending=true
 	inspector_pending=true
 	_check_notices()
@@ -616,6 +622,12 @@ func _switch_tab(tab: String) -> void:
 	register_panel.visible=tab!="Yard"
 	if tab!="Yard": _build_register()
 	_render_inspector()
+
+func _open_warnings() -> void:
+	_switch_tab("Inbox")
+	if is_instance_valid(severity_filter):
+		severity_filter.select(1)
+		_refresh_register()
 
 func _clear(parent: Node) -> void:
 	for child: Node in parent.get_children():

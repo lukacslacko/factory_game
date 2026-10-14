@@ -2,7 +2,7 @@
 
 ## Native game
 
-The playable Godot migration uses the approved Concept C art and a separate local simulation process. Open **Plant 01 v0.32.2.app** in the surrounding `outputs/` folder, or double-click **Open Plant 01.command** for development. No browser is required. [Download the Mac app](https://github.com/lukacslacko/factory_game/releases/tag/v0.32.2). See [native game instructions](native/README.md) and [migration notes](docs/native-migration.md). The browser game and static visual proof remain available below.
+The playable Godot migration uses the approved Concept C art and a separate local simulation process. Open **Plant 01 v0.33.0.app** in the surrounding `outputs/` folder, or double-click **Open Plant 01.command** for development. No browser is required. [Download the Mac app](https://github.com/lukacslacko/factory_game/releases/tag/v0.33.0). See [native game instructions](native/README.md) and [migration notes](docs/native-migration.md). The browser game and static visual proof remain available below.
 
 
 A playable first version of the fantasy chemistry plant game. Build and operate the construction yard before chemical production arrives: hire a crew, receive physical materials, move equipment, pave ground, extend track, and assemble a small base.
@@ -10,6 +10,12 @@ A playable first version of the fantasy chemistry plant game. Build and operate 
 The world uses a true perspective 3D camera, with a meter grid, dimensional stock, angled lighting, and grid-aligned parked equipment. The records use the approved Condensed direction. The visual target is the latest **80% A / 20% B** selection, rather than the earlier rejected flat world studies.
 
 ![Native gameplay](native/screenshots/02-native-equipment.png)
+
+## Logistics access and work warnings — v0.33.0
+
+Storage moves now survey a real available machine, operator, and support worker. Before offering a reachable move, the planner checks the source pickup, crew access, loaded withdrawal, route to the stockyard, setdown access, and the machine's empty withdrawal. A boxed-in rail pile is refused before a job reserves it; an exposed neighboring pile can still be moved. If no crew is available yet, the preview labels its route unverified while allowing work to be queued. Conditions are checked again when the job is created and as the yard changes. Persistent missing-supply and other uncovered work blockages appear in a deduplicated top-bar **Warnings** view and resolve when work resumes.
+
+This is the first batch under [site logistics coordination #53](https://github.com/lukacslacko/factory_game/issues/53). Shared stockyard access reservations and automatic physical recovery remain tracked in the linked issues.
 
 ## Vegetation beneath equipment and stock — v0.32.2
 

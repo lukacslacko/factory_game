@@ -464,6 +464,10 @@ export interface Job extends Rect {
   recoveryStack?: Stack;
   retryAt?: number;
   retryRevision?: number;
+  /** One persistent actionable warning for the current root work blockage. */
+  logisticsNoticeId?: string;
+  logisticsWaitSince?: number;
+  logisticsWaitReason?: string;
   fuelLiters?: number;
   fuelWork?: EquipmentFuelWork;
   railWork?: RailWork;

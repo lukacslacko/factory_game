@@ -167,6 +167,37 @@ test('storage preview is read-only, quotes remaining contents mass, and selects 
   assert.equal(S.save(s), before, 'Preview acquires no stock, space, jobs, IDs or money');
 });
 
+test('a boxed-in rail stack is refused before work creation while an exposed neighbor remains movable', () => {
+  const s = S.createState();
+  assert.equal(S.addZone(s, { x: 70, z: 35, w: 30, d: 35 }, 'East stockyard'), '');
+  const e = seedHandlingResources(s, 'excavator');
+  Object.assign(e, { x: 24, z: 46, yaw: 0 });
+  Object.assign(s.workers[0], { x: 24, z: 42 });
+  Object.assign(s.workers[1], { x: 28, z: 50 });
+  const rail = MATERIALS.railClosure;
+  const add = (id: string, x: number, z: number) => {
+    const t: Stack = { id, item: 'railClosure', x, z, w: rail.w, d: rail.d,
+      qty: 2, reserved: 0, source: 'opening' };
+    s.stacks.push(t);
+    return t;
+  };
+  const center = add('STK-CENTER', 45, 48);
+  const outer = add('STK-WEST', 39, 48);
+  add('STK-EAST', 51, 48);
+  add('STK-NORTH', 45, 44);
+  add('STK-SOUTH', 45, 52);
+  const before = S.save(s);
+  const refused = S.previewStorageMove(s, { id: center.id });
+  assert.match(refused.error, /no complete pickup plan/i);
+  assert.match(refused.error, /STK-WEST|STK-EAST/, 'The refusal names a real blocking stack');
+  assert.equal(S.save(s), before, 'A refused preview does not reserve material or mutate the yard');
+  assert.match(S.moveToStorage(s, { id: center.id }).error, /no complete pickup plan/i);
+  const preview = S.previewStorageMove(s, { id: outer.id });
+  assert.equal(preview.error, '', 'An exposed outer stack still has a checked escape route');
+  assert.match(preview.readiness!, /checked with site crew/i);
+  assert.equal(S.save(s), before);
+});
+
 for (const [item, kind] of [
   ['cableReel', 'forklift'],
   ['diesel', 'excavator'],
@@ -206,6 +237,10 @@ test('queued movement reserves the exact requested source and canceling releases
   const { s, t } = fixture('slab', 12);
   s.equipment = [];
   s.workers = [];
+  assert.match(S.previewStorageMove(s, { id: t.id, quantity: 5 }).readiness || '',
+    /route not verified/i, 'A queued future crew is not represented as a checked physical route');
+  assert.equal(S.previewStorageMove(s, { id: t.id, quantity: 12 }).error, '',
+    'A future excavator may handle a full heavy bundle even without a crew on site yet');
   const result = S.moveToStorage(s, { id: t.id, quantity: 5 });
   assert.equal(result.error, '');
   assert.equal(t.qty, 12);
