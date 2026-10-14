@@ -282,3 +282,11 @@ The exact package passes its 67-view Mac GPU audit (12,092 checks), normal proje
 Install **Plant 01 v0.30.0.app** beside the earlier apps and leave it closed. The running game and private saves are untouched. All **96** packaged repository files and **164** installed files match; the installed ad-hoc signature verifies. The archive contains no saves, logs, tests, captures, or repository metadata.
 
 Release: [v0.30.0](https://github.com/lukacslacko/factory_game/releases/tag/v0.30.0). `Plant-01-macOS-arm64-v0.30.0.zip` is **152,177,375 bytes**, SHA-256 **`495addf04948e5a375391adc35f7cd8dad0b8f4f9c0228eeb763fa00b085eff0`**.
+
+## Native v0.31.0 — layered vegetation and paths
+
+Build 226 adds deterministic grass, weeds, and clustered bushes to the initial terrain. Actual accepted equipment travel clears tall growth along the chassis and gradually compacts grass under wheels or tracks. Filtered ground shading displays the worn route; automatic routing still prefers paving, then established dirt. Quiet ground recovers in place, with grass returning as ruts fade over six simulated hours and weeds and bushes following in stages. The save retains bounded disturbance history, including migration of older worn yards. Plants never reroll positions during play or reload. See [behavior and growth timing](design/vegetation-and-tracks.md).
+
+The full 811-test suite, both builds, native growth/ghost checks, two reviewed real-GPU fixture captures, ad-hoc signature and 30-assertion exact packaged native integration pass. The new self-contained app is installed beside v0.30.0 and leaves the current running session and private save untouched. The public archive contains the native app and player guides, excluding saves, logs, tests, and development captures. The browser Site remains v0.18.0.
+
+Release: [v0.31.0](https://github.com/lukacslacko/factory_game/releases/tag/v0.31.0). `Plant-01-macOS-arm64-v0.31.0.zip` has SHA-256 **`b41e93b31e3f569c7fb395ea2863ea8c026ec61698f8c4d910e46c748c45f270`**.

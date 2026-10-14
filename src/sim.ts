@@ -53,7 +53,7 @@ import {
   workerSupportsEquipment,
   updateEquipmentAssistants,
 } from './work-crews';
-import { recordEquipmentTravel } from './ground-wear';
+import { recordEquipmentTravel, recoverGround } from './ground-wear';
 import { railLocationStatus } from './rail-locations';
 import { railPossessionConflict } from './rail-operations';
 import { railRoute } from './rail-routing';
@@ -242,6 +242,7 @@ export function createState(): State {
     railLocations: [],
     paving: {},
     groundWear: {},
+    vegetationLastDisturbed: {},
     zones: [],
     jobs: [],
     orders: [],
@@ -3617,6 +3618,7 @@ export function tick(s: State, dt: number) {
   if (s.paused) return;
   reconcileEquipmentAssignments(s);
   s.elapsed += dt;
+  recoverGround(s, s.elapsed - dt);
   s.time += dt;
   s.wageClock += dt;
   tickRailOperations(s, dt);
@@ -3898,6 +3900,8 @@ export function load(json: string): State {
   }
   reconcileElectricalLoads(s);
   s.groundWear ??= {};
+  // Previously worn saves did not record shrub disturbance separately.
+  s.vegetationLastDisturbed ??= Object.fromEntries(Object.keys(s.groundWear).map((cell) => [cell, s.elapsed]));
   s.railLocations ??= [];
   for (const order of s.orders) migrateRoadDrive(s, order);
   groupConnectedRailWork(s);

@@ -33,9 +33,11 @@ var selection_node:Node3D
 var intent_node:Node3D
 var masking_key:String=""
 var wear_key:String=""
-var wear_node:MultiMeshInstance3D
+var cover_image:Image
+var cover_texture:ImageTexture
+var vegetation_last_update_ms:int=0
+var wear_last_update_ms:int=0
 var initialized:bool=false
-var vegetation_cleared:Dictionary={}
 var public_siding:Node3D
 var siding_access_key:String=""
 var public_mainline:Node3D
@@ -46,6 +48,11 @@ func setup()->void:
 	initialized=true
 	name="ActualSimulationYard"
 	soil=Ground._surface(0,"9a855f","c1ad87")
+	cover_image=Image.create(300,190,false,Image.FORMAT_RF)
+	cover_image.fill(Color(1,0,0,1))
+	cover_texture=ImageTexture.create_from_image(cover_image)
+	soil.set_shader_parameter("cover_texture",cover_texture)
+	soil.set_shader_parameter("use_cover_texture",true)
 	terrain=MeshInstance3D.new();terrain.name="ExcavatableNativeGround"
 	terrain.mesh=ElectricalModels.terrain_mesh([]);terrain.material_override=soil
 	terrain.cast_shadow=GeometryInstance3D.SHADOW_CASTING_SETTING_OFF; add_child(terrain)
@@ -55,7 +62,6 @@ func setup()->void:
 	var mm:=MultiMesh.new(); mm.transform_format=MultiMesh.TRANSFORM_3D; mm.use_colors=true
 	var slab:=BoxMesh.new(); slab.size=Vector3(.992,.105,.992); mm.mesh=slab
 	paving.multimesh=mm; paving.material_override=Ground._surface(1,"a8a18b","c1b99f"); add_child(paving)
-	wear_node=MultiMeshInstance3D.new(); wear_node.name="ActualEquipmentWear"; add_child(wear_node)
 	preview_node=Node3D.new(); preview_node.name="PlacementPreview"; add_child(preview_node)
 	selection_node=Node3D.new(); selection_node.name="Selection"; add_child(selection_node)
 	intent_node=Node3D.new(); intent_node.name="SelectedEquipmentIntent"; add_child(intent_node)
@@ -64,7 +70,8 @@ func setup()->void:
 func sync_snapshot(message:Dictionary)->void:
 	if not initialized:setup()
 	var incoming:Dictionary=message.get("state",{})
-	if float(incoming.get("elapsed",0))<float(state.get("elapsed",0)) or int(incoming.get("next",0))<int(state.get("next",0)):vegetation_cleared.clear();masking_key=""
+	if float(incoming.get("elapsed",0))<float(state.get("elapsed",0)) or int(incoming.get("next",0))<int(state.get("next",0)):
+		masking_key="";wear_key="";vegetation_last_update_ms=0;wear_last_update_ms=0
 	state=incoming
 	render=message.get("render",{})
 	var now:=Time.get_ticks_msec()
@@ -462,23 +469,23 @@ func _sync_paving()->void:
 		paving.multimesh.set_instance_color(index,Color(shade,shade,shade,1)); index+=1
 
 func _sync_wear()->void:
+	var now:=Time.get_ticks_msec()
+	if wear_last_update_ms>0 and now-wear_last_update_ms<500:return
 	var wear:Dictionary=state.get("groundWear",{})
 	var open_cells:Dictionary={}
 	for cell:Dictionary in render.get("electrical",{}).get("trenches",[]):open_cells[str(int(cell.x))+","+str(int(cell.z))]=true
 	var key:=str(hash(JSON.stringify([wear,open_cells])))
 	if key==wear_key:return
 	wear_key=key
-	var cells:Array=[]
+	wear_last_update_ms=now
+	cover_image.fill(Color(1,0,0,1))
 	for cell in wear:
-		if float(wear[cell])>.15 and not state.get("paving",{}).has(cell) and not open_cells.has(cell):cells.append(cell)
-	var mesh:=MultiMesh.new(); mesh.transform_format=MultiMesh.TRANSFORM_3D; mesh.use_colors=true
-	var slab:=PlaneMesh.new(); slab.size=Vector2(.9,.9); mesh.mesh=slab; mesh.instance_count=cells.size()
-	for i in range(cells.size()):
-		var xy:=str(cells[i]).split(","); if xy.size()!=2:continue
-		mesh.set_instance_transform(i,Transform3D(Basis.IDENTITY,Vector3(float(xy[0])+.5,.006,float(xy[1])+.5)))
-		mesh.set_instance_color(i,Color(.67,.55,.38,clampf(float(wear[cells[i]])*.045,.03,.29)))
-	var material:=StandardMaterial3D.new(); material.vertex_color_use_as_albedo=true; material.transparency=BaseMaterial3D.TRANSPARENCY_ALPHA; material.roughness=1
-	wear_node.multimesh=mesh; wear_node.material_override=material; wear_node.cast_shadow=GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		var xy:=str(cell).split(",")
+		if xy.size()!=2:continue
+		var ix:=int(xy[0])+50;var iz:=int(xy[1])+40
+		if ix<0 or ix>=300 or iz<0 or iz>=190:continue
+		cover_image.set_pixel(ix,iz,Color(clampf(1.0-float(wear[cell])*.88,.12,1.0),0,0,1))
+	cover_texture.update(cover_image)
 
 func _surface_height(point:Dictionary)->float:
 	return .105 if state.get("paving",{}).has(str(int(floor(float(point.get("x",0)))))+","+str(int(floor(float(point.get("z",0)))))) else 0.0
@@ -712,44 +719,51 @@ func _track_paths(parent:Node3D,paths:Array,ballast:bool)->void:
 func _vegetation()->void:
 	var foliage:=StandardMaterial3D.new(); foliage.vertex_color_use_as_albedo=true;foliage.vertex_color_is_srgb=true;foliage.roughness=.95;foliage.cull_mode=BaseMaterial3D.CULL_DISABLED
 	var crown:=StandardMaterial3D.new(); crown.vertex_color_use_as_albedo=true;crown.vertex_color_is_srgb=true;crown.roughness=.93
-	var rng:=RandomNumberGenerator.new();rng.seed=3021047
-	for variant in range(6):
+	var habitat:=FastNoiseLite.new();habitat.seed=734211;habitat.frequency=.036;habitat.fractal_type=FastNoiseLite.FRACTAL_FBM
+	for variant in range(7):
+		# Independent fixed streams keep every plant in place across redraws and saves.
+		var rng:=RandomNumberGenerator.new();rng.seed=3021047+variant*100003
 		var transforms:Array[Transform3D]=[];var colors:Array[Color]=[]
-		var count:int=2400 if variant<2 else 230 if variant<5 else 700
+		var count:int=5000 if variant<2 else 1850 if variant==2 else 420 if variant==3 else 350 if variant==4 else 290 if variant==5 else 700
 		for i in range(count):
 			var x:=rng.randf_range(-42,220);var z:=rng.randf_range(-34,124)
 			if absf(z+13)<5 or absf(x+8)<5 and z<17 or absf(z)<1.8 or x>25 and x<127 and absf(z-5)<1.8:continue
 			if x>0 and x<25:
 				var t:=x/25.;if absf(z-5*(3*t*t-2*t*t*t))<1.9:continue
-			var size:=rng.randf_range(.9,1.7) if variant<2 else rng.randf_range(.8,1.5) if variant<5 else rng.randf_range(.08,.27)
+			if variant>=2 and variant<6:
+				var richness:float=clampf((habitat.get_noise_2d(x,z)+.28)*1.5,0.0,1.0)
+				if rng.randf()>.12+.88*richness:continue
+			var size:=rng.randf_range(.9,1.7) if variant<2 else rng.randf_range(.65,1.35) if variant==2 else rng.randf_range(.65,1.48) if variant<6 else rng.randf_range(.08,.27)
 			var basis:=Basis(Vector3.UP,rng.randf()*TAU).scaled(Vector3(size,size*rng.randf_range(.8,1.1),size))
 			transforms.append(Transform3D(basis,Vector3(x,.005,z)))
-			colors.append(Color.from_hsv(rng.randf_range(.20,.26),rng.randf_range(.42,.63),rng.randf_range(.42,.64)) if variant<5 else Color.from_hsv(.11,.11,rng.randf_range(.52,.73)))
-		var mesh:Mesh=Ground._grass_mesh(variant==1) if variant<2 else Ground._crown_mesh(variant-2) if variant<5 else Ground._boulder_mesh()
+			colors.append(Color.from_hsv(rng.randf_range(.20,.27),rng.randf_range(.38,.61),rng.randf_range(.45,.66)) if variant<3 else Color.from_hsv(rng.randf_range(.19,.29),rng.randf_range(.42,.68),rng.randf_range(.32,.57)) if variant<6 else Color.from_hsv(.11,.11,rng.randf_range(.52,.73)))
+		var mesh:Mesh=Ground._grass_mesh(variant==1) if variant<2 else Ground._herb_mesh() if variant==2 else Ground._crown_mesh(variant-3) if variant<6 else Ground._boulder_mesh()
 		var node:=MultiMeshInstance3D.new();var mm:=MultiMesh.new();mm.transform_format=MultiMesh.TRANSFORM_3D;mm.use_colors=true;mm.mesh=mesh;mm.instance_count=transforms.size()
 		for i in range(transforms.size()):mm.set_instance_transform(i,transforms[i]);mm.set_instance_color(i,colors[i])
-		node.multimesh=mm;node.material_override=foliage if variant<2 else crown;node.name="StableVegetation%d"%variant;add_child(node)
-		plants.append({"node":node,"transforms":transforms,"bounds":mesh.get_aabb()})
+		node.multimesh=mm;node.material_override=foliage if variant<3 else crown;node.name="StableVegetation%d"%variant;add_child(node)
+		plants.append({"node":node,"transforms":transforms,"bounds":mesh.get_aabb(),"stage":"grass" if variant<2 else "weed" if variant==2 else "bush" if variant<6 else "stone"})
 
 func _mask_vegetation()->void:
+	var now:=Time.get_ticks_msec()
+	if vegetation_last_update_ms>0 and now-vegetation_last_update_ms<500:return
 	var masks:Dictionary=state.get("paving",{}).duplicate()
-	# A first pass clears plants; snapshots never reroll or move remaining foliage.
+	# Current vehicles temporarily cover plants; only committed travel disturbs
+	# them persistently, so foliage can grow back along abandoned routes.
 	for actor in render.get("actors",[]):
-		if str(actor.get("kind",""))!="worker" and bool(actor.get("visible",true)):_clear_vehicle_plants(actor,4.5,2.9)
-	for shunter in render.get("railShunters",[]):_clear_vehicle_plants(shunter,10.0,3.0)
+		if str(actor.get("kind",""))!="worker" and bool(actor.get("visible",true)):_clear_vehicle_plants(actor,4.5,2.9,masks)
+	for shunter in render.get("railShunters",[]):_clear_vehicle_plants(shunter,10.0,3.0,masks)
 	for carrier in render.get("carriers",[]):
-		_clear_vehicle_plants(carrier,10.0 if str(carrier.kind)=="rail" else 8.8,3.0)
+		_clear_vehicle_plants(carrier,10.0 if str(carrier.kind)=="rail" else 8.8,3.0,masks)
 		if str(carrier.kind)=="rail":
 			if carrier.has("cars"):
-				for car in carrier.cars:_clear_vehicle_plants(car,float(car.get("length",16.8))-.8,3.0)
-			elif not carrier.get("freight",{}).is_empty():_clear_vehicle_plants(carrier.freight,11.5,3.0)
+				for car in carrier.cars:_clear_vehicle_plants(car,float(car.get("length",16.8))-.8,3.0,masks)
+			elif not carrier.get("freight",{}).is_empty():_clear_vehicle_plants(carrier.freight,11.5,3.0,masks)
 	for trench:Dictionary in render.get("electrical",{}).get("trenches",[]):
 		masks[str(int(trench.x))+","+str(int(trench.z))]=true
 		if float(trench.get("spoilM3",0))>.0001:
 			var rect:Dictionary=trench.get("spoilRect",{})
 			for x:int in range(int(rect.get("x",0)),int(rect.get("x",0))+int(rect.get("w",1))):
 				for z:int in range(int(rect.get("z",0)),int(rect.get("z",0))+int(rect.get("d",1))):masks[str(x)+","+str(z)]=true
-	for cell in vegetation_cleared:masks[cell]=true
 	for table in ["buildings","stacks"]:
 		for entity in state.get(table,[]):
 			if table=="stacks" and int(entity.get("qty",0))<=0:continue
@@ -758,25 +772,39 @@ func _mask_vegetation()->void:
 	for rail in render.get("railGeometry",[]):
 		if bool(rail.get("planned",false)):continue
 		for cell in rail.geometry.get("cells",[]):masks[str(int(cell.x))+","+str(int(cell.z))]=true
-	for cell in state.get("groundWear",{}):
-		if float(state.groundWear[cell])>.001:masks[cell]=true
-	for cell in masks:vegetation_cleared[cell]=true
-	var key:=str(hash(JSON.stringify(masks)))
+	var wear:Dictionary=state.get("groundWear",{})
+	var disturbed:Dictionary=state.get("vegetationLastDisturbed",{})
+	var key:=str(hash(JSON.stringify([masks,wear,disturbed,int(float(state.get("elapsed",0))/60.0)])))
 	if key==masking_key:return
 	masking_key=key
+	vegetation_last_update_ms=now
+	var elapsed:float=float(state.get("elapsed",0))
 	for patch in plants:
 		var node:MultiMeshInstance3D=patch.node;var transforms:Array=patch.transforms
+		var stage:String=str(patch.stage)
 		for i in range(transforms.size()):
 			var t:Transform3D=transforms[i]
 			var bounds:AABB=patch.bounds;var scale:Vector3=t.basis.get_scale()
 			var radius:float=Vector2(bounds.size.x*scale.x,bounds.size.z*scale.z).length()*.5
-			var blocked:bool=false
+			var blocked:bool=false;var max_wear:float=0.0;var last_disturbed:float=-1.0
 			for x in range(int(floor(t.origin.x-radius)),int(ceil(t.origin.x+radius))+1):
 				for z in range(int(floor(t.origin.z-radius)),int(ceil(t.origin.z+radius))+1):
-					if masks.has(str(x)+","+str(z)):blocked=true;break
+					var cell:=str(x)+","+str(z)
+					if masks.has(cell):blocked=true;break
+					max_wear=maxf(max_wear,float(wear.get(cell,0)))
+					if disturbed.has(cell):last_disturbed=maxf(last_disturbed,float(disturbed[cell]))
 				if blocked:break
-			if blocked:t.basis=Basis.IDENTITY.scaled(Vector3.ZERO)
+			var growth:float=_plant_growth(stage,elapsed,last_disturbed,max_wear)
+			if blocked or growth<.04:t.basis=Basis.IDENTITY.scaled(Vector3.ZERO)
+			elif growth<1.0:t.basis=t.basis.scaled(Vector3(growth,growth,growth))
 			node.multimesh.set_instance_transform(i,t)
+
+func _plant_growth(stage:String,elapsed:float,last_disturbed:float,wear:float)->float:
+	if stage=="grass":return clampf(1.0-wear*.82,.16,1.0)
+	if last_disturbed<0.0:return 1.0
+	if stage=="weed":return clampf((elapsed-last_disturbed-1800.0)/9000.0,0.0,1.0)*clampf(1.0-wear*2.4,0.0,1.0)
+	if stage=="bush":return clampf((elapsed-last_disturbed-21600.0)/43200.0,0.0,1.0)*clampf(1.0-wear*4.0,0.0,1.0)
+	return 1.0
 
 # Pure presentation picking: ray proxies never become simulation collision bodies.
 func pick_screen(camera:Camera3D,screen:Vector2)->String:
@@ -971,13 +999,13 @@ func _relative_pose(pose:Dictionary,parent:Dictionary)->Vector3:
 	var dx:=float(pose.get("x",0))-float(parent.get("x",0));var dz:=float(pose.get("z",0))-float(parent.get("z",0));var angle:=float(parent.get("yaw",0))
 	return Vector3(dx*cos(angle)+dz*sin(angle),float(pose.get("y",0))-float(parent.get("y",0)),-dx*sin(angle)+dz*cos(angle))
 
-func _clear_vehicle_plants(pose:Dictionary,length:float,width:float)->void:
+func _clear_vehicle_plants(pose:Dictionary,length:float,width:float,masks:Dictionary)->void:
 	var yaw:float=float(pose.get("yaw",0));var radius:float=maxf(length,width)*.5+1
 	var cx:float=float(pose.get("x",0));var cz:float=float(pose.get("z",0))
 	for x in range(int(floor(cx-radius)),int(ceil(cx+radius))):
 		for z in range(int(floor(cz-radius)),int(ceil(cz+radius))):
 			var dx:=float(x)+.5-cx;var dz:=float(z)+.5-cz
-			if absf(dx*cos(yaw)+dz*sin(yaw))<length*.5+.65 and absf(-dx*sin(yaw)+dz*cos(yaw))<width*.5+.65:vegetation_cleared[str(x)+","+str(z)]=true
+			if absf(dx*cos(yaw)+dz*sin(yaw))<length*.5+.65 and absf(-dx*sin(yaw)+dz*cos(yaw))<width*.5+.65:masks[str(x)+","+str(z)]=true
 
 func _local_model_bounds(node:Node3D,transform:Transform3D)->AABB:
 	var bounds:=AABB();var first:bool=true

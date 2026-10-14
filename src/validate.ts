@@ -305,6 +305,17 @@ export function validateState(value: any): asserts value is State {
         fail('invalid ground wear cell');
     }
   }
+  if (s.vegetationLastDisturbed !== undefined) {
+    const cells = s.vegetationLastDisturbed;
+    if (!cells || typeof cells !== 'object' || Array.isArray(cells) || Object.keys(cells).length > 12000)
+      fail('invalid vegetation history');
+    for (const [key, time] of Object.entries(cells)) {
+      const coords = key.split(',').map(Number);
+      if (!/^-?\d+,-?\d+$/.test(key) || coords.some((v) => Math.abs(v) >= 10000) ||
+          !finite(time) || (time as number) < 0 || (time as number) > s.elapsed)
+        fail('invalid vegetation history cell');
+    }
+  }
   const helpers = new Set<string>();
   for (const w of s.workers) {
     if (

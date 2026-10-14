@@ -2,7 +2,7 @@
 
 ## Native game
 
-The playable Godot migration uses the approved Concept C art and a separate local simulation process. Open **Plant 01 v0.30.0.app** in the surrounding `outputs/` folder, or double-click **Open Plant 01.command** for development. No browser is required. [Download the Mac app](https://github.com/lukacslacko/factory_game/releases/tag/v0.30.0). See [native game instructions](native/README.md) and [migration notes](docs/native-migration.md). The browser game and static visual proof remain available below.
+The playable Godot migration uses the approved Concept C art and a separate local simulation process. Open **Plant 01 v0.31.0.app** in the surrounding `outputs/` folder, or double-click **Open Plant 01.command** for development. No browser is required. [Download the Mac app](https://github.com/lukacslacko/factory_game/releases/tag/v0.31.0). See [native game instructions](native/README.md) and [migration notes](docs/native-migration.md). The browser game and static visual proof remain available below.
 
 
 A playable first version of the fantasy chemistry plant game. Build and operate the construction yard before chemical production arrives: hire a crew, receive physical materials, move equipment, pave ground, extend track, and assemble a small base.
@@ -10,6 +10,14 @@ A playable first version of the fantasy chemistry plant game. Build and operate 
 The world uses a true perspective 3D camera, with a meter grid, dimensional stock, angled lighting, and grid-aligned parked equipment. The records use the approved Condensed direction. The visual target is the latest **80% A / 20% B** selection, rather than the earlier rejected flat world studies.
 
 ![Native gameplay](native/screenshots/02-native-equipment.png)
+
+## Living ground cover — native v0.31.0
+
+The opening site now has stable layers of grass, taller weeds, and clustered bushes with varied size and color. Vehicle passage immediately clears taller growth across the chassis, while repeated wheel or track travel gradually wears grass into visible dirt paths. Unused ground recovers in place: ruts fade over six simulated hours, weeds return first, and bushes mature later. Routing continues to prefer established paths and paving. These images are controlled native renderer fixtures showing the same site before and after a deliberately heavy two-track passage; they are not screenshots of a player save.
+
+![Layered opening vegetation](native/screenshots/vegetation-initial.png)
+
+![Ground cover cleared and worn by repeated travel](native/screenshots/vegetation-worn.png)
 
 ## Readable, consistent records and dialogs — native v0.30.0
 

@@ -812,6 +812,8 @@ export interface State {
   paving: Record<string, string>;
   /** Compaction from accepted equipment travel, bounded to one value per meter cell. */
   groundWear?: Record<string, number>;
+  /** Last accepted machine passage per dirt cell, in simulated elapsed seconds. */
+  vegetationLastDisturbed?: Record<string, number>;
   zones: Zone[];
   jobs: Job[];
   jobGroups?: JobGroup[];

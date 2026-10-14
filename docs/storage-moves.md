@@ -12,6 +12,8 @@ Native v0.28.0 lets your own equipment return physical stock to a stockyard. Use
 
 The preview makes no changes. Creation checks space and reservations again, then reserves the selected material and its destination. Stock already committed to construction, electrical work, collection, or another move must first be released by finishing or safely canceling that work.
 
+Known limitation: the preview's static lifting-face and route survey can offer a move that the assigned machine and crew cannot actually begin in a crowded yard. The executing job then reports its real blocker. This is tracked in [site logistics and deadlock prevention #53](https://github.com/lukacslacko/factory_game/issues/53); treat a crowded-yard preview as provisional until the work starts.
+
 ## Provide a machine and crew
 
 Provide a fueled forklift or excavator with enough lifting capacity, an available **operator**, and a **builder or engineer** for ground handling. For automatic dispatch, enable **Recovery / relocation** under the machine's **Automatic work**. To choose a particular machine, select it under **Manually assign equipment** in the parent work order and click **Apply equipment to this whole work**. One parent assignment covers every lift in this move.

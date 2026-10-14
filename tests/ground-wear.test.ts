@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import * as S from '../src/sim.ts';
-import { recordEquipmentTravel, surfaceTravelCost, GROUND_WEAR_LIMIT } from '../src/ground-wear.ts';
+import { recordEquipmentTravel, recoverGround, surfaceTravelCost, GROUND_WEAR_LIMIT, GROUND_RECOVERY_SECONDS, BUSH_RETURN_SECONDS } from '../src/ground-wear.ts';
 import { machineRoute, equipmentMoveBlocked } from '../src/traffic.ts';
 import { seedHandlingResources } from './support/yard.ts';
 import { dist, segmentClear } from '../src/path.ts';
@@ -26,11 +26,33 @@ test('only actual tire/track travel compacts dirt, with bounded persistent inten
     'Bucket and chassis center do not paint wheel/track marks',
   );
   assert.ok(Object.keys(s.groundWear!).every((k) => ['29', '31'].includes(k.split(',')[1])));
+  assert.equal(s.vegetationLastDisturbed!['30,30'], 0, 'Passing chassis clears bushes between its tracks');
   const opening = Object.values(s.groundWear!).reduce((n, v) => n + v, 0);
   assert.ok(Math.abs(opening - 0.05) < 1e-9, 'Wear is proportional to accepted meters traveled');
   for (let i = 0; i < 200; i++) recordEquipmentTravel(s, e, from);
   assert.ok(Object.values(s.groundWear!).every((v) => v > 0 && v <= 1));
   assert.deepEqual(S.load(S.save(s)).groundWear, s.groundWear, 'Wear survives save/load');
+  assert.deepEqual(S.load(S.save(s)).vegetationLastDisturbed, s.vegetationLastDisturbed, 'Vegetation history survives save/load');
+});
+
+test('quiet dirt recovers gradually, retaining paths while regrowing in the same cells', () => {
+  const s = S.createState(), e = seedHandlingResources(s, 'excavator');
+  e.x = 30.5; e.z = 30.5; e.yaw = 0;
+  const from = { ...e }; e.x += 1;
+  recordEquipmentTravel(s, e, from);
+  const cell = Object.keys(s.groundWear!)[0];
+  const original = s.groundWear![cell];
+  s.elapsed = GROUND_RECOVERY_SECONDS / 2;
+  recoverGround(s, 0);
+  assert.ok(s.groundWear![cell] === undefined || s.groundWear![cell] < original);
+  assert.equal(s.vegetationLastDisturbed!['30,30'], 0);
+  s.elapsed = BUSH_RETURN_SECONDS;
+  recoverGround(s, GROUND_RECOVERY_SECONDS / 2);
+  assert.equal(s.groundWear![cell], undefined, 'Abandoned ruts eventually disappear');
+  assert.equal(s.vegetationLastDisturbed!['30,30'], undefined, 'Mature bushes no longer need disturbance history');
+  const damaged = JSON.parse(S.save(s));
+  damaged.vegetationLastDisturbed = { '30,30': s.elapsed + 1 };
+  assert.throws(() => S.load(JSON.stringify(damaged)), /vegetation history/, 'Future disturbance cannot enter a save');
 });
 
 test('stationary, transported, and concrete-supported equipment does not create dirt wear', () => {

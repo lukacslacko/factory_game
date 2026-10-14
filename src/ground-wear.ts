@@ -3,6 +3,10 @@ import { key, dist } from './path';
 import { mixAngle, ROAD_CENTER_Z, ROAD_WIDTH } from './motion';
 
 export const GROUND_WEAR_LIMIT = 12000;
+/** Full wheel-rut recovery takes six quiet game hours. Larger plants return
+ * later, after the ground has recovered from repeated traffic. */
+export const GROUND_RECOVERY_SECONDS = 6 * 3600;
+export const BUSH_RETURN_SECONDS = 18 * 3600;
 // Permanent public access/service surfaces match the starter site's rendered
 // dimensions. They exist before player paving and do not compact like dirt.
 export const FIXED_TRAVEL_SURFACES: (Rect & { cost: number })[] = [
@@ -26,7 +30,9 @@ export function recordEquipmentTravel(s: State, e: Equipment, from: Point & { ya
   const distance = dist(from, e);
   if (distance <= 1e-7 || e.transportOrder) return;
   const wear = (s.groundWear ??= {});
+  const disturbed = (s.vegetationLastDisturbed ??= {});
   let count = counts.get(wear) ?? Object.keys(wear).length;
+  let disturbedCount = counts.get(disturbed) ?? Object.keys(disturbed).length;
   const steps = Math.max(1, Math.ceil(distance / 0.2));
   const strip = e.kind === 'excavator' ? 0.94 : 0.68;
   const amount = (distance / steps) * (e.kind === 'excavator' ? 0.025 : 0.016);
@@ -35,6 +41,19 @@ export function recordEquipmentTravel(s: State, e: Equipment, from: Point & { ya
     const yaw = mixAngle(from.yaw ?? e.yaw ?? 0, e.yaw ?? from.yaw ?? 0, t);
     const x = from.x + (e.x - from.x) * t,
       z = from.z + (e.z - from.z) * t;
+    // The whole chassis brushes through shrubs; compaction itself is limited
+    // to the physical track/tire strips below.
+    const halfWidth = e.kind === 'excavator' ? 1.4 : 0.95;
+    for (const side of [-halfWidth, 0, halfWidth]) {
+      const point = { x: x - Math.sin(yaw) * side, z: z + Math.cos(yaw) * side };
+      const k = key(point.x, point.z);
+      if (s.paving[k] || fixedTravelCost(point) !== undefined) continue;
+      if (disturbed[k] === undefined) {
+        if (disturbedCount >= GROUND_WEAR_LIMIT) continue;
+        disturbedCount++;
+      }
+      disturbed[k] = s.elapsed;
+    }
     for (const side of [-strip, strip]) {
       const point = { x: x - Math.sin(yaw) * side, z: z + Math.cos(yaw) * side };
       const k = key(point.x, point.z);
@@ -48,6 +67,25 @@ export function recordEquipmentTravel(s: State, e: Equipment, from: Point & { ya
     }
   }
   counts.set(wear, count);
+  counts.set(disturbed, disturbedCount);
+}
+/** Recovery is advanced only at game-minute boundaries. Plant coordinates do
+ * not change: the renderer grows the same stable instances back in place. */
+export function recoverGround(s: State, previousElapsed: number) {
+  const minutes = Math.floor(s.elapsed / 60) - Math.floor(previousElapsed / 60);
+  if (minutes <= 0) return;
+  const wear = (s.groundWear ??= {});
+  for (const k of Object.keys(wear)) {
+    const recovered = Math.max(0, wear[k] - (minutes * 60) / GROUND_RECOVERY_SECONDS);
+    if (recovered < 0.001) delete wear[k];
+    else wear[k] = recovered;
+  }
+  counts.set(wear, Object.keys(wear).length);
+  const disturbed = (s.vegetationLastDisturbed ??= {});
+  for (const k of Object.keys(disturbed))
+    if (s.elapsed - disturbed[k] >= BUSH_RETURN_SECONDS && wear[k] === undefined)
+      delete disturbed[k];
+  counts.set(disturbed, Object.keys(disturbed).length);
 }
 /** Surface preference is modest: established lanes win between comparable
  * trips, while a large detour still costs more than a direct dirt crossing. */
