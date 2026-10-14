@@ -22,6 +22,7 @@ import { equipmentAllows } from './equipment-roles';
 import { FORK_LOAD_CENTER } from './fork-geometry';
 import { deliveryBlockageNotice, resetDeliveryBlockage } from './delivery-control';
 import { staticRailAisle, staticRailPickupFaces } from './rail-pickup';
+import { claimManeuver, maneuverArea, releaseManeuvers } from './maneuver-reservations';
 import type {
   State,
   Order,
@@ -223,6 +224,7 @@ function reserve(s: State, o: Order, e: Equipment, w: Worker) {
   o.operatorId = w.id;
 }
 function release(s: State, o: Order, api: DeliveryAPI) {
+  releaseManeuvers(s, o.id);
   const t = o.unload;
   if (t) {
     const e = s.equipment.find((e) => e.id === t.equipmentId),
@@ -683,6 +685,14 @@ function startUnloading(s: State, o: Order, api: DeliveryAPI, preferred?: string
     o.note = 'Rigging worker cannot reach the lift';
     return false;
   }
+  const pickupOwner = claimManeuver(s, {
+    ownerId: o.id, equipmentId: e.id, kind: 'pickup', resourceId: o.id,
+    area: maneuverArea([pickup, source], e.kind === 'excavator' ? 1.8 : 1.45),
+  });
+  if (pickupOwner) {
+    waiting(s, o, `Unloading face reserved by ${pickupOwner}`, 'pickup-reserved', api);
+    return false;
+  }
   o.unload = {
     item,
     lineIndex: slot.lineIndex,
@@ -783,7 +793,7 @@ function loadedStorageRoute(
   const retreat = machineRetreatRoute(s, e, drop, obstacles, true, finalYaw);
   return retreat ? { path: retreat, reverse: true } : null;
 }
-function loadedStorageApproach(s: State, e: Equipment, t: UnloadTask, api: DeliveryAPI) {
+function loadedStorageApproach(s: State, o: Order, e: Equipment, t: UnloadTask, api: DeliveryAPI) {
   const receiving = s.stacks.find((stack) => stack.id === t.mergeId);
   const shapedRail = e.cargo?.item.startsWith('rail') && e.cargo.item !== 'rail';
   const matchingBearing = (yaw: number) =>
@@ -792,14 +802,22 @@ function loadedStorageApproach(s: State, e: Equipment, t: UnloadTask, api: Deliv
   const current = matchingBearing(t.dropYaw)
     ? loadedStorageRoute(s, e, t.drop, api, t.dropYaw)
     : null;
-  if (current) return current;
+  // A different face can become necessary while the carrier is already near
+  // the stockyard. Claim that local landing before replacing its route; the
+  // next simulation tick would otherwise still own the old dock.
+  const claimNearbyLanding = (drop: Point) => dist(e, drop) > 10 || !claimManeuver(s, {
+    ownerId: o.id, equipmentId: e.id, kind: 'landing',
+    resourceId: t.mergeId || `${t.destination.x},${t.destination.z}`,
+    area: maneuverArea([drop, center(t.destination)], e.kind === 'excavator' ? 1.8 : 1.45),
+  });
+  if (current && claimNearbyLanding(t.drop)) return current;
   // A late obstacle can invalidate the selected face while another face of
   // the same reserved footprint remains usable. Do not commit a new dock
   // until its loaded travel and complete final turn both fit.
   for (const dock of storageDockCandidates(s, e, t.destination, e, api)) {
     if (dist(dock.p, t.drop) < 0.1 || !matchingBearing(dock.yaw)) continue;
     const alternate = loadedStorageRoute(s, e, dock.p, api, dock.yaw);
-    if (!alternate) continue;
+    if (!alternate || !claimNearbyLanding(dock.p)) continue;
     t.drop = dock.p;
     t.dropYaw = dock.yaw;
     return alternate;
@@ -842,7 +860,7 @@ function retryAlignedApproach(
   if (s.elapsed < (e.trafficRetry || 0)) return;
   e.trafficRetry = s.elapsed + 1.5;
   const planned = storage
-    ? loadedStorageApproach(s, e, storage, api)
+    ? loadedStorageApproach(s, o, e, storage, api)
     : loadedStorageRoute(s, e, target, api, yaw);
   if (!planned?.path.length) return;
   clearActionClearance(s, o.id);
@@ -886,6 +904,21 @@ function unloadTick(s: State, o: Order, dt: number, api: DeliveryAPI) {
   else if (e.blockedBy) deliveryBlockageNotice(s, o, `Route blocked by ${e.blockedBy}`);
   if (e.fuel <= 0 || e.refueling) {
     o.note = 'Unloading paused: machine needs fuel';
+    return;
+  }
+  const pickupPhase = ['boarding', 'approach', 'rig', 'lift', 'clear'].includes(t.phase);
+  const nearLanding = t.phase !== 'carry' || dist(e, t.drop) <= 10;
+  if (!pickupPhase && !nearLanding) releaseManeuvers(s, o.id);
+  const owner = !pickupPhase && !nearLanding ? '' : claimManeuver(s, pickupPhase
+    ? { ownerId: o.id, equipmentId: e.id, kind: 'pickup', resourceId: o.id,
+        area: maneuverArea([t.pickup, t.source], e.kind === 'excavator' ? 1.8 : 1.45) }
+    : { ownerId: o.id, equipmentId: e.id, kind: 'landing',
+        resourceId: t.mergeId || `${t.destination.x},${t.destination.z}`,
+        area: maneuverArea([t.drop, center(t.destination)], e.kind === 'excavator' ? 1.8 : 1.45) });
+  if (owner) {
+    e.path = [];
+    o.note = `Handling space reserved by ${owner}`;
+    deliveryBlockageNotice(s, o, o.note);
     return;
   }
   const set = (phase: UnloadTask['phase']) => {
@@ -1057,10 +1090,23 @@ function unloadTick(s: State, o: Order, dt: number, api: DeliveryAPI) {
     // A long panel is carried across the machine's heading. Inflating every
     // obstacle by half its width wrongly blocks the valid top-up dock beside
     // its own partial stack. Replay the actual chassis, tools, and load instead.
-    const planned = loadedStorageApproach(s, e, t, api);
+    const planned = loadedStorageApproach(s, o, e, t, api);
     if (!planned) {
       loadedRouteBlocked(s, o, e, t);
       return;
+    }
+    releaseManeuvers(s, o.id);
+    if (dist(e, t.drop) <= 10) {
+      const owner = claimManeuver(s, {
+        ownerId: o.id, equipmentId: e.id, kind: 'landing',
+        resourceId: t.mergeId || `${t.destination.x},${t.destination.z}`,
+        area: maneuverArea([t.drop, center(t.destination)], e.kind === 'excavator' ? 1.8 : 1.45),
+      });
+      if (owner) {
+        o.note = `Storage landing reserved by ${owner}`;
+        deliveryBlockageNotice(s, o, o.note);
+        return;
+      }
     }
     clearActionClearance(s, o.id);
     resumeLoadedRoute(e, planned);
@@ -1092,7 +1138,7 @@ function unloadTick(s: State, o: Order, dt: number, api: DeliveryAPI) {
       // return route may have failed while another actor occupied the dock.
       // Retry the real loaded trip instead of turning and lowering remotely.
       if (s.elapsed < (e.trafficRetry || 0)) return;
-      const planned = loadedStorageApproach(s, e, t, api);
+      const planned = loadedStorageApproach(s, o, e, t, api);
       if (planned) {
         clearActionClearance(s, o.id);
         resumeLoadedRoute(e, planned);
@@ -1116,7 +1162,7 @@ function unloadTick(s: State, o: Order, dt: number, api: DeliveryAPI) {
       // Movement has its own retry clock; do not let it starve this check,
       // or run complete approach searches on every blocked simulation tick.
       o.retryAt = s.elapsed + 1.5;
-      const planned = loadedStorageApproach(s, e, t, api);
+      const planned = loadedStorageApproach(s, o, e, t, api);
       if (planned) {
         clearActionClearance(s, o.id);
         resumeLoadedRoute(e, planned);

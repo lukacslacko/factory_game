@@ -68,6 +68,12 @@ var error_panel: PanelContainer
 var pause_button: Button
 var tab_buttons: Dictionary = {}
 var warning_button: Button
+var diagnosis_button: Button
+var diagnosis_note: Label
+var dependency_report: Dictionary={}
+var dependency_captured_at: float=-1
+var dependency_pending: bool=false
+var dependency_error: String=""
 var startup: Window
 var continue_button: Button
 var purchase_window: Window
@@ -591,11 +597,25 @@ func receive_reply(message: Dictionary) -> void:
 			purchase_batch.disabled=true
 		if str(message.get("action","")) in ["new_game","continue","import","load"]:
 			freight_car_selection.clear();freight_shunt_choices.clear()
+			dependency_report.clear();dependency_captured_at=-1;dependency_pending=false;dependency_error=""
 			started=true
 			startup.hide()
 		if message.has("message"): status_label.text=str(message.message)
 		elif message.has("action"): status_label.text="%s updated"%str(message.action).replace("_"," ")
 	else: show_error(str(message.get("error","Action could not be completed.")))
+	if str(message.get("action",""))=="dependency_diagnosis":
+		dependency_pending=false
+		if bool(message.get("ok",false)) and message.get("result",{}) is Dictionary:
+			dependency_report=message.result
+			dependency_captured_at=float(state.get("time",0))
+			dependency_error=""
+		else:
+			dependency_report.clear();dependency_captured_at=-1
+			dependency_error=str(message.get("error","The dependency report was unavailable"))
+		_update_dependency_controls()
+		if active_tab=="Work":
+			_refresh_register()
+			if is_instance_valid(register_scroll) and tables.size()>2:register_scroll.ensure_control_visible(tables[2].get_child(0))
 	if message.get("action")=="rail_edit_preview" and is_instance_valid(rail_edit_window):
 		if bool(message.get("ok",false)):_show_rail_edit_preview(message.get("result",{}))
 		else:
@@ -633,6 +653,28 @@ func _jump_blocked_work() -> void:
 	if active_tab=="Work" and tables.size()>1:
 		register_scroll.ensure_control_visible(tables[1].get_child(0))
 
+func _request_dependency_diagnosis() -> void:
+	if dependency_pending:return
+	dependency_pending=true
+	dependency_error=""
+	_update_dependency_controls()
+	_send("dependency_diagnosis",{})
+
+func _update_dependency_controls() -> void:
+	if is_instance_valid(diagnosis_button):
+		diagnosis_button.disabled=dependency_pending
+		diagnosis_button.text="Checking dependencies…" if dependency_pending else "Diagnose dependencies"
+	if not is_instance_valid(diagnosis_note):return
+	if dependency_pending:
+		diagnosis_note.text="Checking a bounded, read-only dependency snapshot…"
+	elif not dependency_error.is_empty():
+		diagnosis_note.text="Diagnosis unavailable: %s. Retry when ready."%dependency_error
+	elif dependency_captured_at<0:
+		diagnosis_note.text="Run diagnosis on demand. Classifications describe waits; they do not verify that moving an obstacle is safe."
+	else:
+		var inspected: Dictionary=dependency_report.get("inspected",{})
+		diagnosis_note.text="Captured %s · %d jobs, %d clearances, %d actors, %d edges inspected%s. Refresh for current conditions; this diagnosis is not a move approval."%[_clock(dependency_captured_at),int(inspected.get("jobs",0)),int(inspected.get("clearances",0)),int(inspected.get("actors",0)),int(inspected.get("edges",0))," · bounded scan truncated; some waits omitted" if dependency_report.get("truncated",false) else ""]
+
 func _clear(parent: Node) -> void:
 	for child: Node in parent.get_children():
 		parent.remove_child(child)
@@ -654,6 +696,8 @@ func _build_register() -> void:
 	audit_label=null
 	record_status=null
 	severity_filter=null
+	diagnosis_button=null
+	diagnosis_note=null
 	_clear(register_layout)
 	tables.clear()
 	var heading: HBoxContainer = HBoxContainer.new()
@@ -664,6 +708,7 @@ func _build_register() -> void:
 	_button(heading,"Purchase / hire",_open_purchase)
 	if active_tab=="Work": _button(heading,"Buy missing materials",func() -> void: _send("buy_missing",{}))
 	if active_tab=="Work": _button(heading,"Review blocked work",_jump_blocked_work)
+	if active_tab=="Work": diagnosis_button=_button(heading,"Diagnose dependencies",_request_dependency_diagnosis)
 	if active_tab=="Activity": _button(heading,"Export diagnostics",func() -> void: file_requested.emit("diagnostics"))
 	if active_tab=="Costs": _button(heading,"Export CSV",func() -> void: file_requested.emit("costs"))
 	if active_tab=="Inbox": _button(heading,"Mark all seen",func() -> void: _send("mark_all_seen",{}))
@@ -752,7 +797,9 @@ func _build_register() -> void:
 			_button(filters,"Collapse all",func() -> void: group_expansion.clear(); _refresh_register())
 			_table(register_body,"Whole orders and individual tasks · select a parent to assign its complete crew",["ID","Work / task","State","Progress","Worker","Operator","Equipment","Preferred","Blocking / next step"])
 			_note(register_body,"Unresolved warnings below show the reported obstruction and related work. Select a notice to inspect its linked people, equipment, stock, and work; recovery remains a physical job.")
-			_table(register_body,"Blocked work · reported causes",["Notice","Reported cause","Work / owner","Linked IDs","Active tasks","Waiting","Suggested step"],[92,260,96,160,106,92,250])
+			_table(register_body,"Blocked work · reported causes",["Notice","Reported cause","Work / owner","Linked IDs","Active tasks","Waiting","Suggested step","Physical prerequisite","Progress"],[92,260,96,160,106,92,250,110,170])
+			diagnosis_note=_note(register_body,"")
+			_table(register_body,"Dependency diagnosis · on demand",["Work / owner","Class","Blockers","Wait s","Cycle","Dependency edges","Reported reason"],[110,110,190,80,190,220,260])
 		"Activity":
 			_table(register_body,"Events",["Time","Severity","Type","Entity","Event"],[115,65,80,90,300])
 			_table(register_body,"Material movements",["Time","Material","Qty","From","To","Reason"])
@@ -765,6 +812,7 @@ func _build_register() -> void:
 		jump.item_selected.connect(func(index:int)->void:
 			if index>0 and index<=tables.size():register_scroll.ensure_control_visible(tables[index-1].get_child(0)))
 	_refresh_register()
+	_update_dependency_controls()
 
 func _status_matches(value: String) -> bool:
 	if not is_instance_valid(record_status): return true
@@ -886,6 +934,7 @@ func _refresh_register() -> void:
 				rows.append(_row(str(work.id),[work.id,label_text,work.get("status",""),"%d%%"%roundi(float(work.get("progress",0))*100),work.get("worker",""),work.get("operator",""),work.get("equipment",""),work.get("preferredEquipment",""),work.get("reason","")]))
 			_set_table(0,rows)
 			_set_table(1,_blocked_work_rows())
+			_set_table(2,_dependency_diagnosis_rows())
 		"Activity":
 			for e: Dictionary in _records("events"):
 				var severity: String = str(e.get("severity","info"))
@@ -1417,6 +1466,10 @@ func _notice_severity(value: Dictionary) -> String:
 
 func _notice_references(value: Dictionary) -> Array:
 	var ids: Array=[value.get("entity","")]
+	var owner: Dictionary=_entity(str(value.get("entity","")))
+	if str(owner.get("type",""))=="jobs":
+		var pickup: Dictionary=_rail_pickup_prerequisite(owner.entity)
+		if not pickup.is_empty():ids.append_array([pickup.jobId,pickup.blockerId])
 	for wait: Dictionary in state.get("actionClearances",[]):
 		if str(wait.get("noticeId",""))==str(value.get("id","")):
 			ids.append(wait.get("ownerId",""));ids.append(wait.get("requesterEquipmentId",""));ids.append_array(wait.get("blockerIds",[]))
@@ -1427,11 +1480,43 @@ func _notice_references(value: Dictionary) -> Array:
 		if ids.size()>=16:break
 	return ids
 
+func _rail_pickup_prerequisite(work: Dictionary) -> Dictionary:
+	var link: Dictionary=work.get("railPickupRecovery",{})
+	var child_id: String=str(link.get("activeJobId",""))
+	var blocker_id: String=str(link.get("activeBlockerId",""))
+	if child_id.is_empty() or blocker_id.is_empty():return {}
+	var found: Dictionary=_entity(child_id)
+	if str(found.get("type",""))!="jobs":return {}
+	var child: Dictionary=found.entity
+	if str(child.get("kind",""))!="moveStock" or str(child.get("stockMove",{}).get("sourceId",""))!=blocker_id:return {}
+	return {"jobId":child_id,"blockerId":blocker_id,"status":str(child.get("status","")),"phase":str(child.get("phase","")),"progress":float(child.get("progress",0)),"reason":str(child.get("reason",""))}
+
+func _dependency_diagnosis_rows() -> Array[Dictionary]:
+	var rows: Array[Dictionary]=[]
+	for value: Variant in dependency_report.get("diagnoses",[]):
+		if not value is Dictionary:continue
+		var diagnosis: Dictionary=value
+		var id: String=str(diagnosis.get("id",""))
+		var blocker_ids: Array[String]=[]
+		for blocker: Variant in diagnosis.get("blockerIds",[]):blocker_ids.append(str(blocker))
+		var cycle_ids: Array[String]=[]
+		for member: Variant in diagnosis.get("cycle",[]):cycle_ids.append(str(member))
+		var edge_labels: Array[String]=[]
+		for edge: Variant in diagnosis.get("edges",[]):
+			if not edge is Dictionary:continue
+			var item: Dictionary=edge
+			edge_labels.append("%s → %s"%[item.get("kind","wait"),item.get("to","")])
+		var wait_seconds: float=maxf(0,float(diagnosis.get("waitSeconds",0)))
+		rows.append(_row(id,[id,str(diagnosis.get("classification","unresolved")).replace("-"," ").capitalize()," · ".join(blocker_ids),"%.1f"%wait_seconds," → ".join(cycle_ids),"; ".join(edge_labels),diagnosis.get("reason","")],[id,diagnosis.get("classification","unresolved")," · ".join(blocker_ids),wait_seconds," → ".join(cycle_ids),"; ".join(edge_labels),diagnosis.get("reason","")],{"0":id}))
+	return rows
+
 func _blocked_work_rows() -> Array[Dictionary]:
 	var rows: Array[Dictionary]=[]
+	var represented: Dictionary={}
 	for notice: Dictionary in _records("notices"):
 		if _notice_severity(notice)!="warning" or str(notice.get("state","todo"))=="done":continue
 		var owner_id: String=str(notice.get("entity",""))
+		represented[owner_id]=true
 		var related: Array[String]=[]
 		var blockers: Array[String]=[]
 		for reference: Variant in _notice_references(notice):
@@ -1458,8 +1543,20 @@ func _blocked_work_rows() -> Array[Dictionary]:
 		var wait_text: String="%d:%02d"%[int(waited/60),waited%60]
 		var reason: String=str(notice.get("detail",notice.get("title","Warning")))
 		if reason.begins_with(owner_id+": "):reason=reason.substr(owner_id.length()+2)
-		var next_action: String=_blocked_work_action(notice,blockers)
-		rows.append(_row(str(notice.id),[notice.id,reason,owner_id," · ".join(blockers.slice(0,4)),related.size(),wait_text,next_action],[notice.id,reason,owner_id," · ".join(blockers.slice(0,4)),related.size(),waited,next_action],{"0":str(notice.id),"2":owner_id}))
+		var pickup: Dictionary=_rail_pickup_prerequisite(owner.get("entity",{})) if str(owner.get("type",""))=="jobs" else {}
+		if not pickup.is_empty():reason=str(owner.entity.get("reason",reason))
+		var next_action: String="Inspect %s; physical relocation must complete before rail pickup is checked again"%pickup.jobId if not pickup.is_empty() else _blocked_work_action(notice,blockers)
+		var prerequisite: String=str(pickup.get("jobId",""))
+		var progress: String="%d%% · %s · %s"%[roundi(float(pickup.get("progress",0))*100),pickup.get("status",""),pickup.get("phase","")] if not pickup.is_empty() else ""
+		rows.append(_row(str(notice.id),[notice.id,reason,owner_id," · ".join(blockers.slice(0,4)),related.size(),wait_text,next_action,prerequisite,progress],[notice.id,reason,owner_id," · ".join(blockers.slice(0,4)),related.size(),waited,next_action,prerequisite,float(pickup.get("progress",0))],{"0":str(notice.id),"2":owner_id,"7":prerequisite}))
+	for work: Dictionary in _records("jobs"):
+		if str(work.get("status","")) not in ["todo","doing"] or represented.has(str(work.id)):continue
+		var pickup: Dictionary=_rail_pickup_prerequisite(work)
+		if pickup.is_empty():continue
+		var linked: String="%s · %s"%[pickup.blockerId,pickup.jobId]
+		var action: String="Inspect %s; physical relocation must complete before rail pickup is checked again"%pickup.jobId
+		var progress: String="%d%% · %s · %s"%[roundi(float(pickup.progress)*100),pickup.status,pickup.phase]
+		rows.append(_row(str(work.id),["—",work.get("reason","Rail pickup waits for physical relocation"),work.id,linked,1,"—",action,pickup.jobId,progress],["",work.get("reason",""),work.id,linked,1,-1,action,pickup.jobId,float(pickup.progress)],{"0":str(work.id),"2":str(work.id),"7":str(pickup.jobId)}))
 	return rows
 
 func _blocked_work_action(notice: Dictionary,blockers: Array[String]) -> String:
@@ -1602,6 +1699,11 @@ func _work_inspector(work: Dictionary,group: bool) -> void:
 		if work.get("stockMove",{}).get("toStorage",false):
 			var move: Dictionary=work.stockMove
 			_detail("Move source",move.get("sourceId","—"))
+			for rail_job: Dictionary in _records("jobs"):
+				if str(rail_job.get("railPickupRecovery",{}).get("activeJobId",""))==id:
+					_detail("Clears rail pickup",rail_job.id)
+					_reference_controls(inspector_body,[rail_job.id])
+					break
 			_detail("Destination stockyard",move.get("zoneId","Automatic choice"))
 			_detail("Storage placement","%s · %s × %s m"%[_position(move.get("destination",{})),move.get("destination",{}).get("w",1),move.get("destination",{}).get("d",1)])
 			if move.has("mergeId"):_detail("Stack to join",move.mergeId)
@@ -1623,6 +1725,19 @@ func _work_inspector(work: Dictionary,group: bool) -> void:
 			_detail("Recovered material",_name(str(recovery.get("recoveredItem","rail"))))
 			_detail("Attached buffers"," · ".join(recovery.get("buffers",[])))
 			_note(inspector_body,"The crew unfastens this installed panel and equipment carries it to stockyard storage. Its rail remains in place until it is lifted.")
+		var pickup: Dictionary=_rail_pickup_prerequisite(work)
+		if not pickup.is_empty():
+			_section_title(inspector_body,"Rail pickup recovery")
+			_detail("Physical prerequisite",pickup.jobId)
+			_detail("Obstructing stock",pickup.blockerId)
+			_detail("Recovery status",pickup.status)
+			_detail("Recovery phase",pickup.phase)
+			_detail("Recovery progress","%d%%"%roundi(float(pickup.progress)*100))
+			if not str(pickup.get("reason","")).is_empty():_detail("Recovery condition",pickup.reason)
+			_note(inspector_body,"This is a separate physical stock move. The rail crew waits for it to complete, then checks pickup again; completion does not guarantee the remaining route is clear.")
+			_reference_controls(inspector_body,[pickup.jobId,pickup.blockerId])
+		elif not str(work.get("railPickupRecovery",{}).get("lastError","")).is_empty():
+			_detail("Recovery check",work.railPickupRecovery.lastError)
 	_section_title(inspector_body,"Manually assign equipment")
 	var preferred: OptionButton = _entity_option(inspector_body,"equipment","Automatic assignment",str(work.get("preferredEquipment","")))
 	_button(inspector_body,"Apply equipment to this whole work",func() -> void:

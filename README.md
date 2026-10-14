@@ -2,7 +2,11 @@
 
 ## Native game
 
-The playable Godot migration uses the approved Concept C art and a separate local simulation process. Open **Plant 01 v0.34.0.app** in the surrounding `outputs/` folder, or double-click **Open Plant 01.command** for development. No browser is required. [Download the Mac app](https://github.com/lukacslacko/factory_game/releases/tag/v0.34.0). See [native game instructions](native/README.md) and [migration notes](docs/native-migration.md). The browser game and static visual proof remain available below.
+The playable Godot migration uses the approved Concept C art and a separate local simulation process. Open **Plant 01 v0.35.0.app** in the surrounding `outputs/` folder, or double-click **Open Plant 01.command** for development. No browser is required. [Download the Mac app](https://github.com/lukacslacko/factory_game/releases/tag/v0.35.0). See [native game instructions](native/README.md) and [migration notes](docs/native-migration.md). The browser game and static visual proof remain available below.
+
+## Maneuver ownership and dependency diagnosis — v0.35.0
+
+Receiving and storage crews now claim a short-lived space for their immediate pickup or nearby landing maneuver. Another crew waits for that face or bay instead of attempting the same lift, while distant travel does not reserve the entire stockyard. In **Work**, use **Diagnose dependencies** to inspect a bounded, read-only snapshot of waits, linked blockers, and cycles. The blocked-work table also shows the progress of a physical rail-pickup recovery prerequisite. These are further slices of [#50](https://github.com/lukacslacko/factory_game/issues/50), [#51](https://github.com/lukacslacko/factory_game/issues/51), and [#52](https://github.com/lukacslacko/factory_game/issues/52); broader automatic recovery and an optional logistics officer remain planned. See the [diagnosis guide](docs/logistics-diagnostics.md).
 
 ## Stockyard access and physical rail recovery — v0.34.0
 

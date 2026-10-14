@@ -788,6 +788,17 @@ export interface ActionClearance {
   blockerRetry?: Record<string,number>;
   blockerReasons?: Record<string,string>;
 }
+/** One crew's next stock-handling footprint, never an entire route or yard. */
+export interface ManeuverReservation {
+  ownerId: string;
+  equipmentId: string;
+  kind: 'pickup' | 'landing';
+  area: Rect;
+  resourceId?: string;
+  acquiredAt: number;
+  refreshedAt: number;
+  expiresAt: number;
+}
 export interface Notice {
   id: string;
   time: number;
@@ -841,6 +852,7 @@ export interface State {
   movements: Movement[];
   notices: Notice[];
   actionClearances?: ActionClearance[];
+  maneuverReservations?: ManeuverReservation[];
   buffer: Point;
   utilities: { power: boolean; water: boolean };
   wageClock: number;

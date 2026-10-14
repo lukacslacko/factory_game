@@ -91,6 +91,35 @@ export function validateState(value: any): asserts value is State {
       owners.add(r.ownerId);
     }
   }
+  if (s.maneuverReservations !== undefined) {
+    if (!Array.isArray(s.maneuverReservations) || s.maneuverReservations.length > 512)
+      fail('invalid maneuver reservations');
+    const owners = new Set<string>();
+    for (const r of s.maneuverReservations) {
+      if (!r || typeof r.ownerId !== 'string' || !r.ownerId ||
+          typeof r.equipmentId !== 'string' || !r.equipmentId ||
+          !['pickup', 'landing'].includes(r.kind) || !point(r.area) ||
+          !finite(r.area.w) || !finite(r.area.d) ||
+          r.area.w <= 0 || r.area.d <= 0 || r.area.w > 30 || r.area.d > 30 ||
+          ![r.acquiredAt, r.refreshedAt, r.expiresAt].every(finite) ||
+          r.acquiredAt < 0 || r.refreshedAt < r.acquiredAt ||
+          r.expiresAt < r.refreshedAt || r.expiresAt > r.refreshedAt + 6.01 ||
+          (r.resourceId !== undefined && (typeof r.resourceId !== 'string' ||
+            r.resourceId.length > 128)) || owners.has(r.ownerId))
+        fail('invalid saved maneuver reservation');
+      owners.add(r.ownerId);
+    }
+    for (let i = 0; i < s.maneuverReservations.length; i++)
+      for (let j = i + 1; j < s.maneuverReservations.length; j++) {
+        const a = s.maneuverReservations[i], b = s.maneuverReservations[j];
+        if ((a.resourceId && a.resourceId === b.resourceId) ||
+            (a.area.x < b.area.x + b.area.w + 0.1 &&
+              a.area.x + a.area.w + 0.1 > b.area.x &&
+              a.area.z < b.area.z + b.area.d + 0.1 &&
+              a.area.z + a.area.d + 0.1 > b.area.z))
+          fail('conflicting saved maneuver reservations');
+      }
+  }
   for(const e of s.equipment)if((e.actionYieldFor!==undefined&&typeof e.actionYieldFor!=='string')||(e.actionYieldUntil!==undefined&&(!finite(e.actionYieldUntil)||e.actionYieldUntil<0)))fail('invalid action refuge');
   for(const n of s.notices)if(n.severity!==undefined&&!['info','warning'].includes(n.severity))fail('invalid notification severity');
   for (const e of s.events)

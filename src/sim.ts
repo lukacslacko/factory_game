@@ -1,5 +1,6 @@
 import { storageDestinationReserved } from './storage-locks';
 import { reconcileBlockedWorkWarnings } from './logistics-warnings';
+import { reconcileManeuverReservations, releaseManeuvers } from './maneuver-reservations';
 import { planStorageMove, requestStorageMove } from './storage-moves';
 import type { StorageMoveRequest } from './storage-moves';
 import { planElectricalRun, tickElectricalJob, cancelElectricalRun, resumeElectricalRun, recoverElectricalRun, electricalRemovalConflict } from './electrical';
@@ -2455,6 +2456,7 @@ export function cancelJob(s: State, jid: string) {
       (q) => q.status === 'todo' && q.railRecovery?.buffers.includes(j.target!),
     )) {
       dependent.status = 'canceled';
+      releaseManeuvers(s, dependent.id);
       dependent.phase = 'Canceled; prerequisite buffer recovery canceled';
       dependent.reason = `Replan rail recovery to recover attached ${j.target} first.`;
       dependent.finished = s.time;
@@ -2500,6 +2502,7 @@ export function cancelJob(s: State, jid: string) {
   if (j.stockMove?.queuedReservation) j.cancel = true;
   finishRelease(s, j);
   j.status = 'canceled';
+  releaseManeuvers(s, j.id);
   j.phase = 'Canceled';
   const batchLeader = s.jobs.find((leader) => leader.id === j.railStagingBatch);
   if (batchLeader?.railWork?.stagingBatch) reconcileRailStagingBatch(s, batchLeader);
@@ -3824,8 +3827,10 @@ export function tick(s: State, dt: number) {
     );
     for (const { job } of queued) assign(s, job);
   }
-  if (Math.floor(s.elapsed - dt) !== Math.floor(s.elapsed))
+  if (Math.floor(s.elapsed - dt) !== Math.floor(s.elapsed)) {
+    reconcileManeuverReservations(s);
     reconcileBlockedWorkWarnings(s, () => id(s, 'notice'));
+  }
   if (s.wageClock >= 900) {
     const intervals = Math.floor(s.wageClock / 900);
     s.wageClock %= 900;

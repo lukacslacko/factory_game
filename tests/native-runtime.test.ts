@@ -158,6 +158,29 @@ test('native new-yard modes include one opening cabinet and share the grouped pu
   }
 });
 
+test('native dependency diagnosis is on demand, read only, and absent from frequent snapshots', async (t) => {
+  const host = await launch();
+  t.after(() => host.close());
+  const c = host.client;
+  const yard = Sim.createState();
+  const machine = seedHandlingResources(yard, 'excavator');
+  const blocker = yard.workers.find((w) => w.role !== 'operator')!;
+  yard.elapsed = 25;
+  machine.blockedBy = blocker.id;
+  machine.trafficBlockedSince = 5;
+  blocker.duty = 'manual';
+  await c.ok('import', { json: Sim.save(yard) });
+  const before = (await c.ok('export')).json;
+  const result = await c.ok('dependency_diagnosis');
+  assert.equal(result.diagnoses.find((r: any) => r.id === machine.id).classification,
+    'player-action');
+  assert.deepEqual(result.diagnoses.find((r: any) => r.id === machine.id).blockerIds,
+    [blocker.id]);
+  assert.equal((await c.ok('export')).json, before);
+  assert.equal(Object.hasOwn(await c.snapshot(), 'dependencyDiagnostics'), false,
+    'The 200 ms snapshot stream never computes or carries the dependency graph');
+});
+
 test('native host authenticates, starts in menu, and persists on disconnect without browser focus', async (t) => {
   const host = await launch();
   t.after(() => host.close());

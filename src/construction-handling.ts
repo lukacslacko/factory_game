@@ -1,4 +1,5 @@
 import { storageMoveDestinationError } from './storage-move-destination';
+import { claimManeuver, maneuverArea, releaseManeuvers } from './maneuver-reservations';
 import { storageDestinationReserved } from './storage-locks';
 import {
   requestActionClearance,
@@ -105,6 +106,8 @@ const labels: Record<ConstructionPhase, string> = {
 };
 function phase(s: State, j: Job, name: ConstructionPhase) {
   const h = j.handling!;
+  if (storageMove(j) && ['carry', 'settle', 'complete'].includes(name))
+    releaseManeuvers(s, j.id);
   h.phase = name;
   h.clock = 0;
   h.from = copy(h.pose);
@@ -676,6 +679,19 @@ function at(
       h.reach,
       api,
     );
+    if (alternative && storageMove(j) && dist(e, alternative.point) <= 10) {
+      const owner = claimManeuver(s, {
+        ownerId: j.id, equipmentId: e.id, kind: 'landing',
+        resourceId: j.stockMove!.mergeId ||
+          `${j.stockMove!.destination.x},${j.stockMove!.destination.z}`,
+        area: maneuverArea([alternative.point, alternative.clear,
+          center(j.stockMove!.destination)], e.kind === 'excavator' ? 1.8 : 1.45),
+      });
+      if (owner) {
+        j.reason = `Alternative storage dock reserved by ${owner}`;
+        return false;
+      }
+    }
     if (alternative) {
       h.destinationDock = { ...alternative.point };
       h.destinationClear = { ...alternative.clear };
@@ -968,6 +984,26 @@ function tickHandling(s: State, j: Job, dt: number, api: RailWorkAPI) {
     if (!j.handling) return active;
   }
   const h = j.handling!;
+  if (storageMove(j) && !['settle', 'complete'].includes(h.phase)) {
+    const pickup = ['approach', 'rig', 'engage', 'lift', 'clear'].includes(h.phase);
+    const nearLanding = h.phase !== 'carry' || dist(e, h.destinationDock) <= 10;
+    if (!pickup && !nearLanding) releaseManeuvers(s, j.id);
+    const owner = !pickup && !nearLanding ? '' : claimManeuver(s, pickup
+      ? { ownerId: j.id, equipmentId: e.id, kind: 'pickup',
+          resourceId: h.sourceId || j.stockMove!.sourceId,
+          area: maneuverArea([h.sourceDock, h.sourceApproach, h.sourceClear],
+            e.kind === 'excavator' ? 1.8 : 1.45) }
+      : { ownerId: j.id, equipmentId: e.id, kind: 'landing',
+          resourceId: j.stockMove!.mergeId ||
+            `${j.stockMove!.destination.x},${j.stockMove!.destination.z}`,
+          area: maneuverArea([h.destinationDock, h.destinationClear,
+            center(j.stockMove!.destination)], e.kind === 'excavator' ? 1.8 : 1.45) });
+    if (owner) {
+      e.path = [];
+      j.reason = `Handling space reserved by ${owner}`;
+      return true;
+    }
+  }
   syncConstructionLoad(s, j);
   if (w?.yieldingTo === e.id && (h.phase !== 'clear' || !e.cargo || !w.path.length)) {
     w.yieldTarget = undefined;

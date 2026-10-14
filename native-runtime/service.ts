@@ -58,6 +58,7 @@ import {
 } from '../src/procurement';
 import { query, SQL_EXAMPLES, csv } from '../src/reports';
 import { DiagnosticRecorder } from '../src/diagnostics';
+import { diagnoseLogisticsDependencies } from '../src/logistics-dependencies';
 import { renderState } from './render';
 import { recordStockFootprints } from '../src/ground-wear';
 import { railEditPreview } from './rail-edit-preview';
@@ -360,6 +361,7 @@ const readonly = new Set([
   'export',
   'export_costs',
   'diagnostics',
+  'dependency_diagnosis',
 ]);
 async function dispatch(action: string, a: any) {
   switch (action) {
@@ -387,6 +389,7 @@ async function dispatch(action: string, a: any) {
           'sql',
           'render-poses',
           'bounded-diagnostics',
+          'dependency-diagnosis',
         ],
       };
     case 'ping':
@@ -805,6 +808,9 @@ async function dispatch(action: string, a: any) {
       }
       return rows;
     }
+    case 'dependency_diagnosis':
+      // Explicit inspection only: never run graph traversal on 200 ms snapshots.
+      return diagnoseLogisticsDependencies(state);
     case 'sql':
       if (typeof a.sql !== 'string' || a.sql.length > 100000)
         throw new Error('Provide a SELECT query of at most 100,000 characters.');
