@@ -290,3 +290,11 @@ Build 226 adds deterministic grass, weeds, and clustered bushes to the initial t
 The full 811-test suite, both builds, native growth/ghost checks, two reviewed real-GPU fixture captures, ad-hoc signature and 30-assertion exact packaged native integration pass. The new self-contained app is installed beside v0.30.0 and leaves the current running session and private save untouched. The public archive contains the native app and player guides, excluding saves, logs, tests, and development captures. The browser Site remains v0.18.0.
 
 Release: [v0.31.0](https://github.com/lukacslacko/factory_game/releases/tag/v0.31.0). `Plant-01-macOS-arm64-v0.31.0.zip` has SHA-256 **`b41e93b31e3f569c7fb395ea2863ea8c026ec61698f8c4d910e46c748c45f270`**.
+
+## Native v0.32.0 — denser humid ground cover
+
+Build 227 gives the actual native yard a consistent damp-earth soil color beneath much denser geometric grass, weeds, and shrubs. The broad blotchy ground color treatment is removed, and unused diffuse maps are no longer loaded. Vegetation extends farther around the opening camera. A cell index updates plants near changed paving, stock, vehicles, or worn paths, avoiding a full meadow scan each snapshot. Growth timing, travel wear, save data, and routing are unchanged. The overview, closer view, and worn-route screenshots are controlled captures from Godot on the Mac Metal renderer.
+
+Both TypeScript builds, 13 vegetation assertions, 115 ghost assertions, four native GPU captures, ad-hoc signature verification, and 30 exact-package integration checks pass. The v0.32.0 app is installed beside earlier builds without touching private saves or the currently running game. The archive contains the native app and player guides, excluding saves, logs, tests, and development captures. The browser Site remains v0.18.0.
+
+Release: [v0.32.0](https://github.com/lukacslacko/factory_game/releases/tag/v0.32.0). `Plant-01-macOS-arm64-v0.32.0.zip` is **152,181,515 bytes**, SHA-256 **`1c6ae716a6a138255f7fa3d9c93c322c9977ff1fbc193bad6c81f0a3c855f4c8`**.

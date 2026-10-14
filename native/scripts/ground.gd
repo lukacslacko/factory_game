@@ -7,7 +7,7 @@ static func build(root: Node3D) -> Dictionary:
 	var group := Node3D.new()
 	group.name = "GroundAndVegetation"
 	root.add_child(group)
-	var ground_material := _surface(0, "9a855f", "c1ad87")
+	var ground_material := _surface(0, "5f584a", "5f584a")
 	var terrain := MeshInstance3D.new()
 	var plane := PlaneMesh.new()
 	plane.size = Vector2(180, 150)
@@ -30,10 +30,7 @@ static func _surface(kind: int, a: String, b: String) -> ShaderMaterial:
 	result.set_shader_parameter("color_a", Color(a))
 	result.set_shader_parameter("color_b", Color(b))
 	if kind == 0:
-		result.set_shader_parameter("dirt_diffuse", load("res://assets/textures/dirt_diff_2k.jpg"))
 		result.set_shader_parameter("dirt_normal", load("res://assets/textures/dirt_nor_gl_1k.jpg"))
-		result.set_shader_parameter("grass_diffuse", load("res://assets/textures/sparse_grass_diff_2k.jpg"))
-		result.set_shader_parameter("grass_normal", load("res://assets/textures/sparse_grass_nor_gl_1k.jpg"))
 	return result
 
 static func _road(root: Node3D) -> void:
@@ -311,6 +308,38 @@ static func _grass_mesh(pale := false) -> ArrayMesh:
 		_triangle(st,lower-side*.8,lower+side*.8,upper+side*.4,middle_color)
 		_triangle(st,lower-side*.8,upper+side*.4,upper-side*.4,middle_color)
 		_triangle(st,upper-side*.4,upper+side*.4,tip,tip_color)
+	st.generate_normals()
+	return st.commit()
+
+# The native yard uses thousands of these broad, inexpensive silhouettes.
+# Each blade has a real upright profile and a narrow tapered tip, so a meadow
+# remains green at an overview zoom without coloring the soil texture green.
+static func _meadow_grass_mesh(tall := false) -> ArrayMesh:
+	var st := SurfaceTool.new()
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 491 if tall else 193
+	for i in range(18 if tall else 16):
+		var angle := rng.randf() * TAU
+		var direction := Vector3(cos(angle),0,sin(angle))
+		var side := Vector3(-direction.z,0,direction.x)
+		var base := Vector3(rng.randf_range(-.36,.36),0,rng.randf_range(-.36,.36))
+		var height := rng.randf_range(.20,.43) if tall else rng.randf_range(.10,.24)
+		var width := rng.randf_range(.025,.053) if tall else rng.randf_range(.032,.059)
+		var bend := direction * height * rng.randf_range(.36,.65)
+		var shoulder := base + Vector3.UP * height * .56 + bend * .28
+		var tip := base + Vector3.UP * height + bend
+		var shade := rng.randf_range(.68,.96)
+		var low := Color(.62,.72,.45) * shade
+		var high := Color(.82,.90,.59) * shade
+		# Ground-hugging leaves make real geometric cover at overview scale;
+		# the thinner upright leaves give the clump a readable silhouette.
+		var ground_tip := base + direction * rng.randf_range(.13,.24) + Vector3.UP * rng.randf_range(.025,.07)
+		var ground_width := width * rng.randf_range(1.25,1.65)
+		_triangle(st,base-side*ground_width,base+side*ground_width,ground_tip,low)
+		_triangle(st,base-side*width,base+side*width,shoulder+side*width*.72,low)
+		_triangle(st,base-side*width,shoulder+side*width*.72,shoulder-side*width*.72,low)
+		_triangle(st,shoulder-side*width*.72,shoulder+side*width*.72,tip,high)
 	st.generate_normals()
 	return st.commit()
 

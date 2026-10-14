@@ -13,6 +13,10 @@ var records:Dictionary={}
 var statics:Dictionary={}
 var static_keys:Dictionary={}
 var plants:Array[Dictionary]=[]
+var plant_cell_index:Dictionary={}
+var vegetation_cells_previous:Dictionary={}
+var vegetation_growth_minute:int=-1
+var vegetation_last_impacted_count:int=0
 var terrain:MeshInstance3D
 var terrain_cut_key:String=""
 var electrical_nodes:Dictionary={}
@@ -31,7 +35,6 @@ var last_snapshot:int=0
 var preview_node:Node3D
 var selection_node:Node3D
 var intent_node:Node3D
-var masking_key:String=""
 var wear_key:String=""
 var cover_image:Image
 var cover_texture:ImageTexture
@@ -47,7 +50,7 @@ func setup()->void:
 	if initialized:return
 	initialized=true
 	name="ActualSimulationYard"
-	soil=Ground._surface(0,"9a855f","c1ad87")
+	soil=Ground._surface(0,"5f584a","5f584a")
 	cover_image=Image.create(300,190,false,Image.FORMAT_RF)
 	cover_image.fill(Color(1,0,0,1))
 	cover_texture=ImageTexture.create_from_image(cover_image)
@@ -71,7 +74,10 @@ func sync_snapshot(message:Dictionary)->void:
 	if not initialized:setup()
 	var incoming:Dictionary=message.get("state",{})
 	if float(incoming.get("elapsed",0))<float(state.get("elapsed",0)) or int(incoming.get("next",0))<int(state.get("next",0)):
-		masking_key="";wear_key="";vegetation_last_update_ms=0;wear_last_update_ms=0
+		wear_key="";vegetation_last_update_ms=0;wear_last_update_ms=0
+		# Keep the previous occupied cells for one diff pass. A loaded older save
+		# must restore plants hidden by ground use that no longer exists.
+		vegetation_growth_minute=-1
 	state=incoming
 	render=message.get("render",{})
 	var now:=Time.get_ticks_msec()
@@ -724,24 +730,32 @@ func _vegetation()->void:
 		# Independent fixed streams keep every plant in place across redraws and saves.
 		var rng:=RandomNumberGenerator.new();rng.seed=3021047+variant*100003
 		var transforms:Array[Transform3D]=[];var colors:Array[Color]=[]
-		var count:int=5000 if variant<2 else 1850 if variant==2 else 420 if variant==3 else 350 if variant==4 else 290 if variant==5 else 700
+		var count:int=90000 if variant==0 else 52000 if variant==1 else 11000 if variant==2 else 1350 if variant==3 else 1150 if variant==4 else 900 if variant==5 else 800
 		for i in range(count):
-			var x:=rng.randf_range(-42,220);var z:=rng.randf_range(-34,124)
+			var x:=rng.randf_range(-82,220);var z:=rng.randf_range(-40,124)
 			if absf(z+13)<5 or absf(x+8)<5 and z<17 or absf(z)<1.8 or x>25 and x<127 and absf(z-5)<1.8:continue
 			if x>0 and x<25:
 				var t:=x/25.;if absf(z-5*(3*t*t-2*t*t*t))<1.9:continue
 			if variant>=2 and variant<6:
 				var richness:float=clampf((habitat.get_noise_2d(x,z)+.28)*1.5,0.0,1.0)
-				if rng.randf()>.12+.88*richness:continue
-			var size:=rng.randf_range(.9,1.7) if variant<2 else rng.randf_range(.65,1.35) if variant==2 else rng.randf_range(.65,1.48) if variant<6 else rng.randf_range(.08,.27)
+				if rng.randf()>(.26+.74*richness if variant==2 else .09+.91*richness):continue
+			var size:=rng.randf_range(1.15,1.9) if variant==0 else rng.randf_range(.95,1.55) if variant==1 else rng.randf_range(.75,1.4) if variant==2 else rng.randf_range(.68,1.43) if variant<6 else rng.randf_range(.08,.24)
 			var basis:=Basis(Vector3.UP,rng.randf()*TAU).scaled(Vector3(size,size*rng.randf_range(.8,1.1),size))
 			transforms.append(Transform3D(basis,Vector3(x,.005,z)))
-			colors.append(Color.from_hsv(rng.randf_range(.20,.27),rng.randf_range(.38,.61),rng.randf_range(.45,.66)) if variant<3 else Color.from_hsv(rng.randf_range(.19,.29),rng.randf_range(.42,.68),rng.randf_range(.32,.57)) if variant<6 else Color.from_hsv(.11,.11,rng.randf_range(.52,.73)))
-		var mesh:Mesh=Ground._grass_mesh(variant==1) if variant<2 else Ground._herb_mesh() if variant==2 else Ground._crown_mesh(variant-3) if variant<6 else Ground._boulder_mesh()
+			colors.append(Color.from_hsv(rng.randf_range(.245,.315),rng.randf_range(.35,.55),rng.randf_range(.48,.70)) if variant<3 else Color.from_hsv(rng.randf_range(.24,.32),rng.randf_range(.39,.64),rng.randf_range(.36,.60)) if variant<6 else Color.from_hsv(.11,.11,rng.randf_range(.52,.73)))
+		var mesh:Mesh=Ground._meadow_grass_mesh(variant==1) if variant<2 else Ground._herb_mesh() if variant==2 else Ground._crown_mesh(variant-3) if variant<6 else Ground._boulder_mesh()
 		var node:=MultiMeshInstance3D.new();var mm:=MultiMesh.new();mm.transform_format=MultiMesh.TRANSFORM_3D;mm.use_colors=true;mm.mesh=mesh;mm.instance_count=transforms.size()
 		for i in range(transforms.size()):mm.set_instance_transform(i,transforms[i]);mm.set_instance_color(i,colors[i])
-		node.multimesh=mm;node.material_override=foliage if variant<3 else crown;node.name="StableVegetation%d"%variant;add_child(node)
+		node.multimesh=mm;node.material_override=foliage if variant<3 else crown;node.name="StableVegetation%d"%variant
+		if variant<2:node.cast_shadow=GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		add_child(node)
 		plants.append({"node":node,"transforms":transforms,"bounds":mesh.get_aabb(),"stage":"grass" if variant<2 else "weed" if variant==2 else "bush" if variant<6 else "stone"})
+		for i in range(transforms.size()):
+			var center:Vector3=transforms[i].origin
+			var cell:=str(int(floor(center.x)))+","+str(int(floor(center.z)))
+			var bucket:Array=plant_cell_index.get(cell,[])
+			bucket.append(variant*1000000+i)
+			plant_cell_index[cell]=bucket
 
 func _mask_vegetation()->void:
 	var now:=Time.get_ticks_msec()
@@ -774,30 +788,59 @@ func _mask_vegetation()->void:
 		for cell in rail.geometry.get("cells",[]):masks[str(int(cell.x))+","+str(int(cell.z))]=true
 	var wear:Dictionary=state.get("groundWear",{})
 	var disturbed:Dictionary=state.get("vegetationLastDisturbed",{})
-	var key:=str(hash(JSON.stringify([masks,wear,disturbed,int(float(state.get("elapsed",0))/60.0)])))
-	if key==masking_key:return
-	masking_key=key
-	vegetation_last_update_ms=now
 	var elapsed:float=float(state.get("elapsed",0))
-	for patch in plants:
-		var node:MultiMeshInstance3D=patch.node;var transforms:Array=patch.transforms
-		var stage:String=str(patch.stage)
-		for i in range(transforms.size()):
-			var t:Transform3D=transforms[i]
-			var bounds:AABB=patch.bounds;var scale:Vector3=t.basis.get_scale()
-			var radius:float=Vector2(bounds.size.x*scale.x,bounds.size.z*scale.z).length()*.5
-			var blocked:bool=false;var max_wear:float=0.0;var last_disturbed:float=-1.0
-			for x in range(int(floor(t.origin.x-radius)),int(ceil(t.origin.x+radius))+1):
-				for z in range(int(floor(t.origin.z-radius)),int(ceil(t.origin.z+radius))+1):
-					var cell:=str(x)+","+str(z)
-					if masks.has(cell):blocked=true;break
-					max_wear=maxf(max_wear,float(wear.get(cell,0)))
-					if disturbed.has(cell):last_disturbed=maxf(last_disturbed,float(disturbed[cell]))
-				if blocked:break
-			var growth:float=_plant_growth(stage,elapsed,last_disturbed,max_wear)
-			if blocked or growth<.04:t.basis=Basis.IDENTITY.scaled(Vector3.ZERO)
-			elif growth<1.0:t.basis=t.basis.scaled(Vector3(growth,growth,growth))
-			node.multimesh.set_instance_transform(i,t)
+	var cell_state:Dictionary={}
+	for cell in masks:cell_state[cell]=[true,float(wear.get(cell,0)),float(disturbed.get(cell,-1))]
+	for cell in wear:
+		if not cell_state.has(cell):cell_state[cell]=[false,float(wear[cell]),float(disturbed.get(cell,-1))]
+	for cell in disturbed:
+		if not cell_state.has(cell):cell_state[cell]=[false,0.0,float(disturbed[cell])]
+	var dirty:Dictionary={}
+	for cell in cell_state:
+		if not vegetation_cells_previous.has(cell) or vegetation_cells_previous[cell]!=cell_state[cell]:dirty[cell]=true
+	for cell in vegetation_cells_previous:
+		if not cell_state.has(cell):dirty[cell]=true
+	var minute:int=int(elapsed/60.0)
+	if minute!=vegetation_growth_minute:
+		for cell in disturbed:dirty[cell]=true
+	vegetation_cells_previous=cell_state
+	vegetation_growth_minute=minute
+	vegetation_last_update_ms=now
+	if dirty.is_empty():
+		vegetation_last_impacted_count=0
+		return
+	# The spatial index stores plant centers once. A five-cell halo includes the
+	# widest bush crowns, so a moving truck or newly laid slab only updates its
+	# nearby vegetation instead of rescanning the whole meadow every snapshot.
+	var impacted:Dictionary={}
+	for cell in dirty:
+		var coords:=str(cell).split(",")
+		if coords.size()!=2:continue
+		var cx:=int(coords[0]);var cz:=int(coords[1])
+		for x in range(cx-5,cx+6):
+			for z in range(cz-5,cz+6):
+				for code in plant_cell_index.get(str(x)+","+str(z),[]):impacted[code]=true
+	vegetation_last_impacted_count=impacted.size()
+	for code in impacted:
+		var patch_index:int=int(code)/1000000
+		var i:int=int(code)%1000000
+		var patch:Dictionary=plants[patch_index]
+		var node:MultiMeshInstance3D=patch.node
+		var t:Transform3D=patch.transforms[i]
+		var bounds:AABB=patch.bounds;var scale:Vector3=t.basis.get_scale()
+		var radius:float=Vector2(bounds.size.x*scale.x,bounds.size.z*scale.z).length()*.5
+		var blocked:bool=false;var max_wear:float=0.0;var last_disturbed:float=-1.0
+		for x in range(int(floor(t.origin.x-radius)),int(ceil(t.origin.x+radius))+1):
+			for z in range(int(floor(t.origin.z-radius)),int(ceil(t.origin.z+radius))+1):
+				var cell:=str(x)+","+str(z)
+				if masks.has(cell):blocked=true;break
+				max_wear=maxf(max_wear,float(wear.get(cell,0)))
+				if disturbed.has(cell):last_disturbed=maxf(last_disturbed,float(disturbed[cell]))
+			if blocked:break
+		var growth:float=_plant_growth(str(patch.stage),elapsed,last_disturbed,max_wear)
+		if blocked or growth<.04:t.basis=Basis.IDENTITY.scaled(Vector3.ZERO)
+		elif growth<1.0:t.basis=t.basis.scaled(Vector3(growth,growth,growth))
+		node.multimesh.set_instance_transform(i,t)
 
 func _plant_growth(stage:String,elapsed:float,last_disturbed:float,wear:float)->float:
 	if stage=="grass":return clampf(1.0-wear*.82,.16,1.0)

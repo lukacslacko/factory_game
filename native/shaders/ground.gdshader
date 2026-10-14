@@ -5,10 +5,7 @@ uniform int surface_kind = 0;
 uniform bool show_grid = false;
 uniform vec4 color_a : source_color = vec4(0.43, 0.39, 0.26, 1.0);
 uniform vec4 color_b : source_color = vec4(0.65, 0.56, 0.38, 1.0);
-uniform sampler2D dirt_diffuse : source_color, filter_linear_mipmap_anisotropic, repeat_enable;
 uniform sampler2D dirt_normal : hint_normal, filter_linear_mipmap_anisotropic, repeat_enable;
-uniform sampler2D grass_diffuse : source_color, filter_linear_mipmap_anisotropic, repeat_enable;
-uniform sampler2D grass_normal : hint_normal, filter_linear_mipmap_anisotropic, repeat_enable;
 uniform sampler2D cover_texture : filter_linear;
 uniform bool use_cover_texture = false;
 varying vec3 world_position;
@@ -31,60 +28,36 @@ void fragment() {
     float footprint = max(length(dFdx(p)), length(dFdy(p)));
     // Subpixel grains must become their average, rather than sparkle as the camera moves.
     float grain_visibility = 1.0 - smoothstep(.006, .034, footprint);
-    float broad = fbm(p * .17);
-    float grit = mix(.5, noise(p * 72.0), grain_visibility);
-    vec3 c = mix(color_a.rgb, color_b.rgb, smoothstep(.20, .75, broad));
-    vec3 mapped_normal = vec3(.5 + (noise(p * 60.0) - .5) * .085 * grain_visibility, .5 + (noise(p * 60.0 + 3.0) - .5) * .085 * grain_visibility, 1.0);
+    vec3 c = color_a.rgb;
+    vec3 mapped_normal = vec3(.5, .5, 1.0);
     if (surface_kind == 0) {
-        float patches = fbm(p * .29 + 63.1);
         float ruts = max(strip(p.y, 1.8, .12), strip(p.y, 3.6, .12)) * (1.0 - smoothstep(10.0, 12.0, abs(p.x + 8.0)));
         float crossing_ruts = max(strip(p.x, -11.0, .16), strip(p.x, -9.4, .16)) * (1.0 - smoothstep(9.0, 11.0, abs(p.y - 2.0)));
-        float worn = max(max(ruts, crossing_ruts), strip(p.x, -10.2, .62) * (1.0 - smoothstep(9.0, 12.0, abs(p.y - 2.0))) * .64);
-        float grass_coverage = smoothstep(.30, .68, patches) * .96 * (1.0 - worn * .96);
-        float working_yard = (1.0 - smoothstep(22.0, 29.0, abs(p.x))) * (1.0 - smoothstep(11.0, 16.0, abs(p.y - 7.0)));
-        grass_coverage *= 1.0 - working_yard * .26;
         float traveled = 0.0;
         if (use_cover_texture) {
             vec2 cover_uv = (p + vec2(50.0, 40.0)) / vec2(300.0, 190.0);
             if (cover_uv.x >= 0.0 && cover_uv.x <= 1.0 && cover_uv.y >= 0.0 && cover_uv.y <= 1.0) {
                 float cover = texture(cover_texture, cover_uv).r;
-                grass_coverage *= cover;
                 traveled = clamp((1.0 - cover) / .88, 0.0, 1.0);
             }
         }
-        // Two incommensurate orientations and a slow organic warp suppress an obvious tile grid.
-        vec2 warp = vec2(fbm(p * .067), fbm(p * .061 + 28.4)) * .20;
-        vec2 uv_a = p * .26 + warp;
-        vec2 uv_b = vec2(p.x * .8 + p.y * .6, -p.x * .6 + p.y * .8) * .283 + vec2(.39, .73) + warp;
-        float texture_blend = smoothstep(.12, .84, fbm(p * .31 + 91.0));
-        vec3 dirt = mix(texture(dirt_diffuse, uv_a).rgb, texture(dirt_diffuse, uv_b).rgb, texture_blend);
-        vec3 grass = mix(texture(grass_diffuse, uv_a).rgb, texture(grass_diffuse, uv_b).rgb, texture_blend);
-        grass *= vec3(.72, 1.07, .63);
-        vec3 photographic = mix(dirt, grass, grass_coverage);
-        vec3 macro_tint = mix(vec3(1.12, 1.05, .93), vec3(1.25, 1.16, 1.02), broad);
-        c = mix(photographic * macro_tint, c, .25);
-        // Visible soil aggregates and dry hummocks survive distant mip averaging.
-        float clods = fbm(p * 2.2 + 15.4);
-        c *= mix(.94, 1.065, smoothstep(.25,.76,clods));
-        float sand_grain_visibility = 1.0-smoothstep(.018,.09,footprint);
-        c += (noise(p*18.0+21.3)-.5)*.014*sand_grain_visibility;
-        float fragments_visibility = 1.0-smoothstep(.04,.13,footprint);
-        c *= 1.0+(noise(p*6.3+vec2(4.5,2.1))-.5)*.045*fragments_visibility;
-        float dry_patches = smoothstep(.62,.83,fbm(p*.82+7.2))*(1.0-grass_coverage*.72);
-        c = mix(c,vec3(.34,.275,.175),dry_patches*.17);
-        c = mix(c, vec3(.31,.265,.19), traveled * .32);
-        vec3 dirt_a = texture(dirt_normal, uv_a).rgb * 2.0 - 1.0;
-        vec3 dirt_b = texture(dirt_normal, uv_b).rgb * 2.0 - 1.0;
-        vec3 grass_a = texture(grass_normal, uv_a).rgb * 2.0 - 1.0;
-        vec3 grass_b = texture(grass_normal, uv_b).rgb * 2.0 - 1.0;
-        dirt_b.xy = vec2(dirt_b.x * .8 - dirt_b.y * .6, dirt_b.x * .6 + dirt_b.y * .8);
-        grass_b.xy = vec2(grass_b.x * .8 - grass_b.y * .6, grass_b.x * .6 + grass_b.y * .8);
-        vec3 surface_normal = normalize(mix(mix(dirt_a, dirt_b, texture_blend), mix(grass_a, grass_b, texture_blend), grass_coverage));
-        mapped_normal = surface_normal * .5 + .5;
-        c *= 1.0 - max(ruts, crossing_ruts) * .12;
+        // Damp, nearly uniform soil: actual 3D foliage supplies the green and
+        // patchiness. Texture is only fine close-range relief, never a painted meadow.
+        c = color_a.rgb;
+        float close_detail = 1.0 - smoothstep(.025, .12, footprint);
+        vec2 uv = p * .33;
+        vec3 soil_normal = texture(dirt_normal, uv).rgb;
+        mapped_normal = mix(vec3(.5, .5, 1.0), soil_normal, close_detail * .34);
+        c += (noise(p * 15.0) - .5) * .009 * close_detail;
+        c *= 1.0 - traveled * .19;
+        c *= 1.0 - max(ruts, crossing_ruts) * .07;
         float tracks = max(ruts, crossing_ruts) * (1.0 - smoothstep(.11, .2, abs(fract(p.x * 4.2) - .5)));
-        c *= 1.0 - tracks * .035;
+        c *= 1.0 - tracks * .025;
     } else if (surface_kind == 1) {
+        float broad = fbm(p * .17);
+        float grit = mix(.5, noise(p * 72.0), grain_visibility);
+        c = mix(color_a.rgb, color_b.rgb, smoothstep(.20, .75, broad));
+        mapped_normal = vec3(.5 + (noise(p * 60.0) - .5) * .085 * grain_visibility, .5 + (noise(p * 60.0 + 3.0) - .5) * .085 * grain_visibility, 1.0);
         c += (grit - .5) * .047;
         c *= (.94 + noise(p * 2.2) * .095) * instance_tint.rgb;
         c += (noise(p * 7.0) - .5) * .021;

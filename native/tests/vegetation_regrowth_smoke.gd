@@ -36,6 +36,7 @@ func _run()->void:
 	var cell:=str(int(floor(original.origin.x)))+","+str(int(floor(original.origin.z)))
 	fixture.state.vegetationLastDisturbed[cell]=0.0
 	world.vegetation_last_update_ms=0;world.sync_snapshot(fixture)
+	_check(world.vegetation_last_impacted_count>0 and world.vegetation_last_impacted_count<stage_counts.grass/4,"Disturbing one cell updates nearby plants without rescanning the full meadow")
 	_check(world._plant_growth("bush",0.0,0.0,0.0)<.001,"Traffic immediately removes bush foliage")
 	_check(world._plant_growth("weed",0.0,0.0,0.0)<.001 and world._plant_growth("grass",0.0,0.0,.05)>.9,"Weeds clear while grass survives a first pass")
 	fixture.state.elapsed=12.0*3600.0
@@ -54,6 +55,19 @@ func _run()->void:
 	fixture.state.groundWear.clear()
 	world.wear_last_update_ms=0;world.sync_snapshot(fixture)
 	_check(world.cover_image.get_pixel(ix,iz).r>.99,"Recovered ground restores grass without moving plants")
+	fixture.state.paving[cell]=true
+	world.vegetation_last_update_ms=0;world.sync_snapshot(fixture)
+	_check(bool(world.vegetation_cells_previous.get(cell,[])[0]) and world.vegetation_last_impacted_count>0,"A new slab masks only vegetation around its cell")
+	fixture.state.paving.erase(cell)
+	world.vegetation_last_update_ms=0;world.sync_snapshot(fixture)
+	_check(not world.vegetation_cells_previous.has(cell) and world.vegetation_last_impacted_count>0,"Removing a slab reveals vegetation at its original location")
+	world.vegetation_last_update_ms=0;world.sync_snapshot(fixture)
+	_check(world.vegetation_last_impacted_count==0,"An unchanged yard does not rescan vegetation")
+	fixture.state.elapsed=20.0;fixture.state.groundWear[cell]=1.0
+	world.vegetation_last_update_ms=0;world.sync_snapshot(fixture)
+	fixture.state.elapsed=0.0;fixture.state.groundWear.clear()
+	world.vegetation_last_update_ms=0;world.sync_snapshot(fixture)
+	_check(not world.vegetation_cells_previous.has(cell) and world.vegetation_last_impacted_count>0,"Loading an earlier save restores plants from removed wear cells")
 	world.queue_free();await process_frame
 	print("VEGETATION_REGROWTH ",JSON.stringify({"passed":failures.is_empty(),"checks":checks,"failures":failures}))
 	quit(0 if failures.is_empty() else 1)
