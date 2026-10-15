@@ -2,7 +2,7 @@
 
 The existing factory simulation now runs in a local Node.js service, with Godot rendering the approved Concept C yard and providing native controls. The service owns simulation time and file persistence, so gameplay can continue while the window is unfocused. No web page, Chrome process, web server, or Internet connection is needed to play.
 
-Native v0.39.1 gives **Automations** the same compact, bordered layout as the other registers. Crew and diesel policies, thresholds, and live fuel status are separated; switches display their actual On/Off state. The simulation is unchanged from v0.39.0.
+Native v0.39.2 fixes a support-crew handoff that could repeatedly discard a worker's route to a storage recovery lift. The reported paused yard replays through moving the obstructing drum and completing its waiting rail job. The save does not need conversion. Native v0.39.1 gives **Automations** the same compact, bordered layout as the other registers. Crew and diesel policies, thresholds, and live fuel status are separated; switches display their actual On/Off state.
 
 Native v0.39.0 keeps workers from merging or walking through each other, including head-on routes and imported overlapping positions. The **Automations** tab has a default-on support-worker policy for newly delivered forklifts and excavators. An unstaffed machine has a persistent linked warning until a free builder or engineer can join it; manual crew choices take priority. Construction requests a real clearance trip before bringing a building kit onto an occupied footprint. See [walking clearance and crew automation](../docs/worker-spacing-and-crew-automation.md). Forklift rail-stack lowering remains tracked in [issue #55](https://github.com/lukacslacko/factory_game/issues/55).
 

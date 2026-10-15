@@ -62,7 +62,10 @@ function ownsFollowPath(s: State, w: Worker): boolean {
     !/^(Walking clear|Clear of lift)/.test(w.status) &&
     (prior?.path === w.path ||
       (prior?.target && dist(w.path.at(-1)!, prior.target) < 0.01) ||
-      w.status.startsWith('Supporting '))
+      // Saved idle following walks have no WeakMap record. A busy worker may
+      // still show the old support status when its job replaces that walk;
+      // the physical operation owns the new path, not this follower.
+      (!busy(w) && w.status.startsWith('Supporting ')))
   );
 }
 export function setEquipmentAssistant(s: State, equipmentId: string, workerId?: string, automatic = false): string {

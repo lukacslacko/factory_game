@@ -66,6 +66,31 @@ test('changing or releasing support assignments preserves ongoing physical work 
   assert.match(equipmentAssistantReason(s, e.id), /manual control/);
 });
 
+test('a support worker keeps a newly assigned rigging walk even while its old status says Supporting', () => {
+  const { s, e, w } = crew();
+  w.x = 54;
+  w.z = 40;
+  assert.equal(setEquipmentAssistant(s, e.id, w.id), '');
+  updateEquipmentAssistants(s, 0.1);
+  assert.ok(w.path.length, 'The helper initially follows its machine');
+  assert.match(w.status, /Supporting/);
+  const j = S.plan(s, 'rail', 125, 4).job!;
+  j.status = 'doing';
+  j.equipment = e.id;
+  j.worker = w.id;
+  e.job = j.id;
+  w.job = j.id;
+  e.path = [];
+  const riggingPath = [{ x: 27, z: 44 }];
+  w.path = riggingPath;
+  updateEquipmentAssistants(s, 0.1);
+  assert.equal(w.path, riggingPath, 'Follow logic does not discard the work route on assignment');
+  const loaded = S.load(S.save(s));
+  const restored = loaded.workers.find((worker) => worker.id === w.id)!;
+  updateEquipmentAssistants(loaded, 0.1);
+  assert.deepEqual(restored.path, riggingPath, 'The same handoff survives a save without follow-path records');
+});
+
 test('idle supporting workers walk around real stock and stop on clear nearby ground', () => {
   const { s, e, w } = crew();
   w.x = 42;
