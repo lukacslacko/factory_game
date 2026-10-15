@@ -752,6 +752,9 @@ func _automation_number(parent: Node, title: String, value: int, minimum: int, m
 	return entry
 
 func _build_automations() -> void:
+	_label(register_body,"CREW AUTOMATIONS")
+	_note(register_body,"A delivered site machine needs its own operator and a ground support worker. Existing manual crew assignments take priority.")
+	_automation_switch("supportWorkers","Assign support workers to equipment","When a forklift or excavator is delivered, assign the nearest available builder or engineer as its dedicated helper. An unstaffed machine keeps a warning in the inbox until a helper is available.")
 	_label(register_body,"CONSUMABLE AUTOMATIONS")
 	_note(register_body,"These switches save with the yard. Each automatic action uses a real vehicle, worker, delivery, or paid collection; it does not create fuel or move barrels instantly.")
 	_automation_switch("vehicleRefueling","Request vehicle refueling when low","Equipment queues a refueling job at the selected tank percentage. A parked, uncoupled shunter attempts service with its qualified driver and a nearby barrel. Manual control and active work keep priority.")
@@ -1867,6 +1870,9 @@ func _equipment_inspector(equipment: Dictionary) -> void:
 		var args: Dictionary = {"id":id}
 		if not _selection(support).is_empty(): args.workerId=_selection(support)
 		_send("assistant",args))
+	_note(inspector_body,"Manual selection takes priority over crew automation. Select no support worker to leave this machine unassigned.")
+	if bool(equipment.get("supportWorkerManual",false)):
+		_button(inspector_body,"Resume automatic support assignment",func() -> void: _send("assistant_auto",{"id":id}))
 	_button(inspector_body,"Request refueling",func() -> void: _send("refuel",{"id":id}))
 	_button(inspector_body,"Retire / collect equipment…",func()->void:collection_ui.open(self,"",id))
 	_note(inspector_body,"A free, fueled machine travels to its diesel drum with an operator. Loaded or dry equipment receives an emergency can delivery. A pending request waits for manual control to be released or the current job to become safe.")

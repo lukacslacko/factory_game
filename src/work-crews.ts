@@ -65,7 +65,7 @@ function ownsFollowPath(s: State, w: Worker): boolean {
       w.status.startsWith('Supporting '))
   );
 }
-export function setEquipmentAssistant(s: State, equipmentId: string, workerId?: string): string {
+export function setEquipmentAssistant(s: State, equipmentId: string, workerId?: string, automatic = false): string {
   const e = s.equipment.find((q) => q.id === equipmentId);
   if (!e) return 'Equipment not found.';
   const next = workerId ? s.workers.find((w) => w.id === workerId) : undefined;
@@ -76,7 +76,11 @@ export function setEquipmentAssistant(s: State, equipmentId: string, workerId?: 
     return `This worker already supports ${next.assistingEquipment}. Release that crew assignment first.`;
   const previous = equipmentAssistant(s, equipmentId);
   if(next?.processAssignment || previous?.processAssignment)return 'Finish the physical process operation before changing this support crew.';
-  if (previous === next) return '';
+  if (!automatic) e.supportWorkerManual = true;
+  if (previous === next) {
+    if (!automatic) s.revision++;
+    return '';
+  }
   // Never cancel a lift, carried load, commute, or player command when changing crews.
   for (const w of [previous, next]) {
     if (!w) continue;
@@ -96,6 +100,45 @@ export function setEquipmentAssistant(s: State, equipmentId: string, workerId?: 
   });
   s.revision++;
   return '';
+}
+export function restoreAutomaticSupportWorker(s: State, equipmentId: string): string {
+  const e = s.equipment.find((q) => q.id === equipmentId);
+  if (!e) return 'Equipment not found.';
+  e.supportWorkerManual = false;
+  e.supportAutoPending = true;
+  s.revision++;
+  return '';
+}
+
+/** Reconcile after arrivals and shift changes; missing helpers remain visible until resolved. */
+export function reconcileSupportWorkerAutomation(s: State, nextId: () => string): void {
+  const enabled = s.automations?.supportWorkers !== false;
+  for (const e of s.equipment) {
+    const active = enabled && !!e.supportAutoPending && !e.transportOrder && !e.supportWorkerManual;
+    if (active && !equipmentAssistant(s, e.id)) {
+      const candidate = s.workers.filter((w) =>
+        (w.role === 'builder' || w.role === 'engineer') &&
+        !w.assistingEquipment && w.duty === 'auto' && workerAvailable(s, w) &&
+        !busy(w) && !w.path.length && (w.y || 0) < 0.2,
+      ).sort((a, b) => dist(a, e) - dist(b, e) || a.id.localeCompare(b.id))[0];
+      if (candidate) setEquipmentAssistant(s, e.id, candidate.id, true);
+    }
+    const missing = active && !equipmentAssistant(s, e.id);
+    const prior = s.notices.find((n) => n.entity === e.id && n.title === 'Support worker needed');
+    if (!missing) {
+      if (prior && prior.state !== 'done') { prior.state = 'done'; s.revision++; }
+    } else if (prior) {
+      if (prior.state !== 'todo') { prior.state = 'todo'; s.revision++; }
+    } else {
+      s.notices.unshift({ id: nextId(), time: s.time, title: 'Support worker needed',
+        detail: `${e.id} has no available builder or engineer to assign as its ground support worker. Hire one or release an existing assignment.`,
+        entity: e.id, state: 'todo', seen: false, severity: 'warning' });
+      s.revision++;
+    }
+  }
+  for (const n of s.notices)
+    if (n.title === 'Support worker needed' && n.state !== 'done' &&
+      !s.equipment.some((e) => e.id === n.entity)) n.state = 'done';
 }
 
 // workerMoveBlocked allows escape from an existing overlap. A standing location

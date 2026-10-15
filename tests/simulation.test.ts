@@ -272,6 +272,10 @@ test('save validation rejects broken paths, fuel, and missing crew references', 
 });
 test('a larger starter base completes across save/reload with balanced inventory', () => {
   let s = yardWithStorage();
+  // This broad construction fixture predates dedicated equipment helpers.
+  // Keep its original free-builder staffing; crew automation has separate
+  // delivery, warning, save, and manual-precedence regressions.
+  assert.equal(S.configureConsumableAutomations(s, { supportWorkers: false }), '');
   S.purchase(s, 'builder', 3);
   S.purchase(s, 'operator', 2);
   S.purchase(s, 'excavator', 1);

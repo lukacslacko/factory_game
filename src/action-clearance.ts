@@ -372,7 +372,10 @@ export function requestActionClearance(
   record.reason = record.blockerIds.map((id) => reasons[id] || `Waiting for ${id}.`).join(' ');
   for (const e of s.equipment)
     if (e.actionYieldFor === request.ownerId) e.actionYieldUntil = s.elapsed + 30;
-  if (s.elapsed - record.since >= 20) {
+  // Player-controlled blockers cannot resolve themselves. Surface them soon
+  // instead of waiting through the ordinary automatic traffic retry window.
+  const needsPlayer = /manual control|rest duty/.test(record.reason || '');
+  if (s.elapsed - record.since >= (needsPlayer ? 1 : 20)) {
     const delivery = s.orders.find((o) => o.id === record!.ownerId);
     let notice = s.notices.find((n) => n.id === record!.noticeId);
     if (!notice && delivery?.unloadBlockage?.warned) {

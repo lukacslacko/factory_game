@@ -164,16 +164,18 @@ test('native consumable automation settings validate atomically and persist with
   const c = host.client;
   await c.ok('new_game', { mode: 'empty' });
   const changed = await c.ok('automation_configure', { changes: {
-    vehicleRefueling: false, fuelOrdering: false, emptyBarrelCollection: false,
+    supportWorkers: false, vehicleRefueling: false, fuelOrdering: false, emptyBarrelCollection: false,
     refuelAtPercent: 30, fuelReserveLiters: 250, fuelTargetLiters: 600,
   } });
   assert.deepEqual([changed.settings.vehicleRefueling, changed.settings.fuelOrdering,
     changed.settings.emptyBarrelCollection], [false, false, false]);
+  assert.equal(changed.settings.supportWorkers, false);
   const rejected = await c.request('automation_configure', { changes: { fuelTargetLiters: 100 } });
   assert.equal(rejected.ok, false);
   const exported = JSON.parse((await c.ok('export')).json);
   assert.equal(exported.automations.fuelTargetLiters, 600);
   assert.equal(exported.automations.fuelOrdering, false);
+  assert.equal(exported.automations.supportWorkers, false);
   assert.equal(exported.automations.fuelDemandSeen, false);
 });
 

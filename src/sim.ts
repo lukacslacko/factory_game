@@ -58,6 +58,7 @@ import {
   equipmentAssistantReason,
   workerSupportsEquipment,
   updateEquipmentAssistants,
+  reconcileSupportWorkerAutomation,
 } from './work-crews';
 import { recordEquipmentTravel, recordStockFootprints, recoverGround } from './ground-wear';
 import { railLocationStatus } from './rail-locations';
@@ -115,6 +116,8 @@ import {
   equipmentSweepBlocked,
   equipmentMoveBlocked,
   workerMoveBlocked,
+  workerStepBlockedByWorker,
+  workerStandingBlockedByWorker,
   navigationActors,
   walkRoute,
   machineRoute,
@@ -1441,6 +1444,27 @@ function stepAside(s: State, w: Worker, e: Equipment, knownBlocker = false) {
     }
   }
 }
+function makeRoomForWorker(s: State, walking: Worker, blocking: Worker) {
+  const reciprocal = blocking.blockedBy === walking.id && blocking.id > walking.id &&
+    !!blocking.path.length && !blocking.pedestrianReturnTarget;
+  if (blocking.duty !== 'auto' || blocking.vehicle || blocking.transportOrder ||
+      blocking.transition || (blocking.path.length && !reciprocal) ||
+      (blocking.y || 0) > 0.25) return;
+  const away = Math.atan2(blocking.z - walking.z, blocking.x - walking.x);
+  for (const radius of [1.3, 1.9, 2.5])
+    for (const offset of [0, Math.PI / 4, -Math.PI / 4, Math.PI / 2, -Math.PI / 2]) {
+      const target = { x: blocking.x + Math.cos(away + offset) * radius,
+        z: blocking.z + Math.sin(away + offset) * radius };
+      if (workerMoveBlocked(s, blocking, target) ||
+          workerStandingBlockedByWorker(s, blocking, target)) continue;
+      const path = walkRoute(s, blocking, target, pedestrianObstacles(s));
+      if (!path?.length) continue;
+      if (reciprocal) blocking.pedestrianReturnTarget = blocking.path.at(-1);
+      blocking.path = path;
+      blocking.status = `Making room for ${walking.id}`;
+      return;
+    }
+}
 function recordTrafficBlockage(s: State, e: Equipment, blocker: string) {
   e.trafficBlockedSince ??= s.elapsed;
   if (s.elapsed - e.trafficBlockedSince < 20 || e.trafficBlockedNotice) return;
@@ -1640,6 +1664,16 @@ function tickLogisticsOfficer(s: State) {
 
 function tickMove(s: State, p: Worker | Equipment, dt: number, speed: number) {
   const vehicle = 'kind' in p;
+  if (!vehicle && !p.path.length && p.pedestrianReturnTarget &&
+      s.elapsed >= (p.trafficRetry || 0)) {
+    const goal = p.pedestrianReturnTarget;
+    if (dist(p, goal) < 0.1) p.pedestrianReturnTarget = undefined;
+    else {
+      const resumed = walkRoute(s, p, goal, pedestrianObstacles(s));
+      if (resumed?.length) { p.path = resumed; p.pedestrianReturnTarget = undefined; }
+      else p.trafficRetry = s.elapsed + 1;
+    }
+  }
   if (vehicle && p.trafficYieldEquipment && !p.path.length) {
     const requester = s.equipment.find((q) => q.id === p.trafficYieldEquipment);
     const dock = p.trafficGoal;
@@ -1730,7 +1764,7 @@ function tickMove(s: State, p: Worker | Equipment, dt: number, speed: number) {
   move(candidate, dt, speed, vehicle);
   const blocker = vehicle
     ? equipmentSweepBlocked(s, p, candidate)
-    : workerMoveBlocked(s, p, candidate);
+    : workerMoveBlocked(s, p, candidate) || workerStepBlockedByWorker(s, p as Worker, candidate);
   if (!blocker) {
     const previousPose = { x: p.x, z: p.z, yaw: p.yaw };
     Object.assign(p, {
@@ -1797,9 +1831,16 @@ function tickMove(s: State, p: Worker | Equipment, dt: number, speed: number) {
   p.velocity = 0;
   p.blockedBy = blocker;
   p.trafficWait = (p.trafficWait || 0) + dt;
+  if (!vehicle) {
+    const other = s.workers.find((w) => w.id === blocker);
+    if (other && s.elapsed >= ((p as Worker).pedestrianYieldRetry || 0)) {
+      makeRoomForWorker(s, p as Worker, other);
+      (p as Worker).pedestrianYieldRetry = s.elapsed + 1;
+    }
+  }
   if (vehicle) {
     recordTrafficBlockage(s, p, blocker);
-  } else {
+  } else if (!s.workers.some((w) => w.id === blocker)) {
     requestActionClearance(s,{ownerId:p.id,blockerId:blocker,action:"Walk to assigned work point",envelopes:[{...candidate,length:1,width:1,yaw:0}]});
   }
   if (vehicle) {
@@ -1894,9 +1935,16 @@ function tickMove(s: State, p: Worker | Equipment, dt: number, speed: number) {
       }
     }
   }
+  const walkingObstacles = !vehicle && otherWorker
+    ? [...pedestrianObstacles(s), ...s.workers.filter((w) => w.id !== p.id && !w.vehicle &&
+        (w.y || 0) < 0.25).map((w) => ({
+          x: w.x - 0.5, z: w.z - 0.5, w: 1, d: 1, id: w.id,
+        }))]
+    : pedestrianObstacles(s);
   let path = vehicle
     ? machineRoute(s, p, goal, pedestrianObstacles(s), 250, true)
-    : walkRoute(s, p, goal, pedestrianObstacles(s));
+    : otherWorker && workerStandingBlockedByWorker(s, p as Worker, goal)
+      ? null : walkRoute(s, p, goal, walkingObstacles);
   if (!path && vehicle) {
     const reverse = !p.reverse;
     path = machineRoute(s, { ...p, reverse }, goal, pedestrianObstacles(s), 250, true);
@@ -1933,8 +1981,9 @@ function tickMove(s: State, p: Worker | Equipment, dt: number, speed: number) {
         { x: goal.x, z: goal.z - d },
       ];
       for (const target of alternatives) {
-        if (workerMoveBlocked(s, worker, target)) continue;
-        path = walkRoute(s, p, target, pedestrianObstacles(s));
+        if (workerMoveBlocked(s, worker, target) ||
+            workerStandingBlockedByWorker(s, worker, target)) continue;
+        path = walkRoute(s, p, target, walkingObstacles);
         if (path) break;
       }
       if (path) break;
@@ -1943,7 +1992,10 @@ function tickMove(s: State, p: Worker | Equipment, dt: number, speed: number) {
   if (path?.length) {
     p.path = path;
     if (resumeGoal) p.trafficGoal = undefined;
-    p.trafficWait = 0;
+    // A new route is only a proposal. Keep a pedestrian's accumulated wait
+    // until an actual step succeeds, so an idle blocker is eventually asked
+    // to move rather than hiding a repeated near-contact replan.
+    if (vehicle || !otherWorker) p.trafficWait = 0;
   }
 }
 function restoreYieldingWorkers(s: State) {
@@ -1966,6 +2018,37 @@ function restoreYieldingWorkers(s: State) {
     if (target && !workerMoveBlocked(s, w, target))
       w.path = walkRoute(s, w, target, pedestrianObstacles(s)) || [];
     w.status = w.path.length ? 'Returning to task' : w.job ? 'Ready at work site' : 'Available';
+  }
+}
+function separateStandingWorkers(s: State) {
+  for (let i = 0; i < s.workers.length; i++) {
+    const a = s.workers[i];
+    if (a.vehicle || a.transportOrder || a.transition || a.path.length ||
+        a.shiftPhase === 'home' || a.shiftPhase === 'aboard' || (a.y || 0) > 0.25) continue;
+    for (let j = i + 1; j < s.workers.length; j++) {
+      const b = s.workers[j];
+      if (b.vehicle || b.transportOrder || b.transition || b.path.length ||
+          b.shiftPhase === 'home' || b.shiftPhase === 'aboard' ||
+          (b.y || 0) > 0.25 || dist(a, b) >= 0.72) continue;
+      const mover = !b.job && !b.deliveryOrder ? b :
+        !a.job && !a.deliveryOrder ? a : b;
+      if (mover.duty !== 'auto') continue;
+      const fixed = mover === a ? b : a;
+      const angle = dist(mover, fixed) > 1e-6
+        ? Math.atan2(mover.z - fixed.z, mover.x - fixed.x)
+        : (j % 8) * Math.PI / 4;
+      for (const offset of [0, Math.PI / 4, -Math.PI / 4, Math.PI / 2, -Math.PI / 2, Math.PI]) {
+        const target = { x: fixed.x + Math.cos(angle + offset) * 1.1,
+          z: fixed.z + Math.sin(angle + offset) * 1.1 };
+        if (workerMoveBlocked(s, mover, target) ||
+            workerStandingBlockedByWorker(s, mover, target)) continue;
+        const path = walkRoute(s, mover, target, pedestrianObstacles(s));
+        if (!path?.length) continue;
+        mover.path = path;
+        mover.status = 'Making room for another worker';
+        break;
+      }
+    }
   }
 }
 export function moveWorker(s: State, wid: string, p: Point): string {
@@ -2688,6 +2771,19 @@ function assign(s: State, j: Job) {
   }
   if (j.status !== 'todo') return;
   if (j.retryRevision === s.revision && (j.retryAt || 0) > s.elapsed) return;
+  if (BUILDINGS[j.kind] && j.kind !== 'power' && j.kind !== 'water') {
+    const face = { x: j.x + j.w / 2, z: j.z + j.d / 2, yaw: 0,
+      length: j.w + 1, width: j.d + 1 };
+    const blocker = s.equipment.find((e) => !e.transportOrder &&
+      equipmentBoxes(e).some((box) => boxOverlap(box, face, 0.05)));
+    if (blocker) {
+      const clearance = requestActionClearance(s, { ownerId: j.id, blockerId: blocker.id,
+        action: `prepare the ${j.kind} foundation`, envelopes: [face] });
+      j.reason = clearance.reason;
+      return;
+    }
+    if (s.actionClearances?.some((r) => r.ownerId === j.id)) clearActionClearance(s, j.id);
+  }
   if (assignTurnoutOperation(s, j, { obstacles, event, complete, release: finishRelease })) return;
   if (assignEquipmentRefueling(s,j,{event,notice,movement,complete,release:finishRelease})) return;
   if (j.railRecovery) {
@@ -3120,6 +3216,21 @@ function assign(s: State, j: Job) {
   });
   worker = helperChoice?.worker;
   if (!worker && !prefetch) {
+    // A recently freed machine can be parked directly on the next building's
+    // work face. Asking for a helper route alone cannot move that machine;
+    // recruit its real operator to clear the footprint before retrying.
+    if (!['slab', 'rail', 'moveStock'].includes(j.kind) && !eq.job && !eq.path.length) {
+      const face = { x: j.x + j.w / 2, z: j.z + j.d / 2, yaw: 0,
+        length: j.w + 2, width: j.d + 2 };
+      if (equipmentBoxes(eq).some((box) => boxOverlap(box, face))) {
+        const clearance = requestActionClearance(s, { ownerId: j.id,
+          blockerId: eq.id, action: `access ${j.kind} work face`, envelopes: [face] });
+        j.reason = clearance.reason;
+        j.retryAt = s.elapsed + 2;
+        j.retryRevision = s.revision;
+        return;
+      }
+    }
     j.reason = equipmentAssistantReason(s, eq.id) || 'No reachable construction worker — clear a walking route to the work point';
     j.retryAt=s.elapsed+2;j.retryRevision=s.revision;
     return;
@@ -3896,6 +4007,8 @@ export function tick(s: State, dt: number) {
     for (const { job } of queued) assign(s, job);
   }
   if (Math.floor(s.elapsed - dt) !== Math.floor(s.elapsed)) {
+    reconcileSupportWorkerAutomation(s, () => id(s, 'notice'));
+    separateStandingWorkers(s);
     reconcileManeuverReservations(s);
     reconcileBlockedWorkWarnings(s, () => id(s, 'notice'));
   }
@@ -4031,7 +4144,10 @@ export function load(json: string): State {
   }
   if (s.version < 4) migrateLegacyRailJobs(s, { release: finishRelease, event });
   s.version = 4;
-  s.automations ??= { ...DEFAULT_CONSUMABLE_AUTOMATIONS };
+  const oldCrewPolicy = s.automations?.supportWorkers;
+  s.automations = { ...DEFAULT_CONSUMABLE_AUTOMATIONS, ...s.automations };
+  if (oldCrewPolicy === undefined)
+    for (const e of s.equipment) e.supportAutoPending = true;
   if (!s.electrical) {
     s.electrical = {runs:[],meterLedger:[]};
     if (s.utilities.power && s.buildings.some(b=>['lamp','transferPump','electricalJunction'].includes(b.kind)))

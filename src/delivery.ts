@@ -1503,6 +1503,7 @@ function purchasedMachine(s: State, o: Order, api: DeliveryAPI) {
   const e: Equipment = {
     id: api.id(s, 'equipment'),
     kind,
+    supportAutoPending: true,
     workRole: 'all',
     x: o.vehicle.x,
     z: o.vehicle.z,

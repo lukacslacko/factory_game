@@ -83,6 +83,7 @@ export function validateState(value: any): asserts value is State {
   if (s.automations !== undefined) {
     const a = s.automations;
     if (!a || typeof a !== 'object' || Array.isArray(a) ||
+        (a.supportWorkers !== undefined && typeof a.supportWorkers !== 'boolean') ||
         ['vehicleRefueling', 'fuelOrdering', 'emptyBarrelCollection', 'fuelDemandSeen']
           .some((key) => typeof a[key] !== 'boolean') ||
         !Number.isInteger(a.refuelAtPercent) || a.refuelAtPercent < 1 ||
@@ -169,6 +170,10 @@ export function validateState(value: any): asserts value is State {
       }
   }
   for(const e of s.equipment)if((e.actionYieldFor!==undefined&&typeof e.actionYieldFor!=='string')||(e.actionYieldUntil!==undefined&&(!finite(e.actionYieldUntil)||e.actionYieldUntil<0)))fail('invalid action refuge');
+  for (const e of s.equipment)
+    if ((e.supportWorkerManual !== undefined && typeof e.supportWorkerManual !== 'boolean') ||
+        (e.supportAutoPending !== undefined && typeof e.supportAutoPending !== 'boolean'))
+      fail('invalid equipment support policy');
   for(const n of s.notices)if(n.severity!==undefined&&!['info','warning'].includes(n.severity))fail('invalid notification severity');
   for (const e of s.events)
     if (e.severity !== undefined && !['info', 'warning'].includes(e.severity))
@@ -472,6 +477,10 @@ export function validateState(value: any): asserts value is State {
       helpers.add(w.assistingEquipment);
     }
     if (w.yieldTarget && !point(w.yieldTarget)) fail('invalid pedestrian yield destination');
+    if (w.pedestrianReturnTarget !== undefined && !point(w.pedestrianReturnTarget))
+      fail('invalid pedestrian return destination');
+    if (w.pedestrianYieldRetry !== undefined && (!finite(w.pedestrianYieldRetry) || w.pedestrianYieldRetry < 0))
+      fail('invalid pedestrian yield retry');
   }
   for (const e of s.equipment) {
     if (

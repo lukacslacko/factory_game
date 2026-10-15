@@ -1,0 +1,9 @@
+# Walking clearance and support crews
+
+Ground workers do not share the same standing point or walk through one another. When paths conflict, the simulation checks each walking step. An idle worker can walk aside for a colleague; in a reciprocal head-on wait, one worker takes a short refuge and then resumes their original destination. Workers in a vehicle are represented by that vehicle, not by a second pedestrian obstacle. A blocked worker remains at their actual position until a route opens.
+
+Open **Automations** and use **Assign support workers to equipment** to change the saved crew policy. It starts on. Once a purchased forklift or excavator has been driven off its delivery truck, the policy selects the nearest available, on-duty builder or engineer who is not already assigned to another machine or physical task. This is a ground helper, separate from the operator who drives the vehicle. The helper walks near the machine between rigging, fastening, and other work. Delivery, hiring, shifts, and walking still take real time.
+
+If there is no free helper, **Support worker needed** stays in the warning-only Inbox and links to the machine. Hiring a builder or engineer, releasing another machine's helper, or restoring an existing worker to automatic duty lets the assignment retry. The warning resolves when a helper is assigned. Turning the policy off resolves automatic staffing warnings; it does not remove existing manual or automatic crew assignments.
+
+The **Equipment** inspector lets you choose a specific support worker or choose none. Either manual choice takes priority over automation for that machine. Select **Resume automatic support assignment** to let the policy manage it again. Turning the site policy off and back on also checks currently owned machines. Older saves have the policy enabled on import, so their existing machines are checked once without replacing any manual support assignment.

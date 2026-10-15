@@ -677,6 +677,35 @@ export function workerMoveBlocked(s: State, w: Point & { id?: string }, pose: Po
   }
   return '';
 }
+/** Pedestrians are live actors, not route-planning walls. Check each executed
+ * walking step against their actual position so passing paths cannot intersect. */
+export function workerStepBlockedByWorker(s: State, w: Worker, pose: Point): string {
+  const dx = pose.x - w.x, dz = pose.z - w.z;
+  if (dx * dx + dz * dz < 1e-12) return '';
+  const radius = 0.72;
+  for (const other of s.workers) {
+    if (other.id === w.id || other.vehicle || (other.y || 0) > 0.25 ||
+        other.shiftPhase === 'home' || other.shiftPhase === 'aboard') continue;
+    if (Math.abs(other.x - w.x) > radius + Math.abs(dx) ||
+        Math.abs(other.z - w.z) > radius + Math.abs(dz)) continue;
+    const before = Math.hypot(w.x - other.x, w.z - other.z);
+    const after = Math.hypot(pose.x - other.x, pose.z - other.z);
+    if (before < radius - 1e-6 && after > before + 1e-6) continue;
+    const t = Math.max(0, Math.min(1,
+      ((other.x - w.x) * dx + (other.z - w.z) * dz) / (dx * dx + dz * dz)));
+    if (Math.hypot(w.x + t * dx - other.x, w.z + t * dz - other.z) < radius - 1e-6)
+      return other.id;
+  }
+  return '';
+}
+export function workerStandingBlockedByWorker(s: State, w: Worker, pose: Point): string {
+  for (const other of s.workers)
+    if (other.id !== w.id && !other.vehicle && (other.y || 0) <= 0.25 &&
+        other.shiftPhase !== 'home' && other.shiftPhase !== 'aboard' &&
+        Math.hypot(pose.x - other.x, pose.z - other.z) < 0.72 - 1e-6)
+      return other.id;
+  return '';
+}
 export function navigationActors(s: State, ignore: string): Rect[] {
   const out: Rect[] = [];
   for (const e of s.equipment)

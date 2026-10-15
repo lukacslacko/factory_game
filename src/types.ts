@@ -86,6 +86,10 @@ export interface Worker extends Point, Move, Motion {
   transportOrder?: string;
   yieldingTo?: string;
   yieldTarget?: Point;
+  /** Original walking goal while temporarily stepping aside for another person. */
+  pedestrianReturnTarget?: Point;
+  /** Next time a blocked walker may ask the other person to yield. */
+  pedestrianYieldRetry?: number;
   transition?: {
     kind: 'enter' | 'exit';
     equipmentId: string;
@@ -97,6 +101,10 @@ export interface Worker extends Point, Move, Motion {
 export interface Equipment extends Point, Move, Motion {
   id: string;
   kind: EquipmentKind;
+  /** Manual support selection (including no helper) takes precedence over automation. */
+  supportWorkerManual?: boolean;
+  /** Delivery or explicit policy enable has queued automatic helper staffing. */
+  supportAutoPending?: boolean;
   workRole?: EquipmentWorkRole;
   /** Selected automatic activities. Absent on older saves; workRole remains their fallback. */
   allowedWork?: EquipmentActivity[];
@@ -853,6 +861,8 @@ export interface State {
   logisticsOfficerAttempts?: LogisticsOfficerAttempt[];
   /** Player-owned consumable policies; absent in older saves means defaults on. */
   automations?: {
+    /** Assign an available ground helper to each delivered site machine. */
+    supportWorkers?: boolean;
     vehicleRefueling: boolean;
     fuelOrdering: boolean;
     emptyBarrelCollection: boolean;

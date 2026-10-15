@@ -34,7 +34,7 @@ import {
 } from '../src/catalog';
 import { EQUIPMENT_ROLES, EQUIPMENT_ACTIVITIES } from '../src/equipment-roles';
 import { setJobEquipment, setRailCrew, jobRows, workLeaves } from '../src/jobs';
-import { setEquipmentAssistant } from '../src/work-crews';
+import { setEquipmentAssistant, restoreAutomaticSupportWorker } from '../src/work-crews';
 import {
   workerAvailable,
   setWorkerSchedule,
@@ -691,6 +691,9 @@ async function dispatch(action: string, a: any) {
       return {};
     case 'assistant':
       check(setEquipmentAssistant(state, entityId(a), a.workerId || undefined));
+      return {};
+    case 'assistant_auto':
+      check(restoreAutomaticSupportWorker(state, entityId(a)));
       return {};
     case 'worker_schedule':
       check(setWorkerSchedule(state, entityId(a), a.startHour, a.endHour));

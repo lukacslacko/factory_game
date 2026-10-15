@@ -4,6 +4,7 @@ import type { State } from './types';
 
 export type ConsumableAutomations = NonNullable<State['automations']>;
 export const DEFAULT_CONSUMABLE_AUTOMATIONS: ConsumableAutomations = {
+  supportWorkers: true,
   vehicleRefueling: true,
   fuelOrdering: true,
   emptyBarrelCollection: true,
@@ -23,13 +24,14 @@ export function configureConsumableAutomations(
 ): string {
   if (!changes || typeof changes !== 'object' || Array.isArray(changes))
     return 'Choose automation settings to change.';
-  const allowed = ['vehicleRefueling', 'fuelOrdering', 'emptyBarrelCollection',
+  const allowed = ['supportWorkers', 'vehicleRefueling', 'fuelOrdering', 'emptyBarrelCollection',
     'refuelAtPercent', 'fuelReserveLiters', 'fuelTargetLiters'];
   const entries = Object.entries(changes);
   if (!entries.length || entries.some(([key]) => !allowed.includes(key)))
     return 'Choose a known consumable automation setting.';
-  const next = { ...consumableAutomations(s), ...changes };
-  if (['vehicleRefueling', 'fuelOrdering', 'emptyBarrelCollection'].some(
+  const prior = consumableAutomations(s);
+  const next = { ...prior, ...changes };
+  if (['supportWorkers', 'vehicleRefueling', 'fuelOrdering', 'emptyBarrelCollection'].some(
     (key) => typeof next[key as keyof ConsumableAutomations] !== 'boolean'))
     return 'Automation switches must be on or off.';
   if (!Number.isInteger(next.refuelAtPercent) || next.refuelAtPercent < 1 ||
@@ -41,6 +43,8 @@ export function configureConsumableAutomations(
       next.fuelTargetLiters > 20000 || next.fuelTargetLiters <= next.fuelReserveLiters)
     return 'Set a reserve from 0 to 20,000 L and a higher target from 200 to 20,000 L.';
   s.automations = next;
+  if (changes.supportWorkers === true && prior.supportWorkers === false)
+    for (const e of s.equipment) e.supportAutoPending = true;
   if (!next.vehicleRefueling)
     for (const shunter of s.shunters || []) {
       shunter.autoRefuelRequested = undefined;

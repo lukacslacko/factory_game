@@ -68,8 +68,8 @@ test('crowded rail pickup creates one physical stock-move prerequisite and resum
 });
 
 test('a multilayer obstructing rail pile is cleared through bounded successive lifts', () => {
-  let { s, job, blocker } = crowdedPickup();
-  s.stacks.find((t) => t.id === blocker.id)!.qty = 3;
+  let { s, job } = crowdedPickup();
+  for (const stack of s.stacks.filter((t) => t.item === 'railCurve')) stack.qty = 3;
   let childId = '';
   for (let n = 0; n < 3000 && !childId; n++) {
     S.tick(s, 0.1);
@@ -78,9 +78,11 @@ test('a multilayer obstructing rail pile is cleared through bounded successive l
   assert.ok(childId, stateSummary(s));
   const moves = s.jobs.filter((j) => j.kind === 'moveStock');
   assert.equal(moves.length, 1, 'Only one physical lift is planned in this simulation tick');
-  assert.equal(moves[0].stockMove?.sourceId, blocker.id);
+  assert.ok(['STK-OUTER', 'STK-EAST', 'STK-NORTH', 'STK-SOUTH'].includes(
+    moves[0].stockMove?.sourceId || ''), 'First prerequisite clears a real obstructing pile');
   assert.equal(moves[0].id, childId);
-  assert.equal(s.stacks.find((t) => t.id === blocker.id)?.reserved, 1);
+  const obstructingStackId = moves[0].stockMove!.sourceId;
+  assert.equal(s.stacks.find((t) => t.id === obstructingStackId)?.reserved, 1);
   s = S.load(S.save(s));
   job = s.jobs.find((j) => j.id === job.id)!;
   let resumed = false;
@@ -88,10 +90,10 @@ test('a multilayer obstructing rail pile is cleared through bounded successive l
     S.tick(s, 0.1);
     resumed = !!job.railWork?.panel.state.startsWith('carried') || job.status === 'done';
   }
-  assert.equal(s.stacks.find((t) => t.id === blocker.id)?.qty, 0, stateSummary(s));
+  assert.equal(s.stacks.find((t) => t.id === obstructingStackId)?.qty, 0, stateSummary(s));
   assert.ok(resumed, stateSummary(s));
   assert.equal(s.jobs.filter((j) => j.kind === 'moveStock' &&
-    j.stockMove?.sourceId === blocker.id).length, 3,
+    j.stockMove?.sourceId === obstructingStackId).length, 3,
   'Reload retries must make one physical move per removed layer, without duplicates');
 });
 
