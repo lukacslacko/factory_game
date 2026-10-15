@@ -2,7 +2,13 @@
 
 ## Native game
 
-The playable Godot migration uses the approved Concept C art and a separate local simulation process. Open **Plant 01 v0.39.0.app** in the surrounding `outputs/` folder, or double-click **Open Plant 01.command** for development. No browser is required. [Download the Mac app](https://github.com/lukacslacko/factory_game/releases/tag/v0.39.0). See [native game instructions](native/README.md) and [migration notes](docs/native-migration.md). The browser game and static visual proof remain available below.
+The playable Godot migration uses the approved Concept C art and a separate local simulation process. Open **Plant 01 v0.39.1.app** in the surrounding `outputs/` folder, or double-click **Open Plant 01.command** for development. No browser is required. [Download the Mac app](https://github.com/lukacslacko/factory_game/releases/tag/v0.39.1). See [native game instructions](native/README.md) and [migration notes](docs/native-migration.md). The browser game and static visual proof remain available below.
+
+## Readable Automations tab — v0.39.1
+
+Automations now uses the same compact, bordered sections as the other registers. Crew and diesel policies, editable fuel thresholds, and live site fuel have clear boundaries; each switch shows its current On/Off state. The [interface guidelines](docs/native-ui-guidelines.md) preserve this dense, text-first style for later screens, and the full native readability audit now covers Automations at both supported desktop sizes.
+
+![Automations register with an open equipment inspector](native/screenshots/automations-register.png)
 
 ## Worker clearance and automatic support crews — v0.39.0
 

@@ -5,7 +5,7 @@ extends SceneTree
 ## Packaged assets: append --fixture-path=/absolute/repository/native/tests/renderer-fixtures.json
 const UI=preload("res://scripts/game_ui.gd")
 const Audio=preload("res://scripts/game_audio.gd")
-const REQUIRED_TABS: Array[String]=["Yard","Railway","Process","Electrical","Materials","Workers","Equipment","Deliveries","Work","Activity","Costs","SQL","Inbox"]
+const REQUIRED_TABS: Array[String]=["Yard","Railway","Process","Electrical","Materials","Workers","Equipment","Automations","Deliveries","Work","Activity","Costs","SQL","Inbox"]
 const VIEWPORTS: Array[Vector2i]=[Vector2i(1440,900),Vector2i(1280,800)]
 var failures: Array[String]=[]
 var checks: int=0
@@ -238,6 +238,7 @@ func _snapshot()->Dictionary:
 	value.state.orders.append({"id":"PO-9001","item":"slab","qty":24,"arrived":4,"mode":"road","status":"unloading","eta":36000,"total":1092,"note":"Warning: carrier waiting for a clear unloading berth"})
 	value.state.railLocations=[{"id":"LOC-9001","name":"North receiving siding","kind":"unloading","trackId":"BOOTSTRAP-SIDING","offset":30,"length":40}]
 	value.inventory=[{"item":"slab","delivered":72,"incoming":20,"stored":48,"reserved":4,"cargo":0,"outbound":0,"installed":24,"inConstruction":0,"collected":0},{"item":"diesel","delivered":2,"incoming":0,"stored":2,"reserved":0,"cargo":0,"outbound":0,"installed":0,"inConstruction":0,"collected":0}]
+	value.automationStatus={"storedLiters":400,"incomingLiters":0,"tankLiters":125,"lowEquipment":[],"lowShunters":[],"emptyBarrels":0,"shunterRequests":[]}
 	var source: Dictionary={"id":"BLD-9001","kind":"power","name":"West incoming station","x":20,"z":20,"w":1,"d":1,"connected":true,"capacityKw":16,"demandKw":2.1,"availableKw":13.9,"energized":true}
 	var lamp: Dictionary={"id":"BLD-9002","kind":"lamp","name":"North yard lighting","x":30,"z":24,"w":1,"d":1,"ratedKw":.1,"loadKw":.1,"powered":true,"sourceId":"BLD-9001","rootSourceId":"BLD-9001","runIds":["ELEC-9001"]}
 	value.state.buildings.append_array([source,lamp])
@@ -285,6 +286,27 @@ func _tab_layout(tab: String,size: Vector2i)->void:
 			scroll.scroll_vertical=0
 			await _settle()
 		else:_check(_clip_rect(final.tree).has_area(),tab+": the final table is visible or reachable in a register scroll")
+	if tab=="Automations":await _automations_layout(size)
+
+func _automations_layout(size: Vector2i)->void:
+	var sections: Array=[]
+	for node: PanelContainer in _nodes(ui.register_body,"PanelContainer"):
+		if node.theme_type_variation=="UiSection":sections.append(node)
+	_check(sections.size()==4,"Automations at %s: crew, diesel, thresholds and live status use matching register sections"%size)
+	for key: String in ["supportWorkers","vehicleRefueling","fuelOrdering","emptyBarrelCollection"]:
+		var switch: CheckButton=ui.automation_buttons.get(key)
+		_check(switch!=null and switch.custom_minimum_size.x>=80,"Automations at %s: %s has a readable, aligned state control"%[size,key])
+	for entry: SpinBox in [ui.automation_refuel_percent,ui.automation_reserve_liters,ui.automation_target_liters]:
+		_check(entry!=null and entry.size.x>=140 and entry.get_global_rect().end.x<=ui.register_panel.get_global_rect().end.x,"Automations at %s: thresholds fit beside their labels"%size)
+	var apply: Button=_button(ui.register_body,"Apply thresholds")
+	_check(apply!=null and apply.size.x>=140,"Automations at %s: saved thresholds have a distinct action"%size)
+	if ui.register_scroll.get_v_scroll_bar().max_value>ui.register_scroll.get_v_scroll_bar().page:
+		ui.register_scroll.scroll_vertical=int(ui.register_scroll.get_v_scroll_bar().max_value)
+		await _settle()
+	_check(_clip_rect(ui.automation_status_label).has_area(),"Automations at %s: live status is visible or reachable by scrolling"%size)
+	await _capture("%dx%d_automations_status"%[size.x,size.y])
+	ui.register_scroll.scroll_vertical=0
+	await _settle()
 
 func _horizontal_inventory()->void:
 	var tree: Tree=ui.tables[0].tree
@@ -536,7 +558,7 @@ func _run()->void:
 	_check(ui.error_panel.visible and Rect2(Vector2.ZERO,Vector2(root.size)).encloses(ui.error_panel.get_global_rect()),"Warning banner remains visible inside the desktop below navigation")
 	_audit(ui.error_panel,"Warning banner")
 	await _capture("warning_banner")
-	_check(REQUIRED_TABS.size()==13 and visited.size()>=26,"All thirteen production tabs are audited at both desktop sizes")
+	_check(REQUIRED_TABS.size()==14 and visited.size()>=28,"All fourteen production tabs are audited at both desktop sizes")
 	for state: String in ["normal","hover","pressed","keyboard-focus","disabled"]:_check(state in states,"Actual input coverage includes "+state)
 	measurements.sort_custom(func(a: Dictionary,b: Dictionary)->bool:return float(a.ratio)<float(b.ratio))
 	var report: Dictionary={"passed":failures.is_empty(),"checks":checks,"failures":failures,"views":visited,"states":states,"captures":captures,"lowestContrast":measurements.slice(0,20),"contrastMeasurements":measurements.size(),"horizontalInventory":horizontal_inventory,"iconReadbacks":icon_images.size(),"iconInkEvaluations":icon_ink_counts.size(),"fixturePath":fixture_path,"serviceStarted":false,"userSaveOpened":false,"gpuRendering":DisplayServer.get_name()!="headless"}

@@ -2,7 +2,9 @@
 
 The existing factory simulation now runs in a local Node.js service, with Godot rendering the approved Concept C yard and providing native controls. The service owns simulation time and file persistence, so gameplay can continue while the window is unfocused. No web page, Chrome process, web server, or Internet connection is needed to play.
 
-Native v0.39.0 keeps workers from merging or walking through each other, including head-on routes and imported overlapping positions. The **Automations** tab now has a default-on support-worker policy for newly delivered forklifts and excavators. An unstaffed machine has a persistent linked warning until a free builder or engineer can join it; manual crew choices take priority. Construction requests a real clearance trip before bringing a building kit onto an occupied footprint. See [walking clearance and crew automation](../docs/worker-spacing-and-crew-automation.md). Forklift rail-stack lowering remains tracked in [issue #55](https://github.com/lukacslacko/factory_game/issues/55).
+Native v0.39.1 gives **Automations** the same compact, bordered layout as the other registers. Crew and diesel policies, thresholds, and live fuel status are separated; switches display their actual On/Off state. The simulation is unchanged from v0.39.0.
+
+Native v0.39.0 keeps workers from merging or walking through each other, including head-on routes and imported overlapping positions. The **Automations** tab has a default-on support-worker policy for newly delivered forklifts and excavators. An unstaffed machine has a persistent linked warning until a free builder or engineer can join it; manual crew choices take priority. Construction requests a real clearance trip before bringing a building kit onto an occupied footprint. See [walking clearance and crew automation](../docs/worker-spacing-and-crew-automation.md). Forklift rail-stack lowering remains tracked in [issue #55](https://github.com/lukacslacko/factory_game/issues/55).
 
 Native v0.38.0 adds coordinated recovery for blocked rail pickups, checked storage access, local maneuver reservations, and an optional on-duty logistics officer with saved policies. Recovery moves each obstructing stack layer through ordinary physical jobs and then resumes the original rail work. The Work diagnosis and warnings show the causal blocker and recovery progress. See [logistics diagnostics](../docs/logistics-diagnostics.md).
 
@@ -34,9 +36,9 @@ It retains walking-distance worker selection, safe action clearance, linked pers
 
 ## Download or open on this Mac
 
-[Download the Apple Silicon Mac app](https://github.com/lukacslacko/factory_game/releases/tag/v0.39.0), unzip it, and open **Plant 01 v0.39.0.app**. This checkpoint targets macOS 14 or newer.
+[Download the Apple Silicon Mac app](https://github.com/lukacslacko/factory_game/releases/tag/v0.39.1), unzip it, and open **Plant 01 v0.39.1.app**. This checkpoint targets macOS 14 or newer.
 
-On the creator’s Mac, the new build is **Plant 01 v0.39.0.app** beside the repository in `outputs/`. Save and quit the older game before opening it; the previous app is retained. The download retains this versioned name. It includes the Godot runner, Node runtime, simulation, terrain maps, and license notices. It is a local app for this Mac, not a notarized public release.
+On the creator’s Mac, the new build is **Plant 01 v0.39.1.app** beside the repository in `outputs/`. Save and quit the older game before opening it; the previous app is retained. The download retains this versioned name. It includes the Godot runner, Node runtime, simulation, terrain maps, and license notices. It is a local app for this Mac, not a notarized public release.
 
 For development, double-click **Open Plant 01.command** in the repository root. It uses Godot in `/Applications` and the installed Node runtime, building the simulation bundle when needed. Or run `npm run native:build` and open `native/project.godot` in Godot.
 

@@ -4,6 +4,7 @@ const UI=preload("res://scripts/game_ui.gd")
 var failures:Array[String]=[]
 var checks:int=0
 var actions:Array[Dictionary]=[]
+var capture_dir:String=""
 
 func _initialize()->void:_run.call_deferred()
 func _check(ok:bool,label:String)->void:
@@ -17,6 +18,9 @@ func _button(node:Node,title:String)->Button:
 	return null
 
 func _run()->void:
+	for argument:String in OS.get_cmdline_user_args():
+		if argument.begins_with("--capture-dir="):capture_dir=argument.trim_prefix("--capture-dir=")
+	if not capture_dir.is_empty():DirAccess.make_dir_recursive_absolute(capture_dir)
 	root.size=Vector2i(1440,810);root.gui_embed_subwindows=true
 	var fixture:Dictionary=JSON.parse_string(FileAccess.get_file_as_string("res://tests/renderer-fixtures.json")).empty.duplicate(true)
 	fixture.state.automations={"supportWorkers":true,"vehicleRefueling":true,"fuelOrdering":true,"emptyBarrelCollection":true,"refuelAtPercent":25,"fuelReserveLiters":200,"fuelTargetLiters":400,"fuelDemandSeen":false}
@@ -25,12 +29,21 @@ func _run()->void:
 	ui.command.connect(func(action:String,args:Dictionary)->void:actions.append({"action":action,"args":args.duplicate(true)}))
 	ui.update_snapshot(fixture);ui.receive_reply({"action":"continue","ok":true});await process_frame
 	ui._switch_tab("Automations")
+	if not capture_dir.is_empty():
+		_check(DisplayServer.get_name()!="headless","Screenshot capture needs a rendering display")
+		await RenderingServer.frame_post_draw
+		root.get_texture().get_image().save_png(capture_dir.path_join("automations.png"))
+	var sections:int=0
+	for section:Node in ui.register_body.get_children():
+		if section is PanelContainer and section.theme_type_variation=="UiSection":sections+=1
+	_check(sections==4,"Automations uses the same four bordered register sections as other native pages")
 	_check(ui.automation_buttons.size()==4,"Crew and three consumable automation switches appear")
 	for key:String in ["supportWorkers","vehicleRefueling","fuelOrdering","emptyBarrelCollection"]:
 		_check(bool(ui.automation_buttons[key].button_pressed),"%s defaults on"%key)
 	var crew:CheckButton=ui.automation_buttons["supportWorkers"]
 	crew.toggled.emit(false)
 	_check(actions.size()==1 and actions[0].action=="automation_configure" and actions[0].args.changes=={"supportWorkers":false},"Crew switch sends its saved policy")
+	_check(crew.text=="Off","Switch text reflects the off state")
 	var fuel:CheckButton=ui.automation_buttons["fuelOrdering"]
 	fuel.toggled.emit(false)
 	_check(actions.size()==2 and actions[1].action=="automation_configure" and actions[1].args.changes=={"fuelOrdering":false},"Fuel switch sends only the changed saved policy")
@@ -41,7 +54,7 @@ func _run()->void:
 	_check(apply!=null,"Numeric policy thresholds have an apply action")
 	if apply:apply.pressed.emit()
 	_check(actions.size()==3 and actions[2].args.changes=={"refuelAtPercent":30,"fuelReserveLiters":250,"fuelTargetLiters":600},"Thresholds are submitted atomically")
-	_check(ui.automation_status_label.text.contains("Stored barrels: 0.0 L") and ui.automation_status_label.text.contains("first needs fuel"),"Site reserve and first-demand gate are explained")
+	_check(ui.automation_status_label.text.contains("Stored barrels: 0.0 L") and ui.automation_status_label.text.contains("first vehicle fuel need"),"Site reserve and first-demand gate are explained")
 	fixture.state.automations.fuelOrdering=false
 	fixture.state.automations.supportWorkers=false
 	fixture.state.automations.fuelDemandSeen=true
