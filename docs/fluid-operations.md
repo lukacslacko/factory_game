@@ -1,6 +1,6 @@
 # First fluid system — native v0.23.0
 
-The Process tab builds and operates the first plant equipment: storage tanks, railway transfer pumps, supported pipe sections, elbows, tees, manual valves, and gauges. Water and diesel arrive in actual railway tanker cars. Chemical reactions, hydraulic pressure, gravity flow, tank-to-tank transfer, and liquid disposal are later work.
+The Process tab builds and operates the first plant equipment: storage tanks, railway transfer pumps, supported pipe sections, elbows, tees, manual valves, and gauges. Water and diesel arrive in actual railway tanker cars. The batch reactor now converts raw reagent to refined reagent, stores the product independently, and supports later tanker loading and paid shipment. See [First production cycle](production-cycle.md). Hydraulic pressure, gravity flow, general tank-to-tank transfer, and liquid disposal remain later work.
 
 To try a ready-made system, download [First fluid transfer](../examples/first-fluid-transfer.json), then use the native game menu → Import to open it. This synthetic example starts paused with a connected tanker, six inline components, an operating pump, and a partly filled water tank. Import replaces the current yard after retaining its backup.
 

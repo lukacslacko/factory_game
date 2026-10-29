@@ -854,7 +854,7 @@ function completeCreativePlacement(s: State, jobs: Job[]) {
         name: j.kind==='electricalJunction'?BUILDINGS.electricalJunction.name:label(j.kind),
         source: j.id,
         connected:
-          ['lamp','transferPump','electricalJunction'].includes(j.kind) ? false : j.kind === 'sanitary' ? s.utilities.water : true,
+          ['lamp','transferPump','processReactor','electricalJunction'].includes(j.kind) ? false : j.kind === 'sanitary' ? s.utilities.water : true,
       });
     }
     if(isProcessKind(j.kind)) { const b=s.buildings.at(-1)!;b.componentIds=processComponentIds(b.kind,b.id); reconcileProcessAssets(s); }
@@ -3770,7 +3770,7 @@ function tickJob(s: State, j: Job, dt: number) {
           name: j.kind==='electricalJunction'?BUILDINGS.electricalJunction.name:label(j.kind),
           source: j.id,
           connected:
-            ['lamp','transferPump','electricalJunction'].includes(j.kind)
+            ['lamp','transferPump','processReactor','electricalJunction'].includes(j.kind)
               ? false
               : j.kind === 'sanitary'
                 ? s.utilities.water
@@ -4150,7 +4150,7 @@ export function load(json: string): State {
     for (const e of s.equipment) e.supportAutoPending = true;
   if (!s.electrical) {
     s.electrical = {runs:[],meterLedger:[]};
-    if (s.utilities.power && s.buildings.some(b=>['lamp','transferPump','electricalJunction'].includes(b.kind)))
+    if (s.utilities.power && s.buildings.some(b=>['lamp','transferPump','processReactor','electricalJunction'].includes(b.kind)))
       notice(s,'Electrical circuits required','Lights and tanker pumps now need commissioned underground circuits. Open Electrical to plan connections from the incoming cabinet.','');
   }
   reconcileElectricalLoads(s);

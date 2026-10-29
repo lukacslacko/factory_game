@@ -74,8 +74,8 @@ export function electricalPreview(s: State, request: ElectricalRequest): Electri
     );
   if (source.kind !== 'power' && !electricalRootedSource(s, source.id))
     return bad('The source junction needs a commissioned incoming circuit first.');
-  if (!target || !['lamp', 'transferPump', 'electricalJunction'].includes(target.kind))
-    return bad('Choose an installed light, transfer pump, or junction cabinet.');
+  if (!target || !['lamp', 'transferPump', 'processReactor', 'electricalJunction'].includes(target.kind))
+    return bad('Choose an installed light, transfer pump, reactor, or junction cabinet.');
   if (source.id === target.id) return bad('A circuit cannot feed its own source.');
   if (
     s.jobs.some(

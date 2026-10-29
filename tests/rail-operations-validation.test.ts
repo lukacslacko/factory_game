@@ -167,7 +167,7 @@ test('return records reject loaded, missing, reused or unbound cars and missing 
   rejects(
     examples.returning,
     (s) => (s.railReturns[0].locomotiveId = s.orders[0].railFreight.locomotiveId),
-    /empty return train/,
+    /invalid return train/,
   );
   rejects(
     examples.returning,
@@ -188,7 +188,7 @@ test('return records reject loaded, missing, reused or unbound cars and missing 
     },
     /loaded, missing/,
   );
-  rejects(examples.returning, (s) => delete s.railReturns[0].departure, /empty return train/);
+  rejects(examples.returning, (s) => delete s.railReturns[0].departure, /invalid return train/);
   rejects(
     examples.returning,
     (s) => delete s.orders[0].railFreight.returnId,

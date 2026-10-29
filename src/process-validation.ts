@@ -36,7 +36,7 @@ export function processValidationProblem(s: State): string | undefined {
   )
     return 'Process state exceeds its bounded record limits.';
   const unique = (xs: { id: string }[]) =>
-    xs.every((q) => typeof q.id === 'string' && q.id.length > 0) &&
+    xs.every((q) => !!q && typeof q.id === 'string' && q.id.length > 0) &&
     new Set(xs.map((q) => q.id)).size === xs.length;
   if (![p.tanks, p.lines, p.pumps, p.valves, p.operations, p.ledger].every(unique))
     return 'Duplicate or invalid process record IDs.';
@@ -75,6 +75,7 @@ export function processValidationProblem(s: State): string | undefined {
     if (
       b(pump.id)?.kind !== 'transferPump' ||
       typeof pump.enabled !== 'boolean' ||
+      (pump.direction!==undefined && !['load','unload'].includes(pump.direction)) ||
       !finite(pump.rate) ||
       pump.rate < 0.1 ||
       pump.rate > 5 ||
@@ -196,7 +197,7 @@ export function processValidationProblem(s: State): string | undefined {
     const q = car(source.carId);
     if (
       !q?.c.tank ||
-      source.product !== q.c.tank.product ||
+      source.product !== q.c.manifest[0].item ||
       !finite(source.initialLiters) ||
       source.initialLiters < 0 ||
       !finite(source.initialArrived) ||
@@ -218,6 +219,20 @@ export function processValidationProblem(s: State): string | undefined {
       typeof row.runId !== 'string'
     )
       return 'Invalid process transfer ledger.';
+  if(p.production!==undefined && (!p.production || !finite(p.production.consumed) || p.production.consumed<0 || !finite(p.production.produced) || !near(p.production.consumed,p.production.produced) || !Number.isInteger(p.production.batches) || p.production.batches<0)) return 'Invalid reaction production totals.';
+  if(p.reactors!==undefined && (!Array.isArray(p.reactors) || p.reactors.length>20000 || !unique(p.reactors))) return 'Invalid reactor records.';
+  for(const r of p.reactors||[]) {
+    if(b(r.id)?.kind!=='processReactor' || !finite(r.liters) || r.liters<0 || r.capacity!==1000 || r.liters>r.capacity+1e-6 || typeof r.enabled!=='boolean' || !['idle','filling','reacting','discharging'].includes(r.phase) || !Number.isInteger(r.batchSize) || r.batchSize<100 || r.batchSize>1000 || !finite(r.clock) || r.clock<0 || r.clock>60.000001 || !Number.isInteger(r.batches) || r.batches<0 || !finite(r.inputFlow) || r.inputFlow<0 || !finite(r.outputFlow) || r.outputFlow<0 || typeof r.status!=='string')return 'Invalid reactor state.';
+    if((r.inputTankId && !p.tanks.some(t=>t.id===r.inputTankId)) || (r.outputTankId && !p.tanks.some(t=>t.id===r.outputTankId)) || (r.inputTankId && r.inputTankId===r.outputTankId))return 'Invalid reactor tank selection.';
+    if((r.phase==='idle' && r.liters>1e-8) || (r.phase==='reacting' && !near(r.liters,r.batchSize)) || (r.liters>1e-8 && r.product!==(r.phase==='discharging'?'refinedReagent':'rawReagent')))return 'Invalid reaction batch contents.';
+    if(r.blockedSince!==undefined&&!finite(r.blockedSince))return 'Invalid reactor blockage timer.';
+  }
+  if(p.sales!==undefined && (!Array.isArray(p.sales)||p.sales.length>20000||!unique(p.sales)))return 'Invalid product sales ledger.';
+  for(const sale of p.sales||[]) {
+    const q=car(sale.carId);
+    if(!q || q.c.saleId!==sale.id || sale.product!=='refinedReagent' || sale.unitPrice!==0.85 || !finite(sale.liters) || sale.liters<=0 || sale.liters>30000 || !finite(sale.revenue) || sale.revenue<0 || !finite(sale.created) || (sale.shippedAt!==undefined&&(!finite(sale.shippedAt)||sale.shippedAt<sale.created)))return 'Invalid product sale.';
+    if(sale.shippedAt===undefined ? (sale.revenue!==0 || sale.costId!==undefined || q.c.returned) : (!q.c.returned || !near(sale.revenue,Math.round(sale.liters*sale.unitPrice*100)/100) || !s.costs.some(c=>c.id===sale.costId&&c.entity===sale.id&&c.category==='Product sales'&&near(c.amount,-sale.revenue))))return 'Product sale payment does not match departed cargo.';
+  }
   for (const row of processBalance(s))
     if (Math.abs(row.difference) > Math.max(1e-5, row.initial * 1e-10))
       return `Unbalanced ${row.product} process inventory.`;

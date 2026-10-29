@@ -49,7 +49,7 @@ func _run()->void:
 	await _ok("import",{"json":JSON.stringify(fixture.state)})
 	var state:Dictionary=await _state();var pump:Dictionary=state.process.pumps[0];var tank:Dictionary=state.process.tanks[0]
 	ui.show_tab("Process");ui.show_entity(str(pump.id));await process_frame
-	_check(ui.tables.size()==6 and ui.tables[1].rows.size()==1,"Real service fills all dense process registers")
+	_check(ui.tables.size()==8 and ui.tables[1].rows.size()==1,"Real service fills all dense process registers")
 	_check(game.world.statics.has(str(tank.id)) and game.world.models.has("HOSE-"+str(pump.id)),"Actual filled tank and physically connected hose render from service records")
 	await _ok("speed",{"value":10});await create_timer(1.3).timeout;await _ok("pause",{"paused":true})
 	state=await _state();var moved:float=float(state.process.pumps[0].transferred)-float(pump.transferred)

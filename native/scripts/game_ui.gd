@@ -317,6 +317,8 @@ func _records(key: String) -> Array[Dictionary]:
 	return result
 
 func _name(key: String) -> String:
+	if key=="rawReagent":return "Raw reagent (L)"
+	if key=="refinedReagent":return "Refined reagent (L)"
 	if key=="bulkWater":return "Process water (L)"
 	if key=="bulkDiesel":return "Bulk diesel (L)"
 	return str(catalog.get(key,{}).get("name",key))
@@ -936,6 +938,7 @@ func _build_register() -> void:
 			_button(rail_operations,"Mainline connection",_mainline_exit_form)
 			_button(rail_operations,"+ Shunter",_shunter_order_form)
 			_button(rail_operations,"+ Tanker train",_tanker_order_form)
+			_button(rail_operations,"Ship product",func() -> void:ProcessUI.shipping_dialog(self))
 			_button(rail_operations,"Collect empty cars",func() -> void: _return_train_form())
 			_button(rail_operations,"Buffer stops / editing",func() -> void: _buffer_endpoint_form())
 			buffer_summary_label=_note(register_body,_buffer_summary()+" Select installed track to review panel or assembly recovery. Plans remain in Work until built.")
@@ -978,7 +981,7 @@ func _build_register() -> void:
 		"Activity":
 			_table(register_body,"Events",["Time","Severity","Type","Entity","Event"],[115,65,80,90,300])
 			_table(register_body,"Material movements",["Time","Material","Qty","From","To","Reason"])
-		"Costs": _table(register_body,"No spending limit · purchases invoiced on arrival; labor accrues every 15 game minutes",["Time","Category","Entity","Description","Amount"],[120,110,90,300,80])
+		"Costs": _table(register_body,"Costs and revenue · sales are negative amounts; totals are net costs",["Time","Category","Entity","Description","Amount"],[120,110,90,300,80])
 		"Inbox": _table(register_body,"Operational notices remain in To do / Doing / Done independently of popup dismissal",["ID","Time","State","Title","Detail","Entity","Seen"],[80,110,70,160,290,90,40])
 	if tables.size()>1:
 		var jump := _option(filters,["Jump to section…"])
@@ -1182,6 +1185,12 @@ func _entity(id: String) -> Dictionary:
 		if str(buffer.id)==id:return {"type":"buffer","entity":buffer}
 	for endpoint: Dictionary in metadata.get("render",{}).get("railOpenEndpoints",[]):
 		if str(endpoint.get("id",""))==id:return {"type":"railEndpoint","entity":endpoint}
+	for sale: Dictionary in ProcessUI.records(self,"sales"):
+		if str(sale.get("id",""))==id:return {"type":"productSale","entity":sale}
+	for order: Dictionary in _records("orders"):
+		for car: Dictionary in order.get("railFreight",{}).get("cars",[]):
+			if str(car.get("id",""))==id:
+				var historic: Dictionary=car.duplicate(true);historic.orderId=order.id;historic.status=order.get("status","");return {"type":"freightCars","entity":historic}
 	for operation: Dictionary in ProcessUI.records(self,"operations"):
 		if str(operation.get("id",""))==id:return {"type":"processOperation","entity":operation}
 	for run: Dictionary in ElectricalUI.records(self,"runs"):
@@ -1304,6 +1313,15 @@ func _render_inspector() -> void:
 	if entity.has("x"): _detail("Last site position" if kind in ["retiredEquipment","collectedStock"] else "Position",_position(entity))
 	_clearance_controls(str(entity.get("id","")))
 	match kind:
+		"productSale":
+			_detail("Tanker",entity.get("carId",""))
+			_detail("Product",_name(str(entity.get("product",""))))
+			_detail("Loaded","%.2f L"%float(entity.get("liters",0)))
+			_detail("Unit price","$%.2f / L"%float(entity.get("unitPrice",0)))
+			_detail("Payment","$%.2f"%float(entity.get("revenue",0)))
+			_detail("State","Paid after departure" if entity.has("shippedAt") else "Awaiting shipment")
+			if entity.has("shippedAt"):_detail("Departed",_clock(entity.shippedAt))
+			_reference_controls(inspector_body,[entity.get("carId",""),entity.get("costId","")])
 		"electricalRun": ElectricalUI.run_inspector(self,entity)
 		"electricalCableMovement":
 			for pair: Array in [["Time","time"],["Circuit","runId"],["From","from"],["To","to"],["Meters","meters"],["Reason","reason"]]:_detail(pair[0],_clock(entity.get("time",0)) if pair[1]=="time" else entity.get(pair[1],"—"))
@@ -2115,6 +2133,7 @@ func _freight_cars() -> Array[Dictionary]:
 	return result
 
 func _car_remaining_mass(car: Dictionary) -> float:
+	if car.has("tank"):return float(car.tank.get("liters",0))*float(car.tank.get("density",1))
 	var total: float = 0
 	for line: Dictionary in car.get("manifest",[]):
 		total+=maxf(0,float(line.get("qty",0))-float(line.get("arrived",0)))*(0.84 if line.get("item")=="bulkDiesel" else 1.0 if line.get("item")=="bulkWater" else float(catalog.get(line.get("item",""),{}).get("mass",0)))
@@ -2254,6 +2273,7 @@ func _freight_car_inspector(car: Dictionary) -> void:
 	_detail("Brake hose","Connected" if car.get("brakeHoseConnected",false) else "Disconnected")
 	if car.has("tank"):
 		_detail("Contained liquid",_name(str(car.tank.get("product",""))))
+		if car.has("saleId"):_detail("Product sale",car.saleId)
 		_detail("Tank contents","%s / %s L"%[car.tank.get("liters",0),car.tank.get("capacity",0)])
 		for pump: Dictionary in ProcessUI.records(self,"pumps"):
 			if str(pump.get("carId",""))==str(car.id):_detail("Transfer pump",pump.id)
@@ -2471,7 +2491,7 @@ func _rail_help_paragraphs() -> Array[String]:
 		"Build an engine shed. Purchase its delivered kit and use Engine shed in Yard over at least 14 m of straight internal track, aligned with the doors. Normal work prepares foundations beside the track, installs anchors, columns, frames, walls, roof sections and roller doors with equipment and crew. Creative completes it instantly. Select the finished shed, choose the locomotive and Assign shed and park locomotive; its saved bay becomes the home location. Return to assigned engine shed uses a real clear rail movement.",
 		"Receive and shunt tankers. + Tanker train orders process water or bulk diesel, 1–30,000 L per car, in a multi-car train. The form shows payload, tare, train length and cost. Select a connected receiving interval, release the supplier locomotive and shunt the cars to a named transfer point as usual. The rounded tank, valves and car ID are physical assets. Contents remain in each tanker. Build a tank, transfer pump, and connected pipe route from the Process tab; select the pump to connect a stopped tanker and transfer liquid. A forklift cannot unload a tanker and a loaded tanker cannot be returned as empty.",
 		"Unload flatcars. Choose and apply an Unloading stockyard in the delivery inspector, select cars and Start unloading. Owned equipment, an operator and helper physically handle the cargo. Pause unloading after current lift before moving cars. A full or inaccessible stockyard produces a linked waiting reason. Track occupancy remains real while cars are unloaded.",
-		"Send empty cars away. Use the shunter to assemble empty supplier cars at a connected named return point near the main line, park clear, then Collect empty cars in Railway. The supplier pickup engine approaches, its service crew connects the cars, tests hoses and releases brakes, then hauls the empty train onto the main line. Pickup service and waiting time appear in Costs and the return-train inspector. Loaded or reserved cars cannot be collected. Orders, car IDs and manifests remain available as history.",
+		"Send empty cars away. Use the shunter to assemble empty supplier cars at a connected named return point near the main line, park clear, then Collect empty cars in Railway. The supplier pickup engine approaches, its service crew connects the cars, tests hoses and releases brakes, then hauls the empty train onto the main line. Pickup service and waiting time appear in Costs and the return-train inspector. Loaded inbound or reserved cars cannot use empty collection. For refined reagent, use Ship product in Process or Railway after stopping and disconnecting its loading pump. Product storage decouples production from rail schedules; Process → How to use describes conversion, loading, and payment after departure. Orders, car IDs and manifests remain available as history.",
 		"Review linked records. Cars show their delivery, current location, cargo or liquid contents, couplings, hoses and handbrakes. Engines show driver, mode, fuel, home shed, current ground crew and route blocker. Coupling steps identify their assigned worker and cars. Click these IDs to inspect them; Activity filters warnings from ordinary information. Saves preserve operations, reservations, queues and completed physical steps.",
 		"Edit installed rails from Railway. Select a completed panel in Installed track, then Review this panel recovery or Review whole curve/turnout. The review lists recovered materials and identities, attached stops, automatic stockyard destinations and constraints. Normal recovery creates work: a worker unfastens and rigs the panel; equipment lifts and carries it to physical stockyard storage. Open the linked work to assign equipment or inspect its waiting reason. Creative recovery completes immediately but still needs space. Plans that have not been built are canceled from Work rather than recovered.",
 		"Replace straight track with a switch. Recover the conflicting panels first, wait for physical work to finish in normal mode, then place the switch at the newly exposed endpoint. Keep infrastructure clear of trains, reserved movements, named locations and conflicting work. Inherited public mainline and siding steel requires the explicit protected possession described above. If you cancel that replacement, straight panels may restore the possessed gap before reopening.",
@@ -2762,7 +2782,7 @@ func _purchase_groups() -> Array[Dictionary]:
 		{"id":"equipment","name":"Equipment","items":["excavator","forklift","shunter"]},
 		{"id":"site","name":"Paving and buildings","items":["slab","office","sanitary","shed","engineShed","store","fence"]},
 		{"id":"railway","name":"Railway","items":["rail","railCurve","railPoints","railFrog","railClosure","railExit","bufferStop"]},
-		{"id":"process","name":"Tanks, pumps, and piping","items":["processTank","transferPump","processPipe","pipeElbow","pipeTee","processValve","processGauge"]},
+		{"id":"process","name":"Tanks, pumps, and piping","items":["processReactor","processTank","transferPump","processPipe","pipeElbow","pipeTee","processValve","processGauge"]},
 		{"id":"electrical","name":"Electrical and lighting","items":["lamp","electricalJunction","cableReel"]},
 		{"id":"fuel","name":"Fuel","items":["diesel"]},
 		{"id":"services","name":"Utility services","items":["water"]}
@@ -3058,18 +3078,18 @@ func _mainline_exit_form() -> void:
 	_note(body,"Reopening checks completed physical continuity and clearance. The yard access switch has its own local possession and the same manual recovery workflow. Creative recovery and construction are instant, but the possession must still be explicitly reopened.")
 	dialog.window.popup_centered()
 
-func _tanker_order_form() -> void:
+func _tanker_order_form(initial_product: int=0) -> void:
 	var dialog: Dictionary = _rail_dialog("Order loaded tanker cars",Vector2i(610,490))
 	var body: VBoxContainer = dialog.body
 	_note(body,"Leased tankers arrive in one supplier train, each with its own ID, brakes, contents and mass. Liquid stays inside while cars are shunted. Use a constructed transfer pump and pipe route from the Process tab to unload liquid.")
-	var product: OptionButton = _option(body,["Process water","Bulk diesel"])
+	var product: OptionButton = _option(body,["Process water","Bulk diesel","Raw reagent"],initial_product)
 	var liters: SpinBox = _number(body,"Liters per car · capacity 30,000 L",20000,1,30000,1)
 	var cars: SpinBox = _number(body,"Tankers in this train",1,1,10,1)
 	var reception: OptionButton = _reception_option(body)
 	var summary: Label = _note(body,"")
 	var refresh: Callable = func() -> void:
-		var density: float = 1.0 if product.selected==0 else 0.84
-		var price: float = 0.015 if product.selected==0 else 1.35
+		var density: float = 0.84 if product.selected==1 else 1.0
+		var price: float = [0.015,1.35,0.30][product.selected]
 		var amount: float = liters.value*cars.value
 		summary.text="%s L · %s payload + %s tare · %.1f m train · %s including car service and rail delivery"%[_comma(int(amount)),_mass(amount*density),_mass(cars.value*20000),26.1+(cars.value-1)*17.6,_money(amount*price+cars.value*160+240)]
 	product.item_selected.connect(func(_i: int) -> void:refresh.call())
@@ -3077,7 +3097,7 @@ func _tanker_order_form() -> void:
 	cars.value_changed.connect(func(_v: float) -> void:refresh.call())
 	refresh.call()
 	_button(dialog.footer,"Order tanker train",func() -> void:
-		var args: Dictionary = {"product":"bulkWater" if product.selected==0 else "bulkDiesel","litersPerCar":int(liters.value),"carCount":int(cars.value)}
+		var args: Dictionary = {"product":["bulkWater","bulkDiesel","rawReagent"][product.selected],"litersPerCar":int(liters.value),"carCount":int(cars.value)}
 		if not _selection(reception).is_empty():args["railLocationId"]=_selection(reception)
 		_send("tanker_order",args)
 		dialog.window.queue_free())

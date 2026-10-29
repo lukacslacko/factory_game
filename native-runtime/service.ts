@@ -10,6 +10,7 @@ import crypto from 'node:crypto';
 import { performance } from 'node:perf_hooks';
 import * as Sim from '../src/sim';
 import { bufferAssets } from '../src/buffers';
+import { configureProcessReactor, setProcessReactorRunning } from '../src/process-production';
 import { configureProcessPump, requestPumpHose, disconnectPumpHose, setProcessPumpRunning, requestProcessValve, processRows } from '../src/process-fluids';
 import { planProcessPipeRun } from '../src/process-planning';
 import { detachRailFreight, orderShunter, setShunterDriver, shuntRailCars, parkShunter, refuelShunter, requestEmptyReturn, driveShunter, releaseShunterControl, railReservationRows } from '../src/rail-operations';
@@ -526,6 +527,7 @@ async function dispatch(action: string, a: any) {
     case 'engine_shed_park':check(assignEngineShedParking(state,a.shunterId,a.buildingId));return {};
     case 'tanker_preview':return tankerOrderPreview(a.product,a.litersPerCar,a.carCount);
     case 'tanker_order':{const result=orderTankers(state,a);check(result.error);return result;}
+    case 'product_ship': {const result=requestEmptyReturn(state,{...a,sellProducts:true});check(result.error);return result;}
     case 'rail_return': {const result=requestEmptyReturn(state,a);check(result.error);return result;}
     case 'purchase':
       return { orders: Sim.purchase(state, a.item, a.qty, a.mode) };
@@ -594,8 +596,13 @@ async function dispatch(action: string, a: any) {
       return result;
     }
     case 'process_configure':
-      check(configureProcessPump(state, entityId(a), { tankId: a.tankId, rate: a.rate }));
+      check(configureProcessPump(state, entityId(a), { tankId: a.tankId, rate: a.rate, direction: a.direction }));
       return {};
+    case 'reactor_configure':
+      check(configureProcessReactor(state,entityId(a),{inputTankId:a.inputTankId,outputTankId:a.outputTankId,batchSize:a.batchSize}));return {};
+    case 'reactor_run':
+      if(typeof a.running!=='boolean')throw new Error('Choose start or pause.');
+      check(setProcessReactorRunning(state,entityId(a),a.running));return {};
     case 'process_connect':
       check(requestPumpHose(state, entityId(a), a.carId, a.workerId));
       return {};
@@ -820,6 +827,8 @@ async function dispatch(action: string, a: any) {
       if(historicalLines.length){const first=historicalLines[0];return {type:'collectedMaterial',entity:{...first.l.sourceSnapshot,qty:0,reserved:0,collectionId:first.c.id,collectionIds:[...new Set(historicalLines.map(({c})=>c.id))],collected:historicalLines.reduce((n,{l})=>n+l.collected,0)}};}
       const operation = tables.process.operations.find(o=>o.id===id);
       if (operation) return {type:'processOperation',entity:operation};
+      const sale=state.process?.sales?.find(x=>x.id===entityId(a));
+      if(sale)return {type:'productSale',entity:sale};
       throw new Error('Entity not found.');
     }
     case 'tables': {

@@ -2,6 +2,7 @@ import type { Collection, RetiredEquipment } from './collection-types';
 import type { ElectricalState } from './electrical-types';
 import type { TrackPiece } from './track';
 import type { ProcessState } from './process-types';
+import type { RailCommodity } from './rail-commodities';
 export type Point = { x: number; z: number };
 export type Rect = Point & { w: number; d: number };
 export type Item =
@@ -17,6 +18,7 @@ export type Item =
   | 'sanitary'
   | 'shed'
   | 'engineShed'
+  | 'processReactor'
   | 'processTank'
   | 'transferPump'
   | 'processPipe'
@@ -509,7 +511,8 @@ export interface OrderLine {
 export interface RailFreightCar {
   id: string;
   kind: 'flatcar' | 'tanker';
-  tank?: { product: 'bulkWater' | 'bulkDiesel'; liters: number; capacity: number; density: number };
+  saleId?: string;
+  tank?: { product: RailCommodity; liters: number; capacity: number; density: number };
   manifest: (OrderLine & { orderLineIndex: number })[];
   length: number;
   width: number;
@@ -637,6 +640,7 @@ export interface RailShunter extends Point {
   coupling?: RailCoupling;
 }
 export interface RailReturn extends Point {
+  saleIds?: string[];
   id: string;
   locomotiveId: string;
   orderIds: string[];

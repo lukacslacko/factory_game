@@ -1,7 +1,10 @@
+import { tickProcessProduction } from './process-production';
+import { recordProductLoading } from './process-sales';
+import type { ProcessTank } from './process-types';
 import { electricalConsumerPower } from './electrical-network';
 import type { State, Building, Point, Worker, Order, RailFreightCar } from './types';
 import type { ProcessState, ProcessOperation, ProcessPump } from './process-types';
-import type { RailCommodity } from './rail-commodities';
+import { RAIL_COMMODITIES, type RailCommodity } from './rail-commodities';
 import { railFreightCarPose } from './rail-freight';
 import { localPoint } from './motion';
 import { walkRoute, staticObstacleRects } from './traffic';
@@ -15,6 +18,7 @@ export const processLineLength = (kind: string) =>
 export const processLineCapacity = (kind: string) =>
   PROCESS_LINE_CAPACITY * processLineLength(kind);
 export const PROCESS_KINDS = [
+  'processReactor',
   'processTank',
   'transferPump',
   'processPipe',
@@ -62,11 +66,16 @@ export function reconcileProcessAssets(s: State) {
     sources: [],
     ledger: [],
   });
+  p.reactors ||= [];
+  p.sales ||= [];
+  p.production ||= { consumed: 0, produced: 0, batches: 0 };
   const tankIds = new Set(p.tanks.map((q) => q.id)),
     lineIds = new Set(p.lines.map((q) => q.id)),
     pumpIds = new Set(p.pumps.map((q) => q.id)),
     valveIds = new Set(p.valves.map((q) => q.id));
   for (const b of bs) {
+    if (b.kind === 'processReactor' && !p.reactors.some(r => r.id === b.id))
+      p.reactors.push({id:b.id,liters:0,capacity:1000,enabled:false,phase:'idle',batchSize:1000,clock:0,batches:0,inputFlow:0,outputFlow:0,status:'Select feed and product tanks'});
     if (b.kind === 'processTank' && !tankIds.has(b.id))
       p.tanks.push({ id: b.id, liters: 0, capacity: 30000 });
     if (lineKinds.includes(b.kind) && !lineIds.has(b.id))
@@ -89,6 +98,8 @@ export function reconcileProcessAssets(s: State) {
     if (b && line.liters === 0) line.capacity = processLineCapacity(b.kind);
   }
   const present = new Set(bs.map((b) => b.id));
+  p.reactors = p.reactors.filter(q=>present.has(q.id));
+  for(const r of p.reactors)if(!r.enabled&&r.phase==='idle'){if(r.inputTankId&&!p.tanks.some(t=>t.id===r.inputTankId&&present.has(t.id)))r.inputTankId=undefined;if(r.outputTankId&&!p.tanks.some(t=>t.id===r.outputTankId&&present.has(t.id)))r.outputTankId=undefined;}
   p.tanks = p.tanks.filter((q) => present.has(q.id));
   p.lines = p.lines.filter((q) => present.has(q.id));
   p.pumps = p.pumps.filter((q) => present.has(q.id));
@@ -115,7 +126,9 @@ function rotated(b: Building, x: number, z: number): Point {
 }
 export function processPorts(b: Building): ProcessPort[] {
   const raw =
-    b.kind === 'processTank'
+    b.kind === 'processReactor'
+      ? [[0, 2.5, -1, 0], [6, 2.5, 1, 0]]
+      : b.kind === 'processTank'
       ? [
           [0, 2.5, -1, 0],
           [4, 2.5, 1, 0],
@@ -225,6 +238,7 @@ export function processNetworkRoute(
   pumpId: string,
   tankId: string,
   ignoreValves = false,
+  startPortIndex?: number,
 ): string[] | undefined {
   const bs = s.buildings.filter(
     (b) => b.id === pumpId || b.id === tankId || lineKinds.includes(b.kind),
@@ -256,7 +270,7 @@ export function processNetworkRoute(
       return route;
     }
     if (closed.has(id)) continue;
-    for (const port of processPorts(byId.get(id)!))
+    for (const port of processPorts(byId.get(id)!).filter((_,i)=>id!==pumpId || startPortIndex===undefined || i===startPortIndex))
       for (const other of ports.get(`${port.x},${port.z}`) || [])
         if (!prev.has(other.id) && port.dx === -other.port.dx && port.dz === -other.port.dz) {
           prev.set(other.id, id);
@@ -267,7 +281,7 @@ export function processNetworkRoute(
 export function configureProcessPump(
   s: State,
   pumpId: string,
-  choices: { tankId?: string; rate?: number },
+  choices: { tankId?: string; rate?: number; direction?: 'unload' | 'load' },
 ) {
   reconcileProcessAssets(s);
   const p = s.process?.pumps.find((p) => p.id === pumpId);
@@ -281,6 +295,8 @@ export function configureProcessPump(
     (!Number.isFinite(choices.rate) || choices.rate < 0.1 || choices.rate > 5)
   )
     return 'Choose a rate from 0.1 to 5 L/s.';
+  if (choices.direction !== undefined && !['unload','load'].includes(choices.direction)) return 'Choose unload or load.';
+  if (choices.direction !== undefined) p.direction = choices.direction;
   if ('tankId' in choices) p.tankId = choices.tankId;
   if (choices.rate !== undefined) p.rate = choices.rate;
   s.revision++;
@@ -375,6 +391,12 @@ export function requestProcessValve(s: State, valveId: string, open: boolean, wo
 export function setProcessPumpRunning(s: State, pumpId: string, running: boolean) {
   const p = s.process?.pumps.find((p) => p.id === pumpId);
   if (!p) return 'Select an installed pump.';
+  if (running && p.direction === 'load') {
+    const tank=s.process!.tanks.find(t=>t.id===p.tankId), q=p.carId&&car(s,p.carId);
+    if(tank?.product!=='refinedReagent')return 'Select a tank containing refined reagent for sale.';
+    if(!q || q.c.manifest.some(l=>l.arrived!==l.qty) || (q.c.tank!.liters>1e-8 && !q.c.saleId))return 'Unload the inbound tanker completely before loading product.';
+  }
+  if (running && p.direction !== 'load' && p.carId && car(s,p.carId)?.c.saleId) return 'This tanker is allocated to product sales.';
   if (running && (p.hose !== 'connected' || p.operation || !p.tankId))
     return 'Connect the tanker hose and select a destination tank first.';
   if (running && !processNetworkRoute(s, p.id, p.tankId!))
@@ -489,6 +511,9 @@ function tickOperations(s: State, dt: number) {
       .filter(active)
       .concat(p.operations.filter((o) => !active(o)).slice(-4000));
 }
+export function recordProcessMovement(s: State, runId: string, product: RailCommodity, from: string, to: string, liters: number) {
+  ledger(s, {runId} as ProcessPump, product, from, to, liters);
+}
 function ledger(
   s: State,
   pump: ProcessPump,
@@ -536,6 +561,7 @@ function transfer(s: State, dt: number) {
     sourceLiters: number;
   }[] = [];
   for (const pump of [...p.pumps].sort((a, b) => a.id.localeCompare(b.id))) {
+    if (pump.direction === 'load') continue;
     if (!pump.enabled) {
       pump.status = pump.operation
         ? 'Crew operating hose'
@@ -641,6 +667,36 @@ function transfer(s: State, dt: number) {
     pump.status = 'Transferring';
   }
 }
+/** Move through finite line volumes; each edge records the actual conserved flow. */
+export function moveContainedLiquid(s: State, runId: string, product: RailCommodity, source: ProcessTank, nodes: ProcessTank[], requested: number): number {
+  if(source.product!==product || nodes.some(n=>n.liters>1e-8 && n.product!==product))return 0;
+  const accepted=Math.max(0,Math.min(requested,source.liters,nodes.reduce((n,v)=>n+Math.max(0,v.capacity-v.liters),0)));
+  let left=accepted,from=source.id;
+  for(const n of nodes){if(left<=1e-10)break;recordProcessMovement(s,runId,product,from,n.id,left);const line=s.process!.lines.find(l=>l.id===n.id);if(line)line.flow+=left;const held=Math.min(left,Math.max(0,n.capacity-n.liters));if(held>0){n.product=product;n.liters+=held;}left-=held;from=n.id;}
+  source.liters=Math.max(0,source.liters-accepted);if(source.liters<1e-8)source.liters=0;
+  return accepted;
+}
+function transferProductToTankers(s:State,dt:number) {
+  const p=s.process!;
+  for(const pump of p.pumps.filter(p=>p.direction==='load')) {
+    if(!pump.enabled){pump.status=pump.operation?'Crew operating hose':pump.hose==='connected'?'Stopped':'Connect an empty tanker for product';continue;}
+    const power=electricalConsumerPower(s,pump.id);if(!power.powered){pump.status=power.reason;continue;}
+    const q=pump.carId?car(s,pump.carId):undefined,tank=p.tanks.find(t=>t.id===pump.tankId);
+    if(!q?.c.tank||pump.hose!=='connected'||!processCarStationary(s,q.c.id)){pump.status='Connect a stationary tanker';continue;}
+    if(!tank||tank.product!=='refinedReagent'){pump.status='Select a refined reagent source tank';continue;}
+    if(q.c.manifest.some(l=>l.arrived!==l.qty)||(q.c.tank.liters>1e-8&&!q.c.saleId)){pump.status='Unload inbound tanker completely before loading product';continue;}
+    const path=processNetworkRoute(s,pump.id,tank.id);if(!path){pump.status='Source pipe route incomplete or valve closed';continue;}
+    const lines=path.slice(1,-1).reverse().map(id=>p.lines.find(l=>l.id===id)!);
+    if(lines.some(l=>l.liters>1e-8&&l.product!=='refinedReagent')){pump.status='Incompatible liquid in product loading line';continue;}
+    if(tank.liters<1e-8){pump.status='Product source tank empty';continue;}
+    if(q.c.tank.liters>=q.c.tank.capacity-1e-8){pump.status='Product tanker full';continue;}
+    const vessel={...q.c.tank,id:q.c.id};
+    const moved=moveContainedLiquid(s,pump.runId!,'refinedReagent',tank,[...lines,vessel],pump.rate*dt);
+    const loaded=vessel.liters-q.c.tank.liters;
+    if(loaded>0){Object.assign(q.c.tank,{product:'refinedReagent',density:1,liters:vessel.liters});recordProductLoading(s,q.c,loaded);}
+    pump.flow+=moved;pump.transferred+=moved;pump.status=moved>1e-10?'Loading product tanker':'Product loading route full';
+  }
+}
 export function tickProcessFluids(s: State, dt: number) {
   reconcileProcessAssets(s);
   if (!s.process || !Number.isFinite(dt) || dt <= 0) return;
@@ -652,8 +708,10 @@ export function tickProcessFluids(s: State, dt: number) {
   while (remaining > 1e-9) {
     const step = Math.min(0.25, remaining);
     transfer(s, step);
+    transferProductToTankers(s, step);
     remaining -= step;
   }
+  tickProcessProduction(s, dt);
   // Rates are mean accepted flow during this simulation tick, not sums of substep rates.
   for (const p of s.process.pumps) p.flow /= dt;
   for (const l of s.process.lines) l.flow /= dt;
@@ -662,10 +720,12 @@ export function processRecoveryConflict(s: State, id: string) {
   const p = s.process;
   if (!p) return;
   if (
+    p.reactors?.some(t=>t.id===id && (t.liters>1e-7 || t.enabled || t.phase!=='idle')) ||
     p.tanks.some((t) => t.id === id && t.liters > 1e-7) ||
     p.lines.some((t) => t.id === id && t.liters > 1e-7)
   )
     return 'Drain the contained liquid before removing this component.';
+  if(p.reactors?.some(r=>(r.inputTankId===id||r.outputTankId===id)&&(r.enabled||r.phase!=='idle')))return 'Finish the batch and stop the connected reactor before removing this tank.';
   if (p.pumps.some((t) => t.id === id && (t.hose !== 'disconnected' || t.enabled || t.operation)))
     return 'Stop the pump and physically disconnect its hose before removal.';
   if (p.operations.some((o) => active(o) && o.buildingId === id))
@@ -673,21 +733,17 @@ export function processRecoveryConflict(s: State, id: string) {
 }
 export const processBuildingRemovalProblem = processRecoveryConflict;
 export function processBalance(s: State) {
-  const p = s.process,
-    carsById = new Map(
-      s.orders.flatMap((o) => (o.railFreight?.cars || []).map((c) => [c.id, c] as const)),
-    );
-  return (['bulkWater', 'bulkDiesel'] as const).map((product) => {
-    const sources = p?.sources.filter((q) => q.product === product) || [],
-      initial = sources.reduce((n, q) => n + q.initialLiters, 0),
-      cars = sources.reduce((n, q) => n + (carsById.get(q.carId)?.tank?.liters || 0), 0),
-      tanks = (p?.tanks || [])
-        .filter((q) => q.product === product)
-        .reduce((n, q) => n + q.liters, 0),
-      lines = (p?.lines || [])
-        .filter((q) => q.product === product)
-        .reduce((n, q) => n + q.liters, 0);
-    return { product, initial, cars, tanks, lines, difference: initial - cars - tanks - lines };
+  const p=s.process;
+  const cars=s.orders.flatMap(o=>o.railFreight?.cars||[]);
+  return (Object.keys(RAIL_COMMODITIES) as RailCommodity[]).map(product=>{
+    const initial=(p?.sources||[]).filter(q=>q.product===product).reduce((n,q)=>n+q.initialLiters,0);
+    const produced=product==='refinedReagent'?(p?.production?.produced||0):0;
+    const consumed=product==='rawReagent'?(p?.production?.consumed||0):0;
+    const exported=(p?.sales||[]).filter(q=>q.product===product&&q.shippedAt!==undefined).reduce((n,q)=>n+q.liters,0);
+    const carLiters=cars.filter(c=>!c.returned&&c.tank?.product===product&&((p?.sources||[]).some(q=>q.carId===c.id)||c.saleId)).reduce((n,c)=>n+c.tank!.liters,0);
+    const sum=(rows:ProcessTank[])=>rows.filter(q=>q.product===product).reduce((n,q)=>n+q.liters,0);
+    const tanks=sum(p?.tanks||[]),lines=sum(p?.lines||[]),reactors=sum(p?.reactors||[]);
+    return {product,initial,produced,consumed,exported,cars:carLiters,tanks,lines,reactors,difference:initial+produced-consumed-exported-carLiters-tanks-lines-reactors};
   });
 }
 export function processRows(s: State) {
@@ -760,9 +816,15 @@ export function processRows(s: State) {
       const measuredPump = pumps.find(
         (q) => q.enabled && q.tankId && processNetworkRoute(s, q.id, q.tankId)?.includes(l.id),
       );
-      const route = measuredPump?.tankId
+      const rawRoute = measuredPump?.tankId
         ? processNetworkRoute(s, measuredPump.id, measuredPump.tankId)
         : undefined;
+      let route=measuredPump?.direction==='load'?rawRoute?.slice().reverse():rawRoute;
+      if(!route)for(const r of p?.reactors||[]) {
+        const inlet=r.inputFlow>0&&r.inputTankId?processNetworkRoute(s,r.id,r.inputTankId,false,0)?.slice().reverse():undefined;
+        const outlet=r.outputFlow>0&&r.outputTankId?processNetworkRoute(s,r.id,r.outputTankId,false,1):undefined;
+        if(inlet?.includes(l.id)){route=inlet;break;}if(outlet?.includes(l.id)){route=outlet;break;}
+      }
       const nextId = route?.[route.indexOf(l.id) + 1],
         nextAsset = nextId ? asset(s, nextId) : undefined;
       const direction = nextAsset
@@ -798,6 +860,9 @@ export function processRows(s: State) {
     lines,
     valves,
     gauges,
+    reactors: (p?.reactors || []).map(r=>({...base(r.id),...r,electrical:electricalConsumerPower(s,r.id),inputRoute:r.inputTankId?processNetworkRoute(s,r.id,r.inputTankId,false,0)||[]:[],outputRoute:r.outputTankId?processNetworkRoute(s,r.id,r.outputTankId,false,1)||[]:[]})),
+    sales: p?.sales || [],
+    production: p?.production || {consumed:0,produced:0,batches:0},
     operations: p?.operations || [],
     balance,
     ledger: p?.ledger || [],

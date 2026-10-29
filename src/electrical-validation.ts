@@ -150,7 +150,7 @@ export function electricalValidationProblem(s: State): string | undefined {
       ),
       target = s.buildings.find(
         (b) =>
-          b.id === r.targetId && ['lamp', 'transferPump', 'electricalJunction'].includes(b.kind),
+          b.id === r.targetId && ['lamp', 'transferPump', 'processReactor', 'electricalJunction'].includes(b.kind),
       );
     const historical = r.status === 'canceled' && !r.cells.some((c) => c.cableInstalled);
     if ((!source || !target) && !historical) return 'electrical circuit endpoint missing';

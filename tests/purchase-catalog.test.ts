@@ -42,6 +42,7 @@ test('purchase catalog puts workers first and includes every available item once
     [
       'process',
       [
+        'processReactor',
         'processTank',
         'transferPump',
         'processPipe',

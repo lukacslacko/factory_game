@@ -2,7 +2,15 @@
 
 ## Native game
 
-The playable Godot migration uses the approved Concept C art and a separate local simulation process. Open **Plant 01 v0.39.2.app** in the surrounding `outputs/` folder, or double-click **Open Plant 01.command** for development. No browser is required. [Download the Mac app](https://github.com/lukacslacko/factory_game/releases/tag/v0.39.2). See [native game instructions](native/README.md) and [migration notes](docs/native-migration.md). The browser game and static visual proof remain available below.
+The playable Godot migration uses the approved Concept C art and a separate local simulation process. Open **Plant 01 v0.40.0.app** in the surrounding `outputs/` folder, or double-click **Open Plant 01.command** for development. No browser is required. [Download the Mac app](https://github.com/lukacslacko/factory_game/releases/tag/v0.40.0). See [native game instructions](native/README.md) and [migration notes](docs/native-migration.md). The browser game and static visual proof remain available below.
+
+## Fluid production and sales — v0.40.0
+
+Receive raw reagent in real tanker cars, unload it into feed storage, and run a powered batch reactor. The reactor discharges into a separate product tank so production can continue while cars are away. Load product later through an independent pump and line, then request physical mainline collection. Payment is recorded once the loaded train leaves. Process includes linked reactor and sales registers, and **How to use** walks through the complete cycle.
+
+The [production guide](docs/production-cycle.md) explains construction, power, piping, operation, and payment. Import the [ready-made production yard](examples/first-production-cycle.json) to test it without rebuilding the plant.
+
+![Production yard](native/screenshots/production-cycle.png)
 
 ## Rail pickup recovery handoff — v0.39.2
 

@@ -961,3 +961,38 @@ test('native electrical commands plan explicit circuits, expose links and meters
   await c.ok('save');
   const saved=Sim.load(await fs.readFile(path.join(host.dir,'yard.json'),'utf8'));assert.equal(saved.electrical!.runs[0].status,'commissioned');
 });
+
+test('native production commands configure separate storage tanks, retain batch state and expose revenue reports',async(t)=>{
+  const {createProductionYard}=await import('./support/production');
+  const f=createProductionYard(1000);f.s.paused=true;
+  const host=await launch();t.after(()=>host.close());const c=host.client;
+  await c.ok('import',{json:Sim.save(f.s)});
+  await c.ok('reactor_configure',{id:f.reactor.id,inputTankId:f.tank.id,outputTankId:f.productTank.id,batchSize:200});
+  const before=(await c.ok('export')).json;
+  assert.equal((await c.request('reactor_configure',{id:f.reactor.id,inputTankId:f.tank.id,outputTankId:f.tank.id})).ok,false);
+  assert.equal((await c.ok('export')).json,before,'Rejected setup cannot change any selection or allocation');
+  await c.ok('reactor_run',{id:f.reactor.id,running:true});
+  let data=Sim.load((await c.ok('export')).json);assert.equal(data.process!.reactors![0].enabled,true);assert.equal(data.process!.reactors![0].outputTankId,f.productTank.id);
+  assert.equal((await c.ok('tables',{table:'process'})).reactors.length,1);
+  for(const sql of ['SELECT id,outputTankId,phase FROM process_reactors;','SELECT COUNT(*) AS count FROM product_sales;','SELECT * FROM production_totals;'])assert.ok((await c.ok('sql',{sql}))[0].columns.length>0);
+  await c.ok('reactor_run',{id:f.reactor.id,running:false});
+  await c.ok('process_configure',{id:f.loadingPump.id,tankId:f.productTank.id,rate:2.5,direction:'load'});
+  assert.equal((await c.request('process_run',{id:f.loadingPump.id,running:true})).ok,false,'Empty product storage cannot start a sale transfer');
+  assert.equal((await c.request('product_ship',{orderIds:[f.order.id]})).ok,false,'Raw inbound liquid cannot be sold as refined product');
+  await c.ok('save');data=Sim.load(await fs.readFile(path.join(host.dir,'yard.json'),'utf8'));assert.equal(data.process!.pumps.find(p=>p.id===f.loadingPump.id)!.direction,'load');
+  const fluid=await import('../src/process-fluids');const production=await import('../src/process-production');const rail=await import('../src/rail-operations');
+  f.s.paused=false;assert.equal(production.setProcessReactorRunning(f.s,f.reactor.id,true),undefined);assert.equal(rail.detachRailFreight(f.s,f.order.id),undefined);
+  tickUntil(f.s,()=>f.car.tank!.liters===0 && f.s.process!.tanks.find(x=>x.id===f.productTank.id)!.liters>700 && f.s.process!.reactors![0].phase==='idle',1600);
+  production.setProcessReactorRunning(f.s,f.reactor.id,false);fluid.setProcessPumpRunning(f.s,f.pump.id,false);
+  assert.equal(fluid.disconnectPumpHose(f.s,f.pump.id),undefined);tickUntil(f.s,()=>f.s.process!.pumps.find(x=>x.id===f.pump.id)!.hose==='disconnected',180);
+  fluid.configureProcessPump(f.s,f.loadingPump.id,{tankId:f.productTank.id,direction:'load'});assert.equal(fluid.requestPumpHose(f.s,f.loadingPump.id,f.car.id),undefined);
+  tickUntil(f.s,()=>f.s.process!.pumps.find(x=>x.id===f.loadingPump.id)!.hose==='connected',180);fluid.setProcessPumpRunning(f.s,f.loadingPump.id,true);
+  tickUntil(f.s,()=>f.s.process!.tanks.find(x=>x.id===f.productTank.id)!.liters===0,600);fluid.setProcessPumpRunning(f.s,f.loadingPump.id,false);fluid.disconnectPumpHose(f.s,f.loadingPump.id);
+  tickUntil(f.s,()=>f.s.process!.pumps.find(x=>x.id===f.loadingPump.id)!.hose==='disconnected',180);f.s.paused=true;
+  await c.ok('import',{json:Sim.save(f.s)});const saleId=f.s.process!.sales![0].id;
+  assert.equal((await c.ok('inspect',{id:saleId})).type,'productSale');
+  const pickup=await c.ok('product_ship',{orderIds:[f.order.id]});assert.ok(pickup.id);await c.ok('save');
+  data=Sim.load(await fs.readFile(path.join(host.dir,'yard.json'),'utf8'));assert.deepEqual(data.railReturns!.at(-1)!.saleIds,[saleId]);assert.equal(data.process!.sales![0].revenue,0);
+  data.paused=false;tickUntil(data,()=>data.railReturns!.at(-1)!.phase==='done',600);data.paused=true;await c.ok('import',{json:Sim.save(data)});
+  const paid=await c.ok('inspect',{id:saleId});assert.ok(paid.entity.revenue>400);const income=await c.ok('sql',{sql:'SELECT SUM(revenue) AS received FROM product_sales;'});assert.equal(income[0].values[0][0],paid.entity.revenue);
+});

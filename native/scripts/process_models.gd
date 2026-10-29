@@ -5,7 +5,7 @@ const G=preload("res://scripts/geometry.gd")
 const Electrical=preload("res://scripts/electrical_models.gd")
 const R=preload("res://scripts/rail_yard.gd")
 const LINE_Y:float=.85
-const KINDS:Array[String]=["processTank","transferPump","processPipe","pipeElbow","pipeTee","processValve","processGauge"]
+const KINDS:Array[String]=["processReactor","processTank","transferPump","processPipe","pipeElbow","pipeTee","processValve","processGauge"]
 static var ring_meshes:Dictionary={}
 
 static func handles(kind:String)->bool:return kind in KINDS
@@ -13,10 +13,12 @@ static func _steel()->Material:return G.mat("c7d4d4",.22,.86)
 static func _dark()->Material:return G.mat("344842",.58,.62)
 static func _paint()->Material:return G.mat("eee9d8",.35,.18)
 static func components(kind:String)->Array[String]:
+	if kind=="processReactor":return ["base","vessel","pumps","frame","roof","controls"]
 	if kind=="processTank":return ["base","shell0","shell1","shell2","roof","fittings"]
 	if kind=="transferPump":return ["base","motor","pump","manifold"]
 	return ["support","fitting","connections"]
 static func component_position(kind:String,component:String)->Vector3:
+	if kind=="processReactor":return {"base":Vector3(0,.12,0),"vessel":Vector3(0,1.8,0),"pumps":Vector3(0,.65,0),"roof":Vector3(0,4.55,0)}.get(component,Vector3.ZERO)
 	if kind=="processTank":
 		return {"base":Vector3(0,.11,0),"shell0":Vector3(0,.77,0),"shell1":Vector3(0,1.87,0),"shell2":Vector3(0,2.97,0),"roof":Vector3(0,3.52,0)}.get(component,Vector3.ZERO)
 	if kind=="transferPump":
@@ -33,7 +35,8 @@ static func part(parent:Node3D,kind:String,component:String)->Node3D:
 	var root:=Node3D.new();parent.add_child(root);root.name=component
 	root.set_meta("process_kind",kind);root.set_meta("process_component",component)
 	var batch:=R.Batch.new()
-	if kind=="processTank":_tank_part(root,batch,component)
+	if kind=="processReactor":_reactor_part(root,batch,component)
+	elif kind=="processTank":_tank_part(root,batch,component)
 	elif kind=="transferPump":_pump_part(root,batch,component)
 	else:_line_part(root,batch,kind,component)
 	batch.finish(root)
@@ -57,6 +60,54 @@ static func _port(parent:Node3D,name:String,at:Vector3)->void:
 	var marker:=Node3D.new();marker.name="Port"+name;marker.position=at;parent.add_child(marker)
 static func _pipe(parent:Node3D,a:Vector3,b:Vector3,radius:float=.057)->void:
 	if a.distance_to(b)>.001:G.rod(parent,a,b,radius,_steel(),20)
+static func _reactor_part(root:Node3D,batch:RefCounted,component:String)->void:
+	var paint:Material=G.mat("76978c",.33,.35)
+	if component=="base":
+		batch.box(Vector3.ZERO,Vector3(5.6,.24,5.6),G.mat("b1b3a4",.88))
+		for x in [-2.5,2.5]:
+			for z in [-2.5,2.5]:G.cylinder(root,Vector3(x,.16,z),.06,.05,_steel(),6)
+	elif component=="vessel":
+		G.cylinder(root,Vector3.ZERO,1.02,2.5,_steel(),64)
+		for y in [-1.22,0,1.22]:_ring(root,Vector3(0,y,0),1.025,.035,_steel())
+		var top:=G.sphere(root,Vector3(0,1.25,0),1.02,_steel());top.scale.y=.22
+		for x in [-.68,.68]:batch.box(Vector3(x,-1.42,0),Vector3(.14,.36,.8),_dark())
+		G.cylinder(root,Vector3(0,1.65,0),.28,.4,G.mat("e9b534",.30,.42),32)
+		var agitator:=G.cylinder(root,Vector3(0,1.38,0),.08,.2,_dark(),24);agitator.name="AgitatorShaft"
+		var badge:=G.label(root,"1 m³",Vector3(0,0,1.03),30,.004);badge.modulate=Color("233d35")
+	elif component=="pumps":
+		for side in [-1.,1.]:
+			G.cylinder(root,Vector3(side*1.8,0,-.5),.2,.65,paint,32).rotation.z=PI*.5
+			batch.box(Vector3(side*1.8,-.3,-.5),Vector3(.85,.12,.65),_dark())
+			_pipe(root,Vector3(side*3.,LINE_Y-.65,-.5),Vector3(side*1.1,LINE_Y-.65,-.5))
+			_flange(root,Vector3(side*3.,LINE_Y-.65,-.5),Vector3(side,0,0))
+			_pipe(root,Vector3(side*1.1,LINE_Y-.65,-.5),Vector3(side*1.1,1.4,0))
+		_port(root,"Inlet",Vector3(-3.,LINE_Y-.65,-.5));_port(root,"Outlet",Vector3(3.,LINE_Y-.65,-.5))
+	elif component=="frame":
+		for x in [-2.65,2.65]:
+			for z in [-2.65,2.65]:
+				batch.box(Vector3(x,2.3,z),Vector3(.16,4.4,.16),paint)
+				batch.box(Vector3(x,.28,z),Vector3(.38,.08,.38),_dark())
+		for z in [-2.65,2.65]:batch.box(Vector3(0,4.4,z),Vector3(5.5,.20,.16),paint)
+		for x in [-2.65,2.65]:batch.box(Vector3(x,4.4,0),Vector3(.16,.20,5.5),paint)
+		# Rear wind bracing leaves the front service aisle open.
+		G.rod(root,Vector3(-2.6,.4,-2.65),Vector3(2.6,4.3,-2.65),.035,_steel())
+		batch.box(Vector3(0,1.8,-2.68),Vector3(5.35,3.2,.06),paint)
+	elif component=="roof":
+		for x in [-2.1,2.1]:batch.box(Vector3(x,0,0),Vector3(1.6,.14,5.8),paint)
+		for z in [-2.1,2.1]:batch.box(Vector3(0,0,z),Vector3(2.6,.14,1.6),paint)
+		var glass:=StandardMaterial3D.new();glass.albedo_color=Color(.56,.76,.76,.28);glass.transparency=BaseMaterial3D.TRANSPARENCY_ALPHA;glass.roughness=.2
+		G.box(root,Vector3(0,.015,0),Vector3(2.6,.06,2.6),glass)
+		for i in range(22):batch.box(Vector3(-2.75+i*.255,.095,0),Vector3(.035,.045,5.7),_steel())
+		G.cylinder(root,Vector3(2.,.24,-1.65),.36,.3,_dark(),32)
+		var label:=G.label(root,"REACTOR",Vector3(0,.17,1.9),36,.009);label.rotation.x=-PI*.5
+	else:
+		batch.box(Vector3(1.95,1.05,2.35),Vector3(.95,1.65,.34),paint)
+		batch.box(Vector3(1.95,1.24,2.54),Vector3(.70,.7,.02),_dark())
+		for i in range(3):G.cylinder(root,Vector3(1.73+i*.21,1.46,2.57),.035,.025,G.mat("d8cb73",.3),12).rotation.x=PI*.5
+		var lamp:=G.sphere(root,Vector3(2.14,1.46,2.60),.035,G.mat("67c98a",.3));lamp.name="ReactorRunningLamp"
+		var cabinet:=G.label(root,"8 kW",Vector3(1.95,.74,2.54),24,.003);cabinet.modulate=Color("f0ecdc")
+		for i in range(6):batch.box(Vector3(-1.7+i*.25,.27,2.5),Vector3(.12,.025,.5),G.mat("edc64d",.5))
+
 static func _tank_part(root:Node3D,batch:RefCounted,component:String)->void:
 	if component=="base":
 		G.cylinder(root,Vector3.ZERO,1.88,.22,G.mat("aaa38f",.95),64)
@@ -172,7 +223,10 @@ static func _line_part(root:Node3D,batch:RefCounted,kind:String,component:String
 			var units:=G.label(gauge,"L/s",Vector3(0,-.065,.052),22,.0017);units.modulate=Color("344842")
 static func update(root:Node3D,data:Dictionary)->void:
 	var kind:=str(root.get_meta("process_kind",data.get("kind","")))
-	if kind=="processTank":
+	if kind=="processReactor":
+		var lamp:Node3D=root.get_node_or_null("controls/ReactorRunningLamp")
+		if lamp:lamp.visible=bool(data.get("powered",false)) and bool(data.get("enabled",false))
+	elif kind=="processTank":
 		var strip:Node3D=root.get_node_or_null("fittings/TankLevel/LevelStrip")
 		if strip:
 			var tank:Dictionary=data.get("tank",data);var ratio:float=clampf(float(tank.get("liters",0))/maxf(1.,float(tank.get("capacity",30000))),0.,1.)
@@ -190,8 +244,8 @@ static func update(root:Node3D,data:Dictionary)->void:
 		if isolator:Electrical.update_isolator(isolator,bool(data.get("powered",false)))
 static func kit(parent:Node3D,kind:String,remaining:Array=[])->Node3D:
 	var root:=Node3D.new();parent.add_child(root);root.name="ProcessCratedKit"
-	var batch:=R.Batch.new();var width:float=3.0 if kind=="processTank" else 1.8 if kind=="transferPump" else .9
-	var depth:float=2. if kind=="processTank" else 1.5 if kind=="transferPump" else .8
+	var batch:=R.Batch.new();var width:float=3.8 if kind=="processReactor" else 3.0 if kind=="processTank" else 1.8 if kind=="transferPump" else .9
+	var depth:float=2.8 if kind=="processReactor" else 2. if kind=="processTank" else 1.5 if kind=="transferPump" else .8
 	batch.box(Vector3(0,.08,0),Vector3(width,.16,depth),G.mat("a28353",.9))
 	for x in [-width*.35,width*.35]:batch.box(Vector3(x,.31,0),Vector3(.08,.52,depth),_dark())
 	var count:int=remaining.size() if not remaining.is_empty() else components(kind).size()

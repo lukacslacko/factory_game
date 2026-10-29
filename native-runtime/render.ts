@@ -541,7 +541,7 @@ export function renderState(s: State) {
     actors,
     electrical,
     processAssemblies: s.jobs.filter(j => j.status === 'doing' && j.processAssembly).map(j => ({...processAssemblyRender(j), equipmentId:j.equipment})),
-    processRows: [...process.tanks,...process.pumps,...process.lines,...process.valves,...process.gauges].map(row=>({...row,...(electrical.consumers.find(c=>c.id===row.id)||{})})),
+    processRows: [...process.reactors,...process.tanks,...process.pumps,...process.lines,...process.valves,...process.gauges].map(row=>({...row,...(electrical.consumers.find(c=>c.id===row.id)||{})})),
     processHoses: processHosePaths(s),
     railShunters,
     loads,

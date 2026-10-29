@@ -1,3 +1,4 @@
+import { settleProductSales } from './process-sales';
 /** Owned locomotives and physical freight handoff. All movement is measured
  * along installed rail; cargo never changes stock until an actual site lift. */
 import type {
@@ -129,7 +130,7 @@ function joined(...routes: RailRoute[]): RailRoute {
   }
   return result;
 }
-const empty = (c: RailFreightCar) => c.manifest.every((l) => l.arrived === l.qty);
+const empty = (c: RailFreightCar) => c.manifest.every((l) => l.arrived === l.qty) && (!c.tank || c.tank.liters < 1e-8);
 export function mainlineExitReady(s: State) {
   return !!railRoute(s, anchor(125), main(180))?.tracks.some(
     (t) => t !== 'BOOTSTRAP-SIDING' && t !== 'BOOTSTRAP-SWITCH' && t !== 'BOOTSTRAP-MAINLINE',
@@ -997,7 +998,7 @@ function relativeRailAnchor(s:State,a:RailAnchor,heading:number,offset:number) {
 }
 export function requestEmptyReturn(
   s: State,
-  choices: { orderIds: string[]; railLocationId?: string },
+  choices: { orderIds: string[]; railLocationId?: string; sellProducts?: boolean },
 ): { id?: string; error?: string } {
   if (
     !Array.isArray(choices.orderIds) ||
@@ -1027,7 +1028,10 @@ export function requestEmptyReturn(
     const pump = processRailCarLocked(s, car.id);
     if (pump) return { error: `Disconnect the transfer hose at ${pump} before returning ${car.id}.` };
   }
-  if (!cars.length || cars.some((c) => !empty(c)))
+  const saleIds = choices.sellProducts ? cars.filter(c=>!empty(c)).map(c=>c.saleId || '') : [];
+  if (choices.sellProducts && (!saleIds.length || saleIds.some(id=>!s.process?.sales?.some(x=>x.id===id && x.shippedAt===undefined && x.liters>0))))
+    return {error:'Choose fully unloaded inbound cars containing your loaded refined reagent. Stop and disconnect all pumps first.'};
+  if (!cars.length || cars.some(c=>!empty(c) && (!choices.sellProducts || !saleIds.includes(c.saleId||''))))
     return { error: 'Unload every selected car before requesting an empty return train.' };
   const named=choices.railLocationId?s.railLocations?.find(l=>l.id===choices.railLocationId):undefined;
   if(choices.railLocationId&&(!named||!['unloading','transfer'].includes(named.kind)||!railLocationStatus(s,named).valid||!railLocationStatus(s,named).connected)) return {error:'Choose a connected unloading or transfer interval for the empty return train.'};
@@ -1068,11 +1072,12 @@ export function requestEmptyReturn(
     return { error: `Return route is occupied by ${blocked}. Park the shunter clear first.` };
   const r: RailReturn = {
     id: pickupId,
+    ...(saleIds.length ? {saleIds} : {}),
     locomotiveId,
     orderIds: orders.map((o) => o!.id),
     carIds: cars.map((c) => c.id),
     phase: 'collecting',
-    status: 'Mainline locomotive approaching for empty cars',
+    status: saleIds.length ? 'Mainline locomotive approaching for sold product' : 'Mainline locomotive approaching for empty cars',
     x: 400,
     z: 0,
     yaw: 0,
@@ -1085,7 +1090,7 @@ export function requestEmptyReturn(
     o!.railFreight!.returnId = pickupId;
     o!.railFreight!.unloadRequested = false;
   }
-  charge(s, pickupId, `Mainline empty-car collection · ${cars.length} cars`, 240);
+  charge(s, pickupId, `Mainline ${saleIds.length ? 'product' : 'empty-car'} collection · ${cars.length} cars`, 240);
   record(
     s,
     pickupId,
@@ -1505,7 +1510,7 @@ export function tickRailOperations(s: State, dt: number) {
     r.status = m.blockedBy
       ? `Waiting for ${m.blockedBy}`
       : hauling
-        ? 'Empty return train departing forward'
+        ? r.saleIds?.length ? 'Product train departing forward' : 'Empty return train departing forward'
         : 'Mainline locomotive backing to coupling end';
     if (!done) continue;
     if (!hauling) {
@@ -1515,21 +1520,22 @@ export function tickRailOperations(s: State, dt: number) {
     }
     r.phase = 'done';
     tickRailPickupBilling(s,r,0);
-    r.status = 'Empty cars returned to supplier';
+    r.status = r.saleIds?.length ? 'Product delivered to buyer' : 'Empty cars returned to supplier';
     cars.forEach((c) => (c.returned = true));
+    if(r.saleIds?.length)settleProductSales(s,r.saleIds,r.id);
     for (const oid of r.orderIds) {
       const o = s.orders.find((o) => o.id === oid)!;
       o.railFreight!.returnId = undefined;
       if (o.railFreight!.cars.every((c) => c.returned)) {
         o.status = 'done';
         o.carrierDeparted = true;
-        o.note = 'Empty cars returned by mainline collection';
+        o.note = r.saleIds?.length ? 'Product shipped by mainline collection' : 'Empty cars returned by mainline collection';
       }
     }
     announce(
       s,
       r.id,
-      'Empty train departed',
+      r.saleIds?.length ? 'Product train departed' : 'Empty train departed',
       `${r.carIds.length} empty cars returned; ${r.orderIds.join(', ')} complete.`,
     );
   }

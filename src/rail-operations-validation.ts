@@ -352,7 +352,8 @@ export function railOperationsValidationProblem(s: State, ids: Set<string>): str
       !movement(r.movement, r.phase !== 'done') ||
       !movement(r.departure, r.phase !== 'done')
     )
-      return 'invalid empty return train';
+      return 'invalid return train';
+    if(r.saleIds!==undefined && (!uniqueStrings(r.saleIds) || !r.saleIds.length || r.saleIds.some((id:string)=>!s.process?.sales?.some(sale=>sale.id===id && r.carIds.includes(sale.carId))))) return 'invalid product collection sales';
     if (!supportedPose(r, r.bogies)) return 'return locomotive bogies do not support its body';
     if (r.phase !== 'done' && !movingPose(r, r.movement))
       return 'return locomotive pose is inconsistent with current movement';
@@ -372,6 +373,7 @@ export function railOperationsValidationProblem(s: State, ids: Set<string>): str
         !record ||
         !r.orderIds.includes(record.order.id) ||
         record.car.manifest.some((l) => l.arrived !== l.qty) ||
+        (record.car.tank && record.car.tank.liters>1e-8 && (!record.car.saleId || !r.saleIds?.includes(record.car.saleId))) ||
         (r.phase !== 'done' && (record.car.returned || reservedCars.has(id)))
       )
         return 'loaded, missing or duplicate return car';

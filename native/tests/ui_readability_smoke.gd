@@ -246,6 +246,10 @@ func _snapshot()->Dictionary:
 	value.electrical={"sources":[source],"junctions":[lamp],"consumers":[lamp],"runs":[run]}
 	value.state.electrical={"runs":[run],"meterLedger":[{"id":"CABLE-9001","runId":run.id,"time":36000,"from":"STK-9001","to":"WRK-0001","meters":1,"reason":"Withdraw cable"}]}
 	value.process={"tanks":[{"id":"BLD-9003","product":"bulkWater","liters":20000,"capacity":30000,"status":"Ready"}],"pumps":[{"id":"BLD-9004","carId":"CAR-9001","tankId":"BLD-9003","hose":"connected","enabled":false,"flow":0,"transferred":250,"status":"Warning: no commissioned supply"}],"lines":[{"id":"BLD-9005","kind":"processPipe","product":"bulkWater","liters":7.854,"capacity":7.854,"status":"Filled"}],"valves":[{"id":"BLD-9006","open":false,"status":"Closed"}],"gauges":[{"id":"BLD-9007","product":"bulkWater","level":20000,"capacity":30000,"reading":0,"status":"Connected"}],"operations":[{"id":"PROCESS-9001","kind":"connect","buildingId":"BLD-9004","carId":"CAR-9001","workerId":"WRK-0001","phase":"at-car","clock":2,"status":"Connect hose"}]}
+	var reactor: Dictionary={"id":"BLD-9010","kind":"processReactor","x":60,"z":30,"w":6,"d":6,"rotation":0,"name":"Batch reactor"}
+	value.state.buildings.append(reactor)
+	value.process.reactors=[{"id":reactor.id,"inputTankId":"BLD-9003","outputTankId":"BLD-9011","batchSize":1000,"liters":1000,"capacity":1000,"clock":22,"enabled":true,"phase":"reacting","batches":12,"status":"Reacting"}]
+	value.process.sales=[{"id":"SALE-9001","carId":"CAR-9001","product":"refinedReagent","unitPrice":.85,"liters":12000,"revenue":0,"created":36000}]
 	return value
 
 func _tab_layout(tab: String,size: Vector2i)->void:
@@ -533,9 +537,9 @@ func _run()->void:
 	ui=UI.new();root.add_child(ui);ui.setup();ui.set_process(false)
 	ui.update_snapshot(snapshot);ui.receive_reply({"action":"continue","ok":true})
 	for size: Vector2i in VIEWPORTS:
-		root.size=size;await _settle()
+		root.content_scale_size=size;root.size=size;await _settle()
 		for tab: String in REQUIRED_TABS:
-			ui.show_tab(tab);ui.show_entity("EQ-0006");await _settle()
+			ui.show_tab(tab);ui.show_entity("BLD-9010" if tab=="Process" else "EQ-0006");await _settle()
 			if tab=="SQL":ui.receive_reply({"action":"sql","ok":true,"result":[{"columns":["id","fuel"],"values":[["EQ-0006",42.5]]}]});await _settle()
 			await _tab_layout(tab,size)
 			if tab=="Materials" and size==Vector2i(1280,800):await _horizontal_inventory()

@@ -49,8 +49,9 @@ export function freightValidationProblem(s: State, o: Order, ids: Set<string>): 
     }
     if (car.kind === 'tanker') {
       const t=car.tank, line=car.manifest[0];
-      if(car.manifest.length!==1 || !t || !isRailCommodity(t.product) || t.product!==line.item || t.capacity!==30000 || t.density!==RAIL_COMMODITIES[t.product].density || !Number.isFinite(t.liters) || t.liters<0 || t.liters>t.capacity || Math.abs(t.liters-(line.qty-line.arrived))>1e-6 || line.qty>t.capacity || car.deckLength!==0 || o.unload || f.unloadRequested)
+      if(car.manifest.length!==1 || !t || !isRailCommodity(t.product) || (!car.saleId && t.product!==line.item) || t.capacity!==30000 || t.density!==RAIL_COMMODITIES[t.product].density || !Number.isFinite(t.liters) || t.liters<0 || t.liters>t.capacity || (!car.saleId && Math.abs(t.liters-(line.qty-line.arrived))>1e-6) || line.qty>t.capacity || car.deckLength!==0 || o.unload || f.unloadRequested)
         return 'invalid tanker contents, capacity or handling';
+      if(car.saleId) { const sale=s.process?.sales?.find(x=>x.id===car.saleId); if(!sale || sale.carId!==car.id || sale.product!==t.product || Math.abs(sale.liters-t.liters)>1e-5 || line.arrived!==line.qty) return 'invalid product-sale tanker payload'; }
     } else if(car.tank!==undefined) return 'flatcar cannot contain a liquid tank';
     if (mass > 48000 || car.mass !== mass || (car.kind==='flatcar' && car.deckLength !== orderDeckLength(car.manifest, freightStackLimits(o))) || car.deckLength > 16)
       return 'overfilled or inconsistent freight car';

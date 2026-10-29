@@ -8,7 +8,33 @@ export interface ProcessTank {
 export interface ProcessLine extends ProcessTank {
   flow: number;
 }
+export interface ProcessReactor extends ProcessTank {
+  blockedSince?: number;
+  inputTankId?: string;
+  outputTankId?: string;
+  enabled: boolean;
+  phase: 'idle' | 'filling' | 'reacting' | 'discharging';
+  batchSize: number;
+  clock: number;
+  batches: number;
+  inputFlow: number;
+  outputFlow: number;
+  status: string;
+  runId?: string;
+}
+export interface ProductSale {
+  id: string;
+  carId: string;
+  product: RailCommodity;
+  unitPrice: number;
+  liters: number;
+  revenue: number;
+  created: number;
+  shippedAt?: number;
+  costId?: string;
+}
 export interface ProcessPump {
+  direction?: 'unload' | 'load';
   id: string;
   carId?: string;
   tankId?: string;
@@ -54,6 +80,9 @@ export interface ProcessLedger {
   to: string;
 }
 export interface ProcessState {
+  reactors?: ProcessReactor[];
+  sales?: ProductSale[];
+  production?: { consumed: number; produced: number; batches: number };
   tanks: ProcessTank[];
   lines: ProcessLine[];
   pumps: ProcessPump[];

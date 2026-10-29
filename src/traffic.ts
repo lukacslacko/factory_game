@@ -402,7 +402,7 @@ export function staticObstacleRects(s: State): (Rect & { id: string })[] {
     out.push({x:h.kitPose.x-w/2,z:h.kitPose.z-d/2,w,d,id:j.id+'-process-kit'});
     if(h.completed>0)out.push({x:j.x,z:j.z,w:j.w,d:j.d,id:j.id+'-process'});
     if(h.part && ['lift','lower'].includes(h.phase)) {
-      const p=h.part.pose,span=j.kind==='processTank'?3.7:j.kind==='transferPump'?1.8:1;
+      const p=h.part.pose,span=j.kind==='processReactor'?5.8:j.kind==='processTank'?3.7:j.kind==='transferPump'?1.8:1;
       const side=span*(Math.abs(Math.cos(p.yaw))+Math.abs(Math.sin(p.yaw)));
       out.push({x:p.x-side/2,z:p.z-side/2,w:side,d:side,id:j.id+'-process-load'});
     }
@@ -490,6 +490,7 @@ export function storageMoveStockHeight(item: Item, qty: number): number {
   if (item === 'lamp') return 0.395 + (qty - 1) * 0.16;
   if (
     [
+      'processReactor',
       'processTank',
       'transferPump',
       'processPipe',
@@ -538,6 +539,7 @@ function storageLoadStaticContext(s: State, e: Equipment, extra: Rect[] = []) {
     water: 1.6,
     electricalJunction: 1.3,
     fence: 2.3,
+    processReactor: 4.7,
     processTank: 4.5,
     transferPump: 1.8,
     processPipe: 1.4,

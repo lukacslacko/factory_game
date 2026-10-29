@@ -1,0 +1,50 @@
+{
+  "version": "0.40.0",
+  "date": "2026-10-29",
+  "fullSequentialRun": {
+    "tests": 878,
+    "passed": 875,
+    "expectationsCorrected": 3,
+    "seconds": 680.73
+  },
+  "finalAffectedRerun": {
+    "tests": 66,
+    "passed": 66,
+    "seconds": 23.58
+  },
+  "processUI": {
+    "assertions": 64,
+    "passed": 64
+  },
+  "nativeFluidBridge": {
+    "assertions": 23,
+    "passed": 23
+  },
+  "renderedReadability": {
+    "assertions": 13570,
+    "passed": 13570,
+    "captures": 71,
+    "viewports": [
+      [
+        1440,
+        900
+      ],
+      [
+        1280,
+        800
+      ]
+    ]
+  },
+  "packagedApp": {
+    "assertions": 30,
+    "passed": 30,
+    "seconds": 8.15,
+    "peakResidentBytes": 557744128
+  },
+  "archive": {
+    "bytes": 152355576,
+    "sha256": "300a9a8652e74e91cf221f3fc096bdf1d82bad51b8eedd8399f270c7b2d918a9"
+  },
+  "fixtures": "synthetic",
+  "playerSaveOpened": false
+}

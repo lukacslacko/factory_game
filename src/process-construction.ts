@@ -29,6 +29,7 @@ import {
 } from './traffic';
 
 export const PROCESS_KINDS = [
+  'processReactor',
   'processTank',
   'transferPump',
   'processPipe',
@@ -50,7 +51,16 @@ export function processComponentDefinitions(
   j: Rect & { kind: string; rotation: number },
 ): ProcessComponent[] {
   const local: [string, number, number, number, [number, number, number]][] =
-    j.kind === 'processTank'
+    j.kind === 'processReactor'
+      ? [
+          ['base', 0, 0.12, 0, [5.6, 0.24, 5.6]],
+          ['vessel', 0, 1.8, 0, [2.1, 3.1, 2.1]],
+          ['pumps', 0, 0.65, 0, [5.6, 1.1, 1.2]],
+          ['frame', 0, 0, 0, [5.6, 4.5, 5.6]],
+          ['roof', 0, 4.55, 0, [5.8, 0.2, 5.8]],
+          ['controls', 0, 0, 0, [5.6, 2, 5.6]],
+        ]
+      : j.kind === 'processTank'
       ? [
           ['base', 0, 0.11, 0, [3.7, 0.22, 3.7]],
           ['shell0', 0, 0.77, 0, [3.4, 1.1, 3.4]],
@@ -160,7 +170,7 @@ function moveHelper(
   if (w.path.length) return false;
   if (h.workerPoint && dist(w, h.workerPoint) < 0.15) return true;
   const toward = Math.atan2(target.z - e.z, target.x - e.x);
-  for (const radius of [clearance, clearance + 1, clearance + 2])
+  for (const radius of [clearance, clearance + 1, clearance + 2, Math.hypot(j.w,j.d)/2+1.2])
     for (const offset of [Math.PI / 2, -Math.PI / 2, Math.PI / 4, -Math.PI / 4, Math.PI]) {
       const p = {
         x: target.x + Math.cos(toward + offset) * radius,

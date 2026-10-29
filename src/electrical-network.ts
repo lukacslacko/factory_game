@@ -39,7 +39,7 @@ export function electricalNetwork(s: State) {
     return { ...up, runIds: [run.id, ...up.runIds] };
   }
   const consumers = s.buildings
-    .filter((b) => ['lamp', 'transferPump', 'electricalJunction'].includes(b.kind))
+    .filter((b) => ['lamp', 'transferPump', 'processReactor', 'electricalJunction'].includes(b.kind))
     .sort(
       (a, b) =>
         (a.kind === 'lamp' ? 0 : 1) - (b.kind === 'lamp' ? 0 : 1) || a.id.localeCompare(b.id),
@@ -48,10 +48,10 @@ export function electricalNetwork(s: State) {
       const run = runs.find((r) => r.targetId === b.id),
         up = run ? resolve(run.sourceId, new Set([b.id])) : undefined;
       const source = sources.find((q) => q.id === up?.root),
-        ratedKw = b.kind === 'electricalJunction' ? 0 : b.kind === 'lamp' ? 0.1 : 2,
+        ratedKw = b.kind === 'electricalJunction' ? 0 : b.kind === 'lamp' ? 0.1 : b.kind === 'processReactor' ? 8 : 2,
         pump = s.process?.pumps.find((p) => p.id === b.id);
       const loadKw =
-        b.kind === 'lamp' ? ratedKw : pump?.enabled && pump.hose === 'connected' ? ratedKw : 0;
+        b.kind === 'lamp' ? ratedKw : b.kind === 'processReactor' ? (s.process?.reactors?.find(r=>r.id===b.id)?.enabled ? ratedKw : 0) : pump?.enabled && pump.hose === 'connected' ? ratedKw : 0;
       const connected = !!source && !!run,
         powered = connected && source!.energized && source!.availableKw + 1e-8 >= loadKw;
       const reason = !run
@@ -77,7 +77,7 @@ export function electricalNetwork(s: State) {
             ? 'Electrical junction cabinet'
             : b.kind === 'lamp'
               ? 'Light pole'
-              : 'Transfer pump'),
+              : b.kind === 'processReactor' ? 'Batch reactor' : 'Transfer pump'),
         kind: b.kind,
         x: b.x,
         z: b.z,
